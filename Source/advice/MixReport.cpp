@@ -158,6 +158,24 @@ juce::var reportJson (const ReportInput& in)
         if (f.id != "tip")
             findings.add (juce::String (f.id));
     root->setProperty ("findings", findings);
+
+    auto* chain = new juce::DynamicObject();
+    chain->setProperty ("eqOn", in.chain.eqOn);
+    juce::Array<juce::var> bands;
+    for (size_t b = 0; b < (size_t) ChainSettings::numBands; ++b)
+    {
+        auto* band = new juce::DynamicObject();
+        band->setProperty ("freq", in.chain.freq[b]);
+        band->setProperty ("gain", in.chain.gain[b]);
+        band->setProperty ("q", in.chain.q[b]);
+        bands.add (juce::var (band));
+    }
+    chain->setProperty ("eqBands", bands);
+    chain->setProperty ("limiterOn", in.chain.limiterOn);
+    chain->setProperty ("limiterGain", in.chain.limiterGain);
+    chain->setProperty ("ceiling", in.chain.ceiling);
+    chain->setProperty ("releaseMs", in.chain.releaseMs);
+    root->setProperty ("chain", juce::var (chain));
     return juce::var (root);
 }
 
@@ -244,6 +262,38 @@ juce::String reportMarkdown (const ReportInput& in, Lang lang, const juce::var& 
         md << nl;
     }
     md << nl;
+
+    md << "## " << tr (lang, "Mastering EQ and limiter", "Masterointi-EQ ja limitteri") << nl << nl;
+    if (! in.chain.anyOn())
+        md << tr (lang, "Both off: WWMA only measured.", "Molemmat pois päältä: WWMA vain mittasi.") << nl << nl;
+    else
+    {
+        const auto& adv = in.chainAdvice;
+        md << "| " << tr (lang, "Knob", "Nuppi") << " | " << tr (lang, "Your setting", "Sinun asetus") << " | " << tr (lang, "Suggested", "Ehdotus") << " |" << nl
+           << "|---|---|---|" << nl;
+        auto row = [&] (const juce::String& name, const juce::String& yours, const Suggestion& s)
+        {
+            md << "| " << name << " | " << yours << " | " << (adv.ready && s.shown ? s.text : juce::String ("-")) << " |" << nl;
+        };
+        auto db = [&] (float v) { return number (v, 1, lang, true) + " dB"; };
+        if (in.chain.eqOn)
+            for (size_t b = 0; b < (size_t) ChainSettings::numBands; ++b)
+            {
+                const auto name = eqBandName ((int) b, lang);
+                row (name, db (in.chain.gain[b]), adv.gain[b]);
+                row (name + " Hz", number (in.chain.freq[b], 0, lang) + " Hz", adv.freq[b]);
+                if (b == ChainSettings::lowMid || b == ChainSettings::highMid)
+                    row (name + " Q", number (in.chain.q[b], 2, lang), adv.q[b]);
+            }
+        if (in.chain.limiterOn)
+        {
+            row (tr (lang, "Limiter gain", "Limitterin gain"), db (in.chain.limiterGain), adv.limiterGain);
+            row (tr (lang, "Ceiling", "Katto"), number (in.chain.ceiling, 1, lang) + " dBTP", adv.ceiling);
+            row ("Release", number (in.chain.releaseMs, 0, lang) + " ms", adv.release);
+        }
+        md << nl << tr (lang, "The suggestions were only shown; every value above was set by hand.",
+                              "Ehdotukset vain näytettiin; jokainen arvo yllä on säädetty käsin.") << nl << nl;
+    }
 
     if (! in.snapshots.empty())
     {

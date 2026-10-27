@@ -167,4 +167,55 @@ void LookAndFeel::positionComboBoxText (juce::ComboBox& box, juce::Label& label)
     label.setBounds (left, 1, box.getWidth() - left - 24, box.getHeight() - 2);
     label.setFont (getComboBoxFont (box));
 }
+void LookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height, float pos,
+                                    float startAngle, float endAngle, juce::Slider& s)
+{
+    const auto& props = s.getProperties();
+    const bool off = props.getWithDefault ("off", false);
+    const auto bounds = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height).reduced (3.0f);
+    const float radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) * 0.5f;
+    const auto centre = bounds.getCentre();
+    const float arcR = radius - 2.0f;
+    auto angleAt = [&] (float proportion) { return startAngle + proportion * (endAngle - startAngle); };
+
+    juce::Path track;
+    track.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, startAngle, endAngle, true);
+    g.setColour (colours::line);
+    g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+    // value arc: from 0 dB for gain knobs, from the start for the rest
+    const float from = props.getWithDefault ("bipolar", false) ? (float) s.valueToProportionOfLength (0.0) : 0.0f;
+    if (std::abs (pos - from) > 0.002f)
+    {
+        juce::Path value;
+        value.addCentredArc (centre.x, centre.y, arcR, arcR, 0.0f, angleAt (juce::jmin (from, pos)), angleAt (juce::jmax (from, pos)), true);
+        g.setColour (off ? colours::faint : colours::accent);
+        g.strokePath (value, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    const float bodyR = radius * 0.62f;
+    g.setColour (s.isMouseOverOrDragging() ? colours::raised.brighter (0.08f) : colours::raised);
+    g.fillEllipse (centre.x - bodyR, centre.y - bodyR, 2.0f * bodyR, 2.0f * bodyR);
+    g.setColour (colours::line);
+    g.drawEllipse (centre.x - bodyR, centre.y - bodyR, 2.0f * bodyR, 2.0f * bodyR, 1.0f);
+    const float a = angleAt (pos);
+    const auto tip = centre.getPointOnCircumference (bodyR - 1.5f, a);
+    g.setColour (off ? colours::dim : colours::text);
+    g.drawLine ({ centre.getPointOnCircumference (bodyR * 0.25f, a), tip }, 2.0f);
+
+    // the suggested value: a small marker just outside the arc (green when the knob is there)
+    const int state = props.getWithDefault ("suggState", 0);
+    if (state > 0)
+    {
+        const double v = props.getWithDefault ("sugg", 0.0);
+        const float sa = angleAt ((float) s.valueToProportionOfLength (juce::jlimit (s.getMinimum(), s.getMaximum(), v)));
+        const auto outer = centre.getPointOnCircumference (arcR + 3.5f, sa);
+        const auto inner = centre.getPointOnCircumference (arcR - 1.0f, sa);
+        const auto side = juce::Point<float> (std::cos (sa), std::sin (sa)) * 2.6f;
+        juce::Path marker;
+        marker.addTriangle (outer + side, outer - side, inner);
+        g.setColour (state == 2 ? colours::good : colours::suggest);
+        g.fillPath (marker);
+    }
+}
 } // namespace wwma::ui

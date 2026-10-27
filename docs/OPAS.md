@@ -2,7 +2,7 @@
 
 > **Huom: WWMA on 100 % vibe-koodattu**, eli tehty kokonaan tekoälyavustajan kanssa. Asennus ja käyttö omalla vastuulla, eikä takuuta ole. Se on tehty hyvässä uskossa ja siinä toivossa, että siitä on jollekin hyötyä.
 
-WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielellä, mitä on selvästi tai vähän liikaa tai liian vähän, ja neuvoo, miten korjaat sen itse. Tavoite on, että ajan mittaan et tarvitse sitä enää.
+WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia itse. Se kuuntelee miksauksesi, kertoo selkokielellä, mitä on selvästi tai vähän liikaa tai liian vähän, ja neuvoo, miten korjaat sen itse. Tavoite on, että ajan mittaan et tarvitse sitä enää.
 
 **Korva ratkaisee.** Luvut ovat neuvoja, eivät sääntöjä. Jos se kuulostaa hyvältä puhelimessa ja autossa, se on hyvä.
 
@@ -10,7 +10,7 @@ WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielel
 
 ## 1. Käyttöönotto
 
-1. Laita WWMA masterväylän **viimeiseksi** pluginiksi, limitterin jälkeen.
+1. Laita WWMA masterväylän **viimeiseksi** pluginiksi, limitterin jälkeen. (Tai käytä WWMA:n omaa EQ:ta ja limitteriä viimeisenä vaiheena, ks. luku 7.)
 2. Valitse **Preset**: oma tyylisi. Elektroniset ovat listan alussa. Jos et ole varma, soita kappaletta 15 sekuntia: WWMA ehdottaa lähintä tyyliä (ks. alla).
 3. Valitse **MIX**, kun vielä miksaat. Silloin äänekkyyttä ja huippuja ei arvioida, vain tasapainoa, leveyttä, dynamiikkaa ja rumpuja. Valitse **MASTER**, kun masteroit.
 4. Valitse **Target** eli äänekkyystavoite. Tyylin oma on hyvä alku. Jos kappale menee vain suoratoistoon, −14 LUFS riittää.
@@ -76,22 +76,50 @@ Prosentti jaetaan lähisukulaisten kesken: "House 72 %" tarkoittaa koko house-pe
 7. Jätä tilaa masteroinnille
 8. Saavuta tyylin äänekkyys litistämättä
 
-Valmiit tehtävät saavat täytetyn pallon, ja edistys tallentuu projektin mukana. Plugin ei koske ääneen: sinä teet työn.
+Valmiit tehtävät saavat täytetyn pallon, ja edistys tallentuu projektin mukana. Oppitunnit eivät koske ääneen: sinä teet työn.
 
 ## 6. Miksausraportti
 
 **Raportti**-napista tallennat raportin Markdown-tiedostona (aukeaa missä tahansa tekstieditorissa). Siinä on pisteet, käännettävyys, korjattavat asiat ohjeineen, kaikki lukemat, referenssin lukemat ja snapshotit. Viereen tallentuu JSON-kopio. Kun samassa kansiossa on aiempi raportti, uusi raportti kertoo **mikä parani tai huononi edellisen jälkeen**. Pidä siis yhden biisin raportit samassa kansiossa (oletus: Documents/WWMA Reports).
 
-## 7. Hyvä työjärjestys
+## 7. Masterointi-EQ ja limitteri
+
+Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ ja true peak -limitteri. Niillä saat masterin valmiiksi ilman muita plugineja. **WWMA ehdottaa lukuja, sinä käännät nupit.** Mikään ei liiku itsestään.
+
+![Masterointi-EQ ja limitteri](images/wwma-eq-limiter-fi.png)
+
+- **EQ:** alahylly (sub ja basso), alakeskin kello (usein muta 200–400 Hz), yläkeskin kello (keskiääni tai särähdys 2–5 kHz) ja ylähylly (ilma). Kelloissa on myös Q eli leveys.
+- **Limitteri:** gain (kuinka paljon kovempaa limitteriin menee, eli lopullinen äänekkyys), katto (suurin true peak ulos, dBTP) ja release (kuinka nopeasti limitteri päästää irti).
+- Molemmat ovat oletuksena **pois päältä**. **EQ**- ja **LIMITTERI**-napit kytkevät ne. Ne feidaavat 30 ms:ssa, joten kytkeminen soiton aikana ei naksahda. Tuplaklikkaus palauttaa gain-nupin nollaan. Kaikki nupit ovat tavallisia parametreja, joten DAW voi automatisoida niitä.
+- Yläpalkki kertoo, mitä WWMA tekee äänelle juuri nyt: *Vain mittaus*, *EQ päällä*, *Limitteri päällä* tai *EQ + limitteri päällä*.
+- Limitteri katsoo 1,5 ms eteenpäin, joten WWMA ilmoittaa DAW:lle noin 1,7 ms:n kiinteän viiveen, jonka DAW kompensoi. Kun molemmat ovat pois päältä, ääni menee läpi bitilleen samana, vain viivästettynä.
+
+**Ehdotukset**
+
+- WWMA mittaa miksin **ennen** EQ:ta ja limitteriä ja laskee ehdotukset siitä, presetistä ja äänekkyystavoitteesta. Mittarit, havainnot ja pisteet mittaavat sitä, mitä tulee **ulos**.
+- Jokaisen nupin vieressä on sen arvo ja alla ehdotus: keltainen **→ +2,0 dB** tai vihreä **✓**, kun nuppi on tarpeeksi lähellä. Sama kohta näkyy pienenä merkkinä nupin kehällä. Vie hiiri nupin päälle, niin näet perustelun.
+- Pieni käyrä näyttää sinun EQ:si (yhtenäinen viiva) ja ehdotetun EQ:n (katkoviiva).
+- EQ-ehdotukset ovat varovaisia: noin 80 % erosta, korkeintaan 4 dB. Jos jokin alue on selvästi pielessä, WWMA neuvoo korjaamaan sen miksissä.
+- **Gain** lasketaan niin, että lopputulos osuu tavoitealueen keskelle. Keltainen merkki vaimennusmittarissa näyttää, paljonko limitointia se vaatii. Jos yli noin 8 dB, WWMA neuvoo hakemaan loput aiemmin (väyläkompressori, klipperi tai kovempi miksi).
+- **Katto** tulee tyylistä ja tavoitteesta (esim. −1 dBTP striimaukseen).
+- **Release** on noin 16-osanuotti kappaleen tempossa, jotta limitteri hengittää tahdissa. Ilman selvää tempoa se on 100 ms.
+- **MIX**-tilassa limitteriä ehdotetaan pois päältä: limitointi miksatessa piilottaa tasapaino-ongelmia.
+- **Ehdotukset**-ruudusta piilotat ehdotukset. Valinta tallentuu projektin mukana.
+
+**Kuuntele ilman** soittaa miksin ilman EQ:ta ja limitteriä samalla äänekkyydellä kuin niiden kanssa (yläpalkki muuttuu keltaiseksi). Sillä tarkistat, että ketju parantaa soundia eikä vain nosta voimakkuutta. Kovempi kuulostaa aina hetken paremmalta.
+
+Miksausraportti listaa EQ- ja limitteriasetuksesi ehdotusten rinnalla.
+
+## 8. Hyvä työjärjestys
 
 1. **Tasapaino ensin.** Säädä faderit ennen pluginien lisäämistä. Kick ja basso ensin, sitten virveli, sitten liidi tai vokaali, sitten loput.
 2. **Matalat kuntoon.** Päätä, kumpi omistaa subin, kick vai basso. Pidä kaikki alle noin 120 Hz monona. Ylipäästösuodata muut äänet.
 3. **Muta pois.** 200–400 Hz kertyy helposti, kun monta täyteläistä ääntä soi yhtä aikaa. Leikkaa sieltä, missä sitä ei tarvita.
 4. **Rummut esiin.** Anna kickin duckata bassoa (sidechain). Käytä hitaampaa attackia väyläkompressoreissa, jotta transientit pääsevät läpi.
 5. **Tila ja leveys.** Pidä tärkeät äänet keskellä ja levitä tukiosat sivuille. Tarkista monona.
-6. **Masterointi vasta lopuksi.** Jätä miksaukseen tilaa (huiput noin −6…−3 dBFS). Lisää limitteri vasta MASTER-vaiheessa ja säädä katto (−1 dBTP) sekä äänekkyys tyylin mukaan.
+6. **Masterointi vasta lopuksi.** Jätä miksaukseen tilaa (huiput noin −6…−3 dBFS). Lisää limitteri vasta MASTER-vaiheessa ja säädä katto (−1 dBTP) sekä äänekkyys tyylin mukaan. Vertaa **Kuuntele ilman** -napilla ennen kuin päätät.
 
-## 8. Perusasiat lyhyesti
+## 9. Perusasiat lyhyesti
 
 ### EQ
 
@@ -117,7 +145,7 @@ Valmiit tehtävät saavat täytetyn pallon, ja edistys tallentuu projektin mukan
 - **Virveli tarvitsee** runkoa noin 200 Hz:ssä ja napsua 2–5 kHz:ssä.
 - Jos rummuista puuttuu terävyys, syyllinen on usein limitteri tai väyläkompressori, ei EQ.
 
-## 9. Yleiset sudenkuopat (WWMA huomaa nämä)
+## 10. Yleiset sudenkuopat (WWMA huomaa nämä)
 
 | Sudenkuoppa | Mitä tapahtuu | Mitä tehdä |
 |---|---|---|
@@ -147,7 +175,7 @@ Valmiit tehtävät saavat täytetyn pallon, ja edistys tallentuu projektin mukan
 - **Kovempi kuulostaa paremmalta.** Tasaa äänekkyys aina ennen vertailua. A/B-kytkin tekee sen referenssille.
 - **Soolo johtaa harhaan.** Tee päätökset kaiken soidessa.
 
-## 10. Muista
+## 11. Muista
 
 - Pisteet kertovat, kuinka lähellä tyylin tyypillistä masteria olet. Ne eivät kerro, onko biisi hyvä.
 - Presetit ovat valistuneita arvauksia yleisestä käytännöstä. Tarkin tavoite on referenssiraita, josta pidät.

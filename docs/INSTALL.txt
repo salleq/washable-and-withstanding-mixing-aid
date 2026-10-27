@@ -2,8 +2,9 @@ WWMA - Washable and Withstanding Mixing Aid
 ========================================
 
 Free VST3 / AU plugin that tells you, in plain words, what is too much or too
-little in your mix, and teaches you how to fix it yourself. It only measures:
-your sound passes through untouched.
+little in your mix, and teaches you how to fix it yourself. Your sound passes
+through untouched unless you turn on its own mastering EQ or limiter (both off
+by default; it only suggests settings, you turn the knobs).
 
 HEADS-UP: WWMA is 100 % vibe coded. It was built entirely with an AI coding
 assistant, not by a seasoned plugin developer. Install and use it at your own

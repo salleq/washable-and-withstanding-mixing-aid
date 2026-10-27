@@ -2,7 +2,7 @@
 
 A free, open source mixing teacher in a plugin (VST3, CLAP, AU on macOS and LV2 on Linux, for Windows, macOS and Linux, x64 and ARM).
 
-Put it last on your master bus. It listens to your mix and tells you in plain words what is **clearly** or **slightly** too much or too little, why it matters on a phone, in a car, on headphones and in a club, and how to fix it yourself. It never changes your sound.
+Put it last on your master bus. It listens to your mix and tells you in plain words what is **clearly** or **slightly** too much or too little, why it matters on a phone, in a car, on headphones and in a club, and how to fix it yourself. It never changes your sound unless you turn on its own mastering EQ or limiter, and it never turns a knob for you.
 
 > **Heads-up: WWMA is 100 % vibe coded.** It was built entirely with an AI coding assistant, not by a seasoned plugin developer. Install and use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes.
 
@@ -34,10 +34,13 @@ Put it last on your master bus. It listens to your mix and tells you in plain wo
   - its score on the meters
 
   **A/B** plays the reference instead of your mix at the same loudness, following your song position. Each reference also has its own **play/pause**, so it plays inside WWMA even with the DAW stopped. Click or drag the waveform to jump; click the track's name for a big view where you **choose a loop**, which then plays from the small strip and is saved with the project. This is the only time WWMA changes what you hear, and only while you have B selected or a reference playing.
+- **Mastering EQ and limiter, with suggested settings.** A four-band EQ (low shelf, two bells, high shelf) and a true peak limiter (gain, ceiling, release), so you can finish a master without another plugin. WWMA works out suggested values from your mix *before* the EQ and limiter, the style and the loudness target, and shows them next to each knob and as a marker on it (green when you are there). It never moves a knob: you turn them by hand, and you can hide the suggestions. Both stages are off by default, fade in and out, and **Hear without** plays your mix without them at the same loudness, so you judge the sound and not the volume. The limiter adds a fixed 1.7 ms delay that your DAW compensates; with both stages off the sound passes through bit for bit.
 - **Mix and Master modes.** In Mix mode, loudness and ceiling are not judged yet; you get headroom advice instead.
 - **Style suggestion.** After 15 seconds WWMA guesses the closest preset from the tempo (it knows half-time, so drum & bass counts as 174 BPM), the tonal balance and the dynamics, with a confidence: "Sounds like House (72 %) · 124 BPM - use it?". It only switches when you click.
 - **NOW and SONG.** NOW looks at the last 3 seconds, so you can loop a part and tweak it. SONG looks at everything since the last reset.
 - **English and Finnish.** Use the FI/EN button to switch.
+
+![Mastering EQ and limiter with suggested values](docs/images/wwma-eq-limiter.png)
 
 ![Progress after fixing a mix](docs/images/wwma-progress.png)
 

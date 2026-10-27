@@ -21,9 +21,10 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &loudness, &meters, &history, &compare, &refBox, &tonal, &findings, &score, &translation, &progress,
              &profileBox, &targetBox, &mixButton, &masterButton, &nowButton, &songButton, &mixAButton, &refBButton,
-             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton })
+             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton })
         content.addAndMakeVisible (c);
     content.addChildComponent (beforeAfter);
+    content.addChildComponent (chainPanel);
     content.addChildComponent (lessonBox);
     content.addChildComponent (refDetail);
 
@@ -100,6 +101,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     resetButton.onClick = [this]
     {
         proc.analyzer.requestReset();
+        proc.inputAnalyzer.requestReset();
         state.scoreHistory.clear();
         state.shortTermHistory.clear();
     };
@@ -137,6 +139,15 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
 
     learnButton.setClickingTogglesState (true);
     learnButton.onClick = [this] { setLearnMode (learnButton.getToggleState()); };
+    chainButton.setClickingTogglesState (true);
+    chainButton.onClick = [this] { setChainOpen (chainButton.getToggleState()); };
+    chainPanel.onClose = [this] { setChainOpen (false); };
+    chainPanel.onShowSuggestions = [this] (bool on) { setShowSuggestions (on); };
+    chainPanel.onListenWithout = [this] (bool on) { setListeningWithout (on); };
+    state.chainOpen = proc.getChainOpen();
+    state.showSuggestions = proc.getShowSuggestions();
+    state.chainSettings = proc.getChainSettings();
+    chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
     reportButton.onClick = [this] { chooseReportFile(); };
     state.learnMode = proc.getLearnMode();
     tonal.setShowDifference (proc.getShowDifference());
@@ -156,8 +167,10 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
         c->setFixedAspectRatio ((double) baseWidth / baseHeight);
     setSize (baseWidth, baseHeight);
 
-    lessonBox.setVisible (state.learnMode);
-    findings.setVisible (! state.learnMode);
+    if (state.chainOpen && state.learnMode)
+        state.chainOpen = false;
+    proc.inputAnalysisWanted.store (state.chainOpen);
+    updatePanels();
     refresh();
     startTimerHz (30);
 }
@@ -166,6 +179,8 @@ WwmaAudioProcessorEditor::~WwmaAudioProcessorEditor()
 {
     stopTimer();
     proc.listenToReference.store (false); // never leave the reference playing with no window to show it
+    proc.listenWithoutChain.store (false); // nor the bypass on
+    proc.inputAnalysisWanted.store (false);
     setLookAndFeel (nullptr);
 }
 
@@ -216,16 +231,35 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
 
     // what the plugin does to the sound right now
     const bool listening = st.listening;
-    const auto dotCol = listening ? colours::ref : colours::good;
+    const bool eq = st.chainSettings.eqOn, lim = st.chainSettings.limiterOn;
+    const bool without = st.listeningWithout && (eq || lim);
+    juce::String status = tr (lang, "Analysis only", "Vain mittaus");
+    juce::Colour statusCol = colours::dim, dotCol = colours::good;
+    if (listening)
+    {
+        status = tr (lang, "Playing reference", "Referenssi soi");
+        statusCol = dotCol = colours::ref;
+    }
+    else if (without)
+    {
+        status = tr (lang, "Bypass, level-matched", "Ohitus, tasattu");
+        statusCol = dotCol = colours::suggest;
+    }
+    else if (eq || lim)
+    {
+        status = eq && lim ? tr (lang, "EQ + limiter on", "EQ + limitteri päällä")
+                           : (eq ? tr (lang, "EQ on", "EQ päällä") : tr (lang, "Limiter on", "Limitteri päällä"));
+        statusCol = dotCol = colours::accent;
+    }
+    const bool strong = statusCol != colours::dim;
     auto safe = juce::Rectangle<int> (1002, 0, 80, topBar);
     g.setColour (dotCol.withAlpha (0.25f));
     g.fillEllipse ((float) safe.getX() - 3.0f, (float) safe.getCentreY() - 7.0f, 14.0f, 14.0f);
     g.setColour (dotCol);
     g.fillEllipse ((float) safe.getX(), (float) safe.getCentreY() - 4.0f, 8.0f, 8.0f);
-    g.setColour (listening ? colours::ref : colours::dim);
-    g.setFont (listening ? fonts::bodyBold (11.5f) : fonts::body (11.5f));
-    g.drawFittedText (listening ? tr (lang, "Playing reference", "Referenssi soi") : tr (lang, "Analysis only", "Vain mittaus"),
-                      safe.withTrimmedLeft (14), juce::Justification::centredLeft, 2, 0.9f);
+    g.setColour (statusCol);
+    g.setFont (strong ? fonts::bodyBold (11.5f) : fonts::body (11.5f));
+    g.drawFittedText (status, safe.withTrimmedLeft (14), juce::Justification::centredLeft, 2, 0.9f);
 
     // footer
     const int fy = baseHeight - footer;
@@ -270,6 +304,7 @@ void WwmaAudioProcessorEditor::Content::resized()
     place (e.nowButton, 58, 14);
     place (e.reportButton, 84, 8);
     place (e.learnButton, 78, 8);
+    place (e.chainButton, 104, 8);
 
     // columns
     const int top = topBar + gap, bottom = baseHeight - footer - gap;
@@ -288,6 +323,7 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.findings.setBounds (cx, top + 108 + 256 + 2 * gap, cw, bottom - (top + 108 + 256 + 2 * gap));
     e.beforeAfter.setBounds (e.findings.getBounds());
     e.lessonBox.setBounds (e.findings.getBounds());
+    e.chainPanel.setBounds (e.findings.getBounds());
     e.refDetail.setBounds (e.tonal.getBounds());
 
     e.score.setBounds (rx, top, rightWidth, 196);
@@ -352,7 +388,8 @@ void WwmaAudioProcessorEditor::updateTexts()
     autoResetToggle.setTooltip (tr (lang, "Start a new measurement every time the DAW starts playing.",
                                           "Aloita uusi mittaus aina, kun DAW alkaa soittaa."));
     mixAButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("A \xc2\xb7 ")) + ui::upper (tr (lang, "Mix", "Miksi")));
-    mixAButton.setTooltip (tr (lang, "Hear your mix. The sound passes through untouched.", "Kuuntele omaa miksiä. Ääni menee läpi koskemattomana."));
+    mixAButton.setTooltip (tr (lang, "Hear your mix. The sound passes through untouched, unless you turned on the EQ or limiter.",
+                                     "Kuuntele omaa miksiä. Ääni menee läpi koskemattomana, ellet ole kytkenyt EQ:ta tai limitteriä päälle."));
     refBButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("B \xc2\xb7 ")) + "REF");
     refBButton.setTooltip (tr (lang, "Hear the active reference track instead of your mix, at the same loudness, so the louder one does not win just by being louder. Follows the song position; click its waveform to jump.",
                                      "Kuuntele aktiivista referenssiraitaa miksin sijaan samalla äänekkyydellä, jottei kovempi voita vain siksi, että se on kovempi. Seuraa kappaleen kohtaa; klikkaa aaltomuotoa hypätäksesi."));
@@ -362,6 +399,10 @@ void WwmaAudioProcessorEditor::updateTexts()
     beforeAfter.updateTexts();
     refDetail.updateTexts();
     lessonBox.updateTexts();
+    chainButton.setButtonText (ui::upper (tr (lang, "EQ + Limiter", "EQ + limitteri")));
+    chainButton.setTooltip (tr (lang, "Mastering EQ and limiter. You turn the knobs; WWMA shows suggested values next to them, worked out from your mix and the style. Both are off until you turn them on.",
+                                      "Masterointi-EQ ja limitteri. Sinä käännät nupit; WWMA näyttää ehdotetut arvot niiden vieressä miksisi ja tyylin perusteella. Molemmat ovat pois päältä, kunnes kytket ne."));
+    chainPanel.updateTexts();
     learnButton.setButtonText (ui::upper (tr (lang, "Learn", "Opettele")));
     learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
                                       "Oppimistila: lyhyitä käytännön tehtäviä (esim. basson duckaus kickin alle). WWMA seuraa viimeisiä 3 sekuntia ja kertoo, kun onnistuit."));
@@ -421,6 +462,26 @@ void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
 {
     proc.analyzer.readSnapshot (state.snap);
 
+    // mastering EQ and limiter: what the user set, the limiter's meter, and the bypass level
+    const auto settings = proc.getChainSettings();
+    // with both stages off the input is the output; otherwise the input has its own analyser
+    if (settings.anyOn())
+        proc.inputAnalyzer.readSnapshot (state.inputSnap);
+    else
+        state.inputSnap = state.snap;
+    const bool settingsChanged = ! settings.sameAs (state.chainSettings);
+    state.chainSettings = settings;
+    state.gainReduction = juce::jmax (proc.takeGainReduction(), state.gainReduction - 0.4f);
+    if (state.snap.shortTerm > -70.0f && state.inputSnap.shortTerm > -70.0f)
+        proc.withoutChainGainDb.store (juce::jlimit (-24.0f, 24.0f, state.snap.shortTerm - state.inputSnap.shortTerm));
+    if (state.listeningWithout && ! settings.anyOn())
+        setListeningWithout (false);
+    if (settingsChanged)
+    {
+        content.repaint (0, 0, baseWidth, topBar);
+        shouldReassess = true;
+    }
+
     if (shouldReassess || state.profileName.isEmpty())
         reassess();
 
@@ -438,6 +499,8 @@ void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
 
     for (juce::Component* c : std::initializer_list<juce::Component*> { &loudness, &meters, &history, &compare, &tonal, &score, &translation, &progress })
         c->repaint();
+    if (chainPanel.isVisible())
+        chainPanel.repaint();
     if (state.listening)
         refBox.repaint();
     if (refDetail.isVisible())
@@ -456,6 +519,9 @@ void WwmaAudioProcessorEditor::reassess()
     for (auto& r : state.refs)
         if (r.ready())
             r.assessment = assess (r.snap, state.profile, Window::song, state.lang, state.stage);
+
+    state.chainAdvice = adviseChain (state.inputSnap, state.profile, state.window, state.lang, state.stage, state.chainSettings);
+    chainPanel.refresh();
 
     updateStyleButton();
     if (state.compareOpen && ! state.snapshots.empty() && state.assessment.enoughData)
@@ -583,9 +649,9 @@ void WwmaAudioProcessorEditor::setCompareOpen (bool open)
     state.compareOpen = open && ! state.snapshots.empty();
     if (state.compareOpen && state.learnMode)
         setLearnMode (false);
-    beforeAfter.setVisible (state.compareOpen);
-    findings.setVisible (! state.compareOpen && ! state.learnMode);
-    progress.syncButtons();
+    if (state.compareOpen && state.chainOpen)
+        setChainOpen (false);
+    updatePanels();
     reassess();
 }
 
@@ -594,17 +660,63 @@ void WwmaAudioProcessorEditor::setLearnMode (bool on)
     state.learnMode = on;
     proc.setLearnMode (on);
     learnButton.setToggleState (on, juce::dontSendNotification);
-    if (on && state.compareOpen)
+    if (on)
     {
         state.compareOpen = false;
-        beforeAfter.setVisible (false);
-        progress.syncButtons();
+        state.chainOpen = false;
+        proc.setChainOpen (false);
+        proc.inputAnalysisWanted.store (false);
     }
-    lessonBox.setVisible (on);
-    findings.setVisible (! on && ! state.compareOpen);
+    updatePanels();
     lessonSeconds = -1.0f;
     state.lessonHeld = 0.0f;
     reassess();
+}
+
+void WwmaAudioProcessorEditor::updatePanels()
+{
+    // one panel at a time over the findings: before/after, lesson, or EQ + limiter
+    beforeAfter.setVisible (state.compareOpen);
+    lessonBox.setVisible (state.learnMode);
+    chainPanel.setVisible (state.chainOpen);
+    findings.setVisible (! state.compareOpen && ! state.learnMode && ! state.chainOpen);
+    learnButton.setToggleState (state.learnMode, juce::dontSendNotification);
+    chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
+    progress.syncButtons();
+}
+
+void WwmaAudioProcessorEditor::setChainOpen (bool open)
+{
+    state.chainOpen = open;
+    proc.setChainOpen (open);
+    proc.inputAnalysisWanted.store (open);
+    if (open)
+    {
+        state.compareOpen = false;
+        if (state.learnMode)
+        {
+            state.learnMode = false;
+            proc.setLearnMode (false);
+        }
+    }
+    updatePanels();
+    reassess();
+}
+
+void WwmaAudioProcessorEditor::setShowSuggestions (bool on)
+{
+    state.showSuggestions = on;
+    proc.setShowSuggestions (on);
+    chainPanel.refresh();
+}
+
+void WwmaAudioProcessorEditor::setListeningWithout (bool on)
+{
+    on = on && state.chainSettings.anyOn();
+    state.listeningWithout = on;
+    proc.listenWithoutChain.store (on);
+    chainPanel.refresh();
+    content.repaint (0, 0, baseWidth, topBar);
 }
 
 void WwmaAudioProcessorEditor::showLesson (int index)
@@ -689,6 +801,8 @@ juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
     in.assessment = state.assessment;
     in.profile = state.profile;
     in.snapshots = state.snapshots;
+    in.chain = state.chainSettings;
+    in.chainAdvice = state.chainAdvice;
     if (const auto* ref = state.activeRefView())
     {
         in.referenceName = ref->name;

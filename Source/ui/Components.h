@@ -4,6 +4,7 @@
 #include "advice/Advisor.h"
 #include "advice/Lessons.h"
 #include "advice/MixReport.h"
+#include "advice/ChainAdvice.h"
 #include <functional>
 #include <array>
 #include <map>
@@ -69,6 +70,15 @@ struct ViewState
     double playPosition = 0.0;
     bool refPlaying = false;         // WWMA's own play button runs the reference (not the DAW)
     bool dragOver = false;
+
+    // mastering EQ and limiter
+    bool chainOpen = false;              // the EQ + limiter panel is shown over the findings
+    bool showSuggestions = true;         // suggested values next to the knobs (can be hidden)
+    ChainSettings chainSettings;         // the knobs as the user set them
+    ChainAdvice chainAdvice;             // what WWMA suggests, from the input
+    Snapshot inputSnap;                  // the input, before the EQ and limiter
+    float gainReduction = 0.0f;          // dB, for the meter (falls back slowly)
+    bool listeningWithout = false;       // level-matched bypass is on
 
     /** The active, analysed reference, or nullptr. */
     const RefView* activeRefView() const

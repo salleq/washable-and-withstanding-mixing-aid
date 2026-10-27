@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include "PluginProcessor.h"
 #include "ui/Components.h"
+#include "ui/ChainPanel.h"
 #include "ui/Theme.h"
 #include "advice/StyleGuess.h"
 
@@ -62,6 +63,13 @@ public:
     /** A/B: true plays the reference instead of the mix. */
     void setListening (bool b);
     void referencesChanged() { refGeneration = -1; readReferences(); reassess(); }
+    /** The mastering EQ + limiter panel (shown over the findings). */
+    void setChainOpen (bool open);
+    bool isChainOpen() const noexcept { return state.chainOpen; }
+    const wwma::ChainAdvice& getChainAdvice() const noexcept { return state.chainAdvice; }
+    void setShowSuggestions (bool on);
+    /** Level-matched bypass of the EQ and limiter. */
+    void setListeningWithout (bool on);
 
     static constexpr int baseWidth = 1140, baseHeight = 800;
 
@@ -87,6 +95,7 @@ private:
     void browseReference (int slot);
     void loadReference (int slot, const juce::File& file);
     void readReferences();
+    void updatePanels();
 
     WwmaAudioProcessor& proc;
     wwma::ui::LookAndFeel lnf;
@@ -107,7 +116,8 @@ private:
     wwma::ui::BeforeAfterBox beforeAfter { state };
     wwma::ui::LessonBox lessonBox { state };
     wwma::ui::RefDetailBox refDetail { state };
-    juce::TextButton learnButton, reportButton;
+    wwma::ui::ChainPanel chainPanel { state, proc.apvts };
+    juce::TextButton learnButton, reportButton, chainButton;
     float lessonSeconds = -1.0f; // music time when the lesson goal was last checked
     void updateLesson();
     void chooseReportFile();

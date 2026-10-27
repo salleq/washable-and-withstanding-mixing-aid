@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Advisor.h"
+#include "ChainAdvice.h"
 #include <map>
 #include <string>
 #include <vector>
@@ -63,6 +64,8 @@ struct ReportInput
     std::vector<SavedSnapshot> snapshots;
     juce::String referenceName;       // empty when no reference is loaded
     Assessment referenceAssessment;
+    ChainSettings chain;              // the mastering EQ and limiter as the user set them
+    ChainAdvice chainAdvice;          // and what WWMA suggested
 };
 
 /** Machine-readable report (saved next to the Markdown one, read back for comparisons). */

@@ -6,11 +6,15 @@
 #include "advice/Advisor.h"
 #include "advice/Profiles.h"
 #include "reference/ReferenceTracks.h"
+#include "dsp/MasterChain.h"
 #include <atomic>
 #include <optional>
 
-/** WWMA never changes the sound: the output is always the input, bit for bit.
-    It only measures and explains. */
+/** WWMA measures and explains. The sound changes only when the user turns on the
+    mastering EQ or limiter (both off by default) or listens to a reference track.
+    With both stages off the output is the input, bit for bit (delayed by the limiter's
+    fixed look-ahead, which the DAW compensates). WWMA never turns a knob by itself:
+    it only shows suggested values next to them. */
 class WwmaAudioProcessor : public juce::AudioProcessor
 {
 public:
@@ -92,6 +96,25 @@ public:
     juce::File getReportFolder() const;
     void setReportFolder (const juce::File& f);
 
+    // ---- mastering EQ and limiter (the user sets them, WWMA only suggests)
+    /** Measures the input, before the EQ and limiter: the suggestions are based on it.
+        It only runs while a stage is on or the editor asks for it (the panel is open):
+        with both stages off the input is the output, and the main analyser already has it. */
+    wwma::Analyzer inputAnalyzer;
+    std::atomic<bool> inputAnalysisWanted { false };
+    /** The knobs as the user set them. */
+    wwma::ChainSettings getChainSettings() const;
+    /** Largest limiter gain reduction since the last call, dB. */
+    float takeGainReduction() { return chain.takeGainReduction(); }
+    /** Level-matched bypass: plays the input without the EQ and limiter, at the loudness the
+        chain produces, so you judge the sound and not the volume. Never on unless the user turns it on. */
+    std::atomic<bool> listenWithoutChain { false };
+    std::atomic<float> withoutChainGainDb { 0.0f };
+    bool getShowSuggestions() const;
+    void setShowSuggestions (bool on);
+    bool getChainOpen() const;
+    void setChainOpen (bool on);
+
     // ---- reference tracks
     wwma::ReferenceTracks refs;
     /** A/B: true plays the active reference track instead of the mix. Never on unless the user turns it on. */
@@ -104,6 +127,17 @@ public:
     void updateReferenceState();
 
     static constexpr const char* profileParamId = "profile";
+    struct ChainIds
+    {
+        static constexpr const char* eqOn = "eqOn";
+        static constexpr const char* freq[4] = { "eqLowFreq", "eqLowMidFreq", "eqHighMidFreq", "eqHighFreq" };
+        static constexpr const char* gain[4] = { "eqLowGain", "eqLowMidGain", "eqHighMidGain", "eqHighGain" };
+        static constexpr const char* q[4] = { "", "eqLowMidQ", "eqHighMidQ", "" };
+        static constexpr const char* limOn = "limOn";
+        static constexpr const char* limGain = "limGain";
+        static constexpr const char* limCeiling = "limCeiling";
+        static constexpr const char* limRelease = "limRelease";
+    };
 
 private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
@@ -113,6 +147,20 @@ private:
     std::optional<wwma::Profile> reference;
     std::atomic<bool> autoReset { true };
     bool wasPlaying = false;
+
+    wwma::MasterChain chain;
+    int chainBlock = 512;
+    bool inputRunning = false;
+    float withoutMix = 0.0f;
+    struct ChainParams
+    {
+        std::atomic<float>* eqOn = nullptr;
+        std::array<std::atomic<float>*, 4> freq {}, gain {}, q {};
+        std::atomic<float>* limOn = nullptr;
+        std::atomic<float>* limGain = nullptr;
+        std::atomic<float>* limCeiling = nullptr;
+        std::atomic<float>* limRelease = nullptr;
+    } chainParams;
 
     juce::AudioBuffer<float> refScratch;
     float abMix = 0.0f, abStep = 0.0f;
