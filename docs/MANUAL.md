@@ -2,6 +2,8 @@
 
 WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teaches you what to change. It never changes your sound by itself. It changes what you hear only when you choose **B · REF** to hear a reference track, or when you turn on its own mastering EQ or limiter (section 9). Even then it never turns a knob for you.
 
+> **Heads-up: WWMA is 100 % vibe coded.** It was built entirely with an AI coding assistant, not by a seasoned plugin developer. Install and use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes.
+
 **Your ears decide.** Every number in WWMA is advice, not a rule. If the mix sounds good on a phone and in a car, it is good.
 
 ## 1. Setting up
