@@ -9,6 +9,7 @@
 #include "SongSynth.h"
 #include "advice/StyleGuess.h"
 #include "advice/Lessons.h"
+#include "advice/ChainAdvice.h"
 #include <complex>
 #include <functional>
 #include <iostream>
@@ -51,6 +52,33 @@ namespace
             s.l[(size_t) i] = s.r[(size_t) i] = (float) (a * std::sin (2.0 * pi * hz * i / sr + phase));
         return s;
     }
+
+    /** Checks that a processor's output is its input delayed by a fixed number of samples, bit for bit. */
+    struct DelayedCompare
+    {
+        explicit DelayedCompare (int latency) : delay (latency) {}
+        int delay;
+        std::vector<float> inL, inR;
+        size_t outPos = 0;
+        bool identical = true;
+
+        void feed (const juce::AudioBuffer<float>& b)
+        {
+            inL.insert (inL.end(), b.getReadPointer (0), b.getReadPointer (0) + b.getNumSamples());
+            inR.insert (inR.end(), b.getReadPointer (1), b.getReadPointer (1) + b.getNumSamples());
+        }
+        void compare (const juce::AudioBuffer<float>& b)
+        {
+            for (int i = 0; i < b.getNumSamples(); ++i, ++outPos)
+            {
+                const auto src = (long long) outPos - delay;
+                const float l = src >= 0 ? inL[(size_t) src] : 0.0f, r = src >= 0 ? inR[(size_t) src] : 0.0f;
+                identical = identical && std::memcmp (&l, b.getReadPointer (0) + i, sizeof (float)) == 0
+                                      && std::memcmp (&r, b.getReadPointer (1) + i, sizeof (float)) == 0;
+            }
+        }
+        void skip (const juce::AudioBuffer<float>& b) { outPos += (size_t) b.getNumSamples(); }
+    };
 
     void append (Stereo& a, const Stereo& b)
     {
@@ -205,20 +233,21 @@ int main (int argc, char* argv[])
         p.setPlayConfigDetails (2, 2, 48000.0, 512);
         p.prepareToPlay (48000.0, 512);
         juce::Random rng (1);
-        juce::AudioBuffer<float> buf (2, 512), copy (2, 512);
+        juce::AudioBuffer<float> buf (2, 512);
         juce::MidiBuffer midi;
-        bool identical = true;
+        DelayedCompare cmp (p.getLatencySamples());
         for (int k = 0; k < 200; ++k)
         {
             for (int c = 0; c < 2; ++c)
                 for (int i = 0; i < 512; ++i)
                     buf.setSample (c, i, rng.nextFloat() * 2.0f - 1.0f);
-            copy.makeCopyOf (buf);
+            cmp.feed (buf);
             p.processBlock (buf, midi);
-            for (int c = 0; c < 2; ++c)
-                identical = identical && std::memcmp (buf.getReadPointer (c), copy.getReadPointer (c), 512 * sizeof (float)) == 0;
+            cmp.compare (buf);
         }
-        check (identical, "output is bit-identical to the input");
+        check (p.getLatencySamples() > 0 && p.getLatencySamples() < 200, "the latency is fixed and small (the DAW compensates it)",
+               juce::String (p.getLatencySamples()) + " samples");
+        check (cmp.identical, "with the EQ and limiter off, the output is the input bit for bit (delayed by the latency)");
     }
 
     // ------------------------------------------------------------------ stability
@@ -439,7 +468,7 @@ int main (int argc, char* argv[])
         p.prepareToPlay (sr, 512);
         p.refs.loadNow (0, refFile);
         juce::MidiBuffer midi;
-        juce::AudioBuffer<float> buf (2, 512), copy (2, 512);
+        juce::AudioBuffer<float> buf (2, 512);
         Stereo heard, quietMix = balanced;
         for (auto* ch : { &quietMix.l, &quietMix.r })
             for (auto& v : *ch)
@@ -465,18 +494,19 @@ int main (int argc, char* argv[])
         check (near (measured.integrated, mix.integrated, 0.05), "the analysis keeps measuring the mix while B plays");
 
         p.listenToReference.store (false);
-        bool identical = true;
+        DelayedCompare cmp (p.getLatencySamples());
         for (int k = 0; k < 40; ++k)
         {
             for (int c = 0; c < 2; ++c)
                 buf.copyFrom (c, 0, (c == 0 ? quietMix.l : quietMix.r).data() + (size_t) k * 512, 512);
-            copy.makeCopyOf (buf);
+            cmp.feed (buf);
             p.processBlock (buf, midi);
             if (k >= 4) // after the 30 ms fade
-                for (int c = 0; c < 2; ++c)
-                    identical = identical && std::memcmp (buf.getReadPointer (c), copy.getReadPointer (c), 512 * sizeof (float)) == 0;
+                cmp.compare (buf);
+            else
+                cmp.skip (buf);
         }
-        check (identical, "back on A the output is bit-identical again");
+        check (cmp.identical, "back on A the output is bit-identical again (delayed by the latency)");
     }
     {
         // the reference's own play / pause and its loop, with the DAW stopped
@@ -700,6 +730,253 @@ int main (int argc, char* argv[])
         check (! editor->isStyleSuggestionShown(), "after switching, the chip only confirms the style");
     }
 
+    // ------------------------------------------------------------------ mastering EQ and limiter
+    std::cout << "Mastering EQ and limiter (the user turns the knobs, WWMA only suggests)" << std::endl;
+    {
+        using Ids = WwmaAudioProcessor::ChainIds;
+        auto setParam = [] (WwmaAudioProcessor& proc, const char* id, float v)
+        {
+            auto* prm = proc.apvts.getParameter (id);
+            prm->setValueNotifyingHost (prm->convertTo0to1 (v));
+        };
+        // runs audio through a processor in 512-sample blocks and returns what came out
+        auto through = [] (WwmaAudioProcessor& proc, const Stereo& x)
+        {
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> buf (2, 512);
+            Stereo out;
+            for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+            {
+                buf.copyFrom (0, 0, x.l.data() + i, 512);
+                buf.copyFrom (1, 0, x.r.data() + i, 512);
+                proc.processBlock (buf, midi);
+                out.l.insert (out.l.end(), buf.getReadPointer (0), buf.getReadPointer (0) + 512);
+                out.r.insert (out.r.end(), buf.getReadPointer (1), buf.getReadPointer (1) + 512);
+            }
+            return out;
+        };
+        auto fresh = [] (WwmaAudioProcessor& proc, double rate)
+        {
+            proc.setPlayConfigDetails (2, 2, rate, 512);
+            proc.prepareToPlay (rate, 512);
+        };
+
+        {
+            WwmaAudioProcessor p;
+            const auto s = p.getChainSettings();
+            check (! s.eqOn && ! s.limiterOn && s.gain == std::array<float, 4> { 0, 0, 0, 0 } && near (s.ceiling, -1.0, 1.0e-6),
+                   "EQ and limiter are off and flat by default");
+        }
+        {
+            ChainSettings s;
+            s.eqOn = true;
+            s.gain[ChainSettings::lowMid] = 6.0f;
+            s.freq[ChainSettings::lowMid] = 250.0f;
+            s.q[ChainSettings::lowMid] = 1.0f;
+            s.gain[ChainSettings::highShelf] = -4.0f;
+            const double atBell = MasterEq::responseDb (s, 250.0), atTop = MasterEq::responseDb (s, 18000.0), at1k = MasterEq::responseDb (s, 1000.0);
+            check (near (atBell, 6.0, 0.2) && near (atTop, -4.0, 0.3) && std::abs (at1k) < 1.0, "EQ curve: +6 dB bell at 250 Hz, -4 dB high shelf",
+                   juce::String (atBell, 2) + " / " + juce::String (atTop, 2) + " / 1 kHz " + juce::String (at1k, 2));
+
+            WwmaAudioProcessor p;
+            fresh (p, 48000.0);
+            setParam (p, Ids::eqOn, 1.0f);
+            setParam (p, Ids::freq[1], 250.0f);
+            setParam (p, Ids::gain[1], 6.0f);
+            setParam (p, Ids::q[1], 1.0f);
+            const auto tone = sine (48000.0, 6.0, 250.0, -20.0);
+            const auto in = analyse (tone, 48000.0), out = analyse (through (p, tone), 48000.0);
+            check (near (out.integrated - in.integrated, 6.0, 0.2), "a 250 Hz tone through a +6 dB bell comes out 6 dB louder",
+                   juce::String (out.integrated - in.integrated, 2) + " dB");
+        }
+        {
+            // the limiter holds the ceiling, inter-sample peaks included, at every sample rate
+            synth::SongParams sp;
+            sp.seconds = 12.0;
+            sp.limiter = false;
+            sp.driveDb = -4.0;
+            bool held = true, louder = true;
+            juce::String detail;
+            for (double rate : { 44100.0, 48000.0, 96000.0, 192000.0 })
+            {
+                sp.sr = rate;
+                const auto x = synth::renderSong (sp);
+                const Stereo in { x.l, x.r };
+                WwmaAudioProcessor p;
+                fresh (p, rate);
+                setParam (p, Ids::limOn, 1.0f);
+                setParam (p, Ids::limGain, 12.0f);
+                setParam (p, Ids::limCeiling, -1.0f);
+                const auto before = analyse (in, rate);
+                const auto after = analyse (through (p, in), rate);
+                held = held && after.truePeakMax <= -0.9f;
+                louder = louder && after.integrated > before.integrated + 6.0f;
+                detail << juce::String ((int) rate) << ": " << juce::String (after.truePeakMax, 2) << " dBTP, "
+                       << juce::String (after.integrated - before.integrated, 1) << " LU  ";
+            }
+            check (held, "+12 dB into the limiter: true peak stays under a -1 dBTP ceiling (44.1-192 kHz)", detail.trim());
+            check (louder, "  and the song gets louder");
+        }
+        {
+            // a quiet signal passes the limiter untouched, and switching on and off is smooth
+            WwmaAudioProcessor p;
+            fresh (p, 48000.0);
+            setParam (p, Ids::limOn, 1.0f);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> buf (2, 512);
+            juce::Random rng (3);
+            DelayedCompare cmp (p.getLatencySamples());
+            float jump = 0.0f, last = 0.0f;
+            for (int k = 0; k < 200; ++k)
+            {
+                for (int c = 0; c < 2; ++c)
+                    for (int i = 0; i < 512; ++i)
+                        buf.setSample (c, i, 0.25f * (float) std::sin (2.0 * pi * 220.0 * (k * 512 + i) / 48000.0));
+                if (k == 100) setParam (p, Ids::limOn, 0.0f);
+                if (k == 140) { setParam (p, Ids::limGain, 18.0f); setParam (p, Ids::limOn, 1.0f); }
+                cmp.feed (buf);
+                p.processBlock (buf, midi);
+                if (k >= 4 && k < 100)
+                    cmp.compare (buf);
+                else
+                    cmp.skip (buf);
+                for (int i = 0; i < 512; ++i)
+                {
+                    jump = juce::jmax (jump, std::abs (buf.getSample (0, i) - last));
+                    last = buf.getSample (0, i);
+                }
+            }
+            check (cmp.identical, "a signal under the ceiling passes the limiter bit for bit");
+            check (jump < 0.05f, "switching the limiter on and off fades, no clicks", "largest step " + juce::String (jump, 4));
+        }
+        {
+            // suggestions follow the input and say which way to turn
+            auto adviceFor = [&] (const Stereo& x, ChainSettings cur = {})
+            {
+                return adviseChain (analyse (x, sr), house, Window::song, Lang::english, Stage::mastering, cur);
+            };
+            const auto thinBass = adviceFor (profileMix (house, sr, [] (double f) { return f > 56.0 && f < 140.0 ? -6.0 : 0.0; }, -14.0, monoBass, -14.0, 40));
+            check (thinBass.ready && thinBass.gain[0].value >= 2.0f && thinBass.freq[0].value >= 80.0f && thinBass.freq[0].value <= 140.0f,
+                   "-6 dB bass: suggests a low shelf boost around 100 Hz", thinBass.gain[0].text + " @ " + thinBass.freq[0].text);
+            const auto harsh = adviceFor (profileMix (house, sr, [] (double f) { return f > 2800.0 && f < 4500.0 ? 7.0 : 0.0; }, -14.0, monoBass, -14.0, 41));
+            check (harsh.gain[2].value <= -2.0f && harsh.freq[2].value >= 2500.0f && harsh.freq[2].value <= 5000.0f,
+                   "+7 dB at 3-4 kHz: suggests cutting the high mids there", harsh.gain[2].text + " @ " + harsh.freq[2].text + " Q " + harsh.q[2].text);
+            const auto fine = adviceFor (balanced);
+            bool flat = true;
+            for (const auto& g : fine.gain)
+                flat = flat && std::abs (g.value) < 1.0e-6f && g.close;
+            check (flat, "a balanced mix: every EQ band suggested flat");
+            const auto huge = adviceFor (profileMix (house, sr, [] (double f) { return f < 56.0 ? 12.0 : 0.0; }, -14.0, monoBass, -14.0, 42));
+            check (huge.eqTooMuch && huge.gain[0].value >= -4.0f && huge.eqNote.contains ("mix"),
+                   "+12 dB sub: the EQ suggestion stays gentle and says to fix it in the mix", huge.eqNote);
+
+            ChainSettings set;
+            set.eqOn = true;
+            set.gain[0] = thinBass.gain[0].value;
+            set.freq[0] = thinBass.freq[0].value;
+            const auto again = adviceFor (profileMix (house, sr, [] (double f) { return f > 56.0 && f < 140.0 ? -6.0 : 0.0; }, -14.0, monoBass, -14.0, 40), set);
+            check (again.gain[0].close && near (again.gain[0].value, thinBass.gain[0].value, 1.0e-6),
+                   "turning the knob to the suggestion marks it as close, and the suggestion stays put");
+
+            const auto mixing = adviseChain (analyse (balanced, sr), house, Window::song, Lang::english, Stage::mixing, {});
+            check (std::abs (mixing.limiterGain.value) < 1.0e-6f && mixing.limiterNote.contains ("off"), "mixing stage: the limiter is suggested off");
+        }
+        {
+            // the suggested limiter settings land the song in the style's loudness range
+            juce::String detail;
+            bool ok = true;
+            synth::SongParams sp;
+            sp.seconds = 24.0;
+            sp.limiter = false;
+            sp.driveDb = -10.0;
+            const auto x = synth::renderSong (sp);
+            const Stereo in { x.l, x.r };
+            const auto inSnap = analyse (in, sr);
+            for (float target : { 0.0f, -14.0f, -11.0f })
+            {
+                auto style = house;
+                if (target < 0.0f)
+                {
+                    style.lufsMin = target - 1.0f;
+                    style.lufsMax = target + 1.0f;
+                    style.truePeakMax = -1.0f;
+                }
+                const auto adv = adviseChain (inSnap, style, Window::song, Lang::english, Stage::mastering, {});
+                WwmaAudioProcessor p;
+                fresh (p, sr);
+                setParam (p, Ids::limOn, 1.0f);
+                setParam (p, Ids::limGain, adv.limiterGain.value);
+                setParam (p, Ids::limCeiling, adv.ceiling.value);
+                setParam (p, Ids::limRelease, adv.release.value);
+                const auto out = analyse (through (p, in), sr);
+                ok = ok && out.integrated >= style.lufsMin - 0.5f && out.integrated <= style.lufsMax + 0.5f
+                        && out.truePeakMax <= adv.ceiling.value + 0.1f;
+                detail << juce::String (style.lufsMin) << ".." << juce::String (style.lufsMax) << ": gain " << adv.limiterGain.text << " -> " << juce::String (out.integrated, 1) << " LUFS, "
+                       << juce::String (out.truePeakMax, 2) << " dBTP, release " << adv.release.text
+                       << ", expected GR " << juce::String (adv.expectedReduction, 1) << ", ceiling " << adv.ceiling.text << "; ";
+            }
+            check (ok, "suggested limiter gain lands in the target loudness range (house, -11 and -14 LUFS)", detail);
+        }
+        {
+            // the editor shows suggestions but never turns a knob
+            WwmaAudioProcessor p;
+            fresh (p, sr);
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            auto* editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+            editor->setChainOpen (true);
+            juce::MemoryBlock before;
+            p.getStateInformation (before);
+            juce::Array<float> values;
+            for (auto* prm : p.getParameters())
+                values.add (prm->getValue());
+            synth::SongParams sp;
+            sp.seconds = 12.0;
+            sp.limiter = false;
+            sp.driveDb = -8.0;
+            const auto x = synth::renderSong (sp);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> buf (2, 512);
+            for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+            {
+                buf.copyFrom (0, 0, x.l.data() + i, 512);
+                buf.copyFrom (1, 0, x.r.data() + i, 512);
+                p.processBlock (buf, midi);
+                if (i % 24000 < 512)
+                    editor->refresh (true);
+            }
+            bool same = true;
+            for (int i = 0; i < p.getParameters().size(); ++i)
+                same = same && std::abs (p.getParameters()[i]->getValue() - values[i]) < 1.0e-9f;
+            const auto& adv = editor->getChainAdvice();
+            check (adv.ready && adv.limiterGain.value > 3.0f && same && ! p.getChainSettings().anyOn(),
+                   "the editor suggests limiter gain " + adv.limiterGain.text + ", and every knob stays where it was (both stages still off)");
+            editor->setShowSuggestions (false);
+            check (! p.getShowSuggestions(), "  the suggestions can be hidden (saved with the project)");
+            editor->setListeningWithout (true);
+            check (! p.listenWithoutChain.load(), "  'hear without' does nothing while both stages are off");
+            editor->setLearnMode (true);
+            check (! editor->isChainOpen(), "  lesson mode and the EQ + limiter panel take turns");
+        }
+        {
+            // level-matched bypass: the input, at the given gain, delayed like the output
+            WwmaAudioProcessor p;
+            fresh (p, 48000.0);
+            setParam (p, Ids::limOn, 1.0f);
+            setParam (p, Ids::limGain, 10.0f);
+            p.withoutChainGainDb.store (6.0f);
+            p.listenWithoutChain.store (true);
+            auto out = through (p, sine (48000.0, 4.0, 997.0, -20.0));
+            out.l.erase (out.l.begin(), out.l.begin() + 24000); // past the 30 ms fade
+            out.r.erase (out.r.begin(), out.r.begin() + 24000);
+            const auto heard = analyse (out, 48000.0);
+            check (near (heard.truePeakMax, -14.0, 0.05), "level-matched bypass plays the input without the chain, at the matched level",
+                   juce::String (heard.truePeakMax, 2) + " dBTP");
+            Snapshot measured;
+            p.analyzer.readSnapshot (measured);
+            check (measured.truePeakMax > -11.0f, "  while the meters keep measuring what the chain puts out", juce::String (measured.truePeakMax, 2));
+        }
+    }
+
     // ------------------------------------------------------------------ snapshots, lessons, report
     std::cout << "Snapshots, lessons and the mix report" << std::endl;
     {
@@ -861,7 +1138,7 @@ int main (int argc, char* argv[])
         dir.createDirectory();
         std::cout << "Screenshots -> " << dir.getFullPathName() << std::endl;
 
-        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson
+        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson, 4 reference loop, 5 EQ + limiter
         const auto refA = writeWav (refAudio, 44100.0, "Favourite club track.wav");
         const auto refB = writeWav (profileMix (house, 48000.0, [] (double f) { return f < 90.0 ? 2.0 : 0.0; }, -14.0, monoBass, -10.0, 33),
                                     48000.0, "Night drive loop.wav");
@@ -880,6 +1157,8 @@ int main (int argc, char* argv[])
             { "wwma-lesson-en.png", {}, Lang::english, false, false, false, 3 },
             { "wwma-lesson-fi.png", {}, Lang::finnish, false, false, false, 3 },
             { "wwma-reference-loop-en.png", {}, Lang::english, false, true, true, 4 },
+            { "wwma-eq-limiter-en.png", {}, Lang::english, false, false, false, 5 },
+            { "wwma-eq-limiter-fi.png", {}, Lang::finnish, false, false, false, 5 },
         };
         {
             synth::SongParams sp;
@@ -894,6 +1173,16 @@ int main (int argc, char* argv[])
             const_cast<Shot&> (shots[8]).audio = Stereo { g.l, g.r };
             const_cast<Shot&> (shots[9]).audio = Stereo { g.l, g.r };
             const_cast<Shot&> (shots[10]).audio = messy;
+            // an unmastered mix with a dull top and a bit of mud, for the EQ + limiter panel
+            synth::SongParams raw;
+            raw.seconds = 16.0;
+            raw.limiter = false;
+            raw.driveDb = -8.0;
+            raw.airDb = -5.0;
+            raw.mudDb = 4.0;
+            const auto m = synth::renderSong (raw);
+            const_cast<Shot&> (shots[11]).audio = Stereo { m.l, m.r };
+            const_cast<Shot&> (shots[12]).audio = Stereo { m.l, m.r };
         }
 
         for (const auto& shot : shots)
@@ -920,6 +1209,20 @@ int main (int argc, char* argv[])
                 p.refs.setLoop (0, 0.42, 0.58);
                 editor->referencesChanged();
                 editor->openReferenceDetail (0);
+            }
+            if (shot.view == 5)
+            {
+                // knobs part way to the suggestions, as if the user were turning them
+                auto set = [&p] (const char* id, float v) { auto* prm = p.apvts.getParameter (id); prm->setValueNotifyingHost (prm->convertTo0to1 (v)); };
+                using Ids = WwmaAudioProcessor::ChainIds;
+                set (Ids::eqOn, 1.0f);
+                set (Ids::gain[1], -1.5f);
+                set (Ids::freq[1], 300.0f);
+                set (Ids::gain[3], 2.0f);
+                set (Ids::limOn, 1.0f);
+                set (Ids::limGain, 9.0f);
+                set (Ids::limCeiling, -1.0f);
+                editor->setChainOpen (true);
             }
             if (shot.view == 3)
             {

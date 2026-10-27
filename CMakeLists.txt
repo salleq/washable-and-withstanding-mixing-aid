@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(WWMA VERSION 0.1.0 LANGUAGES C CXX)
+project(WWMA VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -83,13 +83,16 @@ set(WWMA_CORE_SOURCES
     Source/advice/StyleGuess.cpp
     Source/advice/MixReport.cpp
     Source/advice/Lessons.cpp
+    Source/advice/ChainAdvice.cpp
+    Source/dsp/MasterChain.cpp
     Source/reference/ReferenceTracks.cpp)
 
 set(WWMA_UI_SOURCES
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
     Source/ui/Theme.cpp
-    Source/ui/Components.cpp)
+    Source/ui/Components.cpp
+    Source/ui/ChainPanel.cpp)
 
 # Fonts (SIL Open Font License), compiled into the plugin
 juce_add_binary_data(WWMAAssets SOURCES

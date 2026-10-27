@@ -41,6 +41,29 @@ struct Biquad
         setNormalised ((1.0 + c) * 0.5, -(1.0 + c), (1.0 + c) * 0.5, 1.0 + alpha, -2.0 * c, 1.0 - alpha);
     }
 
+    /** RBJ peaking (bell) filter. */
+    void setPeak (double sr, double f, double q, double gainDb) noexcept
+    {
+        const auto w = omega (sr, f), c = std::cos (w), alpha = std::sin (w) / (2.0 * q);
+        const double a = std::pow (10.0, gainDb / 40.0);
+        setNormalised (1.0 + alpha * a, -2.0 * c, 1.0 - alpha * a, 1.0 + alpha / a, -2.0 * c, 1.0 - alpha / a);
+    }
+
+    /** RBJ shelves with a shelf slope of 1 (no overshoot). */
+    void setLowShelf (double sr, double f, double gainDb) noexcept  { setShelf (sr, f, gainDb, false); }
+    void setHighShelf (double sr, double f, double gainDb) noexcept { setShelf (sr, f, gainDb, true); }
+
+    /** The filter's gain at a frequency, dB. */
+    double magnitudeDb (double sr, double f) const noexcept
+    {
+        const double w = 2.0 * pi * f / sr;
+        const double c1 = std::cos (w), s1 = std::sin (w), c2 = std::cos (2.0 * w), s2 = std::sin (2.0 * w);
+        const double nr = b0 + b1 * c1 + b2 * c2, ni = -(b1 * s1 + b2 * s2);
+        const double dr = 1.0 + a1 * c1 + a2 * c2, di = -(a1 * s1 + a2 * s2);
+        const double num = nr * nr + ni * ni, den = dr * dr + di * di;
+        return den > 0.0 && num > 0.0 ? 10.0 * std::log10 (num / den) : -200.0;
+    }
+
     /** ITU-R BS.1770-4 K-weighting, stage 1 (head related high shelf), for any sample rate. */
     void setKShelf (double sr) noexcept
     {
@@ -61,6 +84,20 @@ struct Biquad
     }
 
 private:
+    void setShelf (double sr, double f, double gainDb, bool high) noexcept
+    {
+        const auto w = omega (sr, f), c = std::cos (w);
+        const double a = std::pow (10.0, gainDb / 40.0);
+        const double alpha = std::sin (w) / 2.0 * std::sqrt (2.0); // shelf slope 1
+        const double sa = 2.0 * std::sqrt (a) * alpha;
+        if (high)
+            setNormalised (a * ((a + 1.0) + (a - 1.0) * c + sa), -2.0 * a * ((a - 1.0) + (a + 1.0) * c), a * ((a + 1.0) + (a - 1.0) * c - sa),
+                           (a + 1.0) - (a - 1.0) * c + sa, 2.0 * ((a - 1.0) - (a + 1.0) * c), (a + 1.0) - (a - 1.0) * c - sa);
+        else
+            setNormalised (a * ((a + 1.0) - (a - 1.0) * c + sa), 2.0 * a * ((a - 1.0) - (a + 1.0) * c), a * ((a + 1.0) - (a - 1.0) * c - sa),
+                           (a + 1.0) + (a - 1.0) * c + sa, -2.0 * ((a - 1.0) + (a + 1.0) * c), (a + 1.0) + (a - 1.0) * c - sa);
+    }
+
     static double omega (double sr, double f) noexcept
     {
         const auto fc = std::fmin (std::fmax (f, 5.0), sr * 0.45);

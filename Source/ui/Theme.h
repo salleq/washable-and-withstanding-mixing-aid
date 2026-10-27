@@ -23,6 +23,7 @@ namespace colours
     const juce::Colour great      { 0xff3fd29a };
     const juce::Colour info       { 0xff6f8fb3 };
     const juce::Colour ref        { 0xffb79cf0 }; // everything about the reference track
+    const juce::Colour suggest    { 0xfff2c94c }; // WWMA's suggested knob values
 }
 
 inline juce::Colour severityColour (Severity s)
@@ -77,5 +78,7 @@ public:
     void drawToggleButton (juce::Graphics&, juce::ToggleButton&, bool highlighted, bool down) override;
     void drawComboBox (juce::Graphics&, int width, int height, bool isButtonDown, int, int, int, int, juce::ComboBox&) override;
     void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
+    void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height, float pos,
+                           float startAngle, float endAngle, juce::Slider&) override;
 };
 } // namespace wwma::ui
