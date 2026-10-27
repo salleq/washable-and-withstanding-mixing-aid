@@ -123,7 +123,7 @@ Limits:
 1. Press **Snapshot** before you change something. WWMA stores the score and every key number.
 2. The progress panel then asks you to **save your DAW project as a new version** (File > Save As..., e.g. "My song v3"). That way you can always go back to the mix before the change.
 3. Press **I saved it** once you have. The reminder stays until you do, and the snapshot remembers that a DAW version exists (✓ in the chart).
-4. Make your change and play the same part again.
+4. Make your change and play the same part again. The tonal balance view shows the snapshot's curve as a faint teal **ghost line**, and the gap between it and your mix is filled in blue, so you see at a glance how far the tone has moved. Click **Difference** in the legend to turn the fill off or on.
 5. Press **Before/after**. A table shows every number before and now, marked **BETTER**, **WORSE** or **=**, with the better ones first.
 
 ![The save reminder after a snapshot](images/wwma-save-reminder.png)

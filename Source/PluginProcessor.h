@@ -79,6 +79,8 @@ public:
     bool latestSnapshotNeedsConfirmation() const;
 
     /** Lesson mode: on/off, which lesson is open, and which ones are done. Kept with the project. */
+    bool getShowDifference() const;
+    void setShowDifference (bool on);
     bool getLearnMode() const;
     void setLearnMode (bool on);
     int getLessonIndex() const;

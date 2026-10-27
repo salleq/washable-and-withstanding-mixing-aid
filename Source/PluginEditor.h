@@ -45,6 +45,9 @@ public:
     const std::vector<wwma::MetricChange>& getChanges() const noexcept { return state.changes; }
     /** Lesson mode. */
     void setLearnMode (bool on);
+    /** The snapshot's ghost curve in the tonal view, and the filled difference to it. */
+    void setShowDifference (bool b) { tonal.setShowDifference (b); proc.setShowDifference (b); }
+    bool getShowDifference() const noexcept { return tonal.getShowDifference(); }
     void showLesson (int index);
     const wwma::LessonCheck& getLessonCheck() const noexcept { return state.lesson; }
     /** Writes the report (Markdown) and its JSON next to it, comparing with the newest earlier

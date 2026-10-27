@@ -32,6 +32,7 @@ struct SavedSnapshot
     std::map<std::string, std::pair<float, float>> metrics; // id -> (value, off)
     bool confirmed = false;
     juce::Time confirmedAt;
+    std::vector<float> spectrum; // tonal curve per third-octave band (aligned like Measures::spectrum), empty if not stored
 };
 
 struct MetricChange

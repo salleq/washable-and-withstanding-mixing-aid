@@ -147,8 +147,16 @@ class TonalView : public juce::Component
 public:
     explicit TonalView (const ViewState& s) : state (s) {}
     void paint (juce::Graphics&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+    /** Fill the gap between the snapshot's ghost curve and the mix (click the legend to toggle). */
+    void setShowDifference (bool b) { showDifference = b; repaint(); }
+    bool getShowDifference() const noexcept { return showDifference; }
+    std::function<void (bool)> onShowDifferenceChanged;
 private:
     const ViewState& state;
+    bool showDifference = true;
+    juce::Rectangle<float> differenceToggle; // where the legend's toggle was drawn
 };
 
 /** The findings, most important first. Click a card for why it matters and every step. */

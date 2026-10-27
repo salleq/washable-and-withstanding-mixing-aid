@@ -308,6 +308,20 @@ void HistoryBox::paint (juce::Graphics& g)
 }
 
 // =====================================================================================
+void TonalView::mouseUp (const juce::MouseEvent& e)
+{
+    if (! differenceToggle.contains (e.position))
+        return;
+    setShowDifference (! showDifference);
+    if (onShowDifferenceChanged)
+        onShowDifferenceChanged (showDifference);
+}
+
+void TonalView::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (differenceToggle.contains (e.position) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
 void TonalView::paint (juce::Graphics& g)
 {
     const auto lang = state.lang;
@@ -319,6 +333,10 @@ void TonalView::paint (juce::Graphics& g)
     auto head = r.removeFromTop (16);
     drawLabel (g, t (lang, "Tonal balance vs. ", "Taajuustasapaino vs. ") + state.profileName, head);
     const auto* refView = state.activeRefView();
+    const SavedSnapshot* ghost = ! state.snapshots.empty() && state.snapshots.back().spectrum.size() == (size_t) Bands::count
+                                     ? &state.snapshots.back() : nullptr;
+    const auto ghostColour = colours::accent.withAlpha (0.45f);
+    const auto diffColour = colours::info;
     if (refView != nullptr)
         drawLabel (g, t (lang, "ref level-matched ", "ref tasattu ") + fmt (lang, state.refGainDb, 1, true) + " dB", head, colours::ref, juce::Justification::centredRight);
     else if (! state.styleChipShown)
@@ -400,11 +418,32 @@ void TonalView::paint (juce::Graphics& g)
 
     // legend
     {
-        auto lg = juce::Rectangle<float> (plot.getRight() - 150.0f, plot.getY() + 4.0f, 150.0f, 46.0f);
+        auto lg = juce::Rectangle<float> (plot.getRight() - 150.0f, plot.getY() + 4.0f, 150.0f, 80.0f);
         g.setColour (colours::text);
         g.fillRect (lg.getX(), lg.getY() + 5.0f, 18.0f, 2.0f);
         drawLabel (g, t (lang, "Your mix", "Sinun miksi"), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), colours::dim, juce::Justification::centredLeft, 10.5f);
         lg.removeFromTop (4.0f);
+        if (ghost != nullptr)
+        {
+            g.setColour (ghostColour);
+            g.fillRect (lg.getX(), lg.getY() + 4.5f, 18.0f, 3.0f);
+            drawLabel (g, t (lang, "Snapshot ", "Snapshot ") + juce::String ((int) state.snapshots.size()) + " (" + ghost->time.formatted ("%H:%M") + ")",
+                       lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), colours::dim, juce::Justification::centredLeft, 10.5f);
+            lg.removeFromTop (4.0f);
+            // a small check box: fill the difference between then and now
+            auto row = lg.removeFromTop (12.0f);
+            differenceToggle = row.expanded (2.0f, 2.0f);
+            auto box = juce::Rectangle<float> (row.getX() + 4.0f, row.getY() + 1.0f, 10.0f, 10.0f);
+            g.setColour (diffColour.withAlpha (showDifference ? 0.6f : 0.0f));
+            g.fillRect (box);
+            g.setColour (colours::dim);
+            g.drawRect (box, 1.0f);
+            drawLabel (g, t (lang, "Difference", "Ero"), row.withTrimmedLeft (24.0f).toNearestInt(),
+                       showDifference ? colours::soft : colours::faint, juce::Justification::centredLeft, 10.5f);
+            lg.removeFromTop (4.0f);
+        }
+        else
+            differenceToggle = {};
         if (refView != nullptr)
         {
             for (float x = 0.0f; x < 18.0f; x += 7.0f)
@@ -464,6 +503,29 @@ void TonalView::paint (juce::Graphics& g)
     }
 
     {
+        if (ghost != nullptr)
+        {
+            // the newest snapshot as a faint "ghost": how far the tone has moved since then
+            std::array<float, Bands::count> ghostSpec {};
+            std::copy (ghost->spectrum.begin(), ghost->spectrum.end(), ghostSpec.begin());
+            const auto ghostPts = pointsOf (ghostSpec, 0.0f);
+            if (showDifference)
+            {
+                // the gap between then and now
+                juce::Path gap;
+                gap.startNewSubPath (mix.front());
+                for (size_t b = 1; b < mix.size(); ++b)
+                    gap.lineTo (mix[b]);
+                for (size_t b = ghostPts.size(); b-- > 0;)
+                    gap.lineTo (ghostPts[b]);
+                gap.closeSubPath();
+                gap.setUsingNonZeroWinding (false);
+                g.setColour (diffColour.withAlpha (0.35f));
+                g.fillPath (gap);
+            }
+            g.setColour (ghostColour);
+            g.strokePath (strokeOf (ghostPts), juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
         juce::Path dashed;
         const float dashes[] = { 3.0f, 3.0f };
         juce::PathStrokeType (1.0f).createDashedStroke (dashed, strokeOf (side), dashes, 2);

@@ -690,6 +690,13 @@ int main (int argc, char* argv[])
             const auto restored = q.getSnapshots();
             check (restored.size() == 1 && restored[0].confirmed && restored[0].metrics.size() == snaps[0].metrics.size(),
                    "snapshots and their confirmation are saved with the project");
+            check (snaps[0].spectrum.size() == (size_t) Bands::count && restored[0].spectrum.size() == (size_t) Bands::count
+                       && near (restored[0].spectrum[12], snaps[0].spectrum[12], 0.01),
+                   "the snapshot keeps its tonal curve for the ghost line");
+            check (s.editor->getShowDifference(), "the difference to the ghost line is shown by default");
+            s.editor->setShowDifference (false);
+            check (! s.p.getShowDifference(), "  and it can be turned off (saved with the project)");
+            s.editor->setShowDifference (true);
 
             s.p.analyzer.requestReset();
             s.play ({});

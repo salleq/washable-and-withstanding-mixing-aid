@@ -200,6 +200,10 @@ std::vector<SavedSnapshot> WwmaAudioProcessor::getSnapshots() const
         s.confirmedAt = juce::Time ((juce::int64) c.getProperty ("savedAt", 0));
         for (const auto& m : c.getChildWithName ("Metrics"))
             s.metrics[m.getProperty ("id").toString().toStdString()] = { (float) m.getProperty ("v"), (float) m.getProperty ("o") };
+        const auto spec = juce::StringArray::fromTokens (c.getProperty ("spec").toString(), " ", "");
+        if (spec.size() == Bands::count)
+            for (const auto& v : spec)
+                s.spectrum.push_back (v.getFloatValue());
         out.push_back (s);
     }
     return out;
@@ -212,6 +216,13 @@ void WwmaAudioProcessor::addSnapshot (const SavedSnapshot& s)
     point.setProperty ("t", s.time.toMilliseconds(), nullptr);
     point.setProperty ("score", s.score, nullptr);
     point.setProperty ("saved", s.confirmed, nullptr);
+    if (s.spectrum.size() == (size_t) Bands::count)
+    {
+        juce::StringArray spec;
+        for (auto v : s.spectrum)
+            spec.add (juce::String (v, 2));
+        point.setProperty ("spec", spec.joinIntoString (" "), nullptr);
+    }
     juce::ValueTree metrics ("Metrics");
     for (const auto& [id, vo] : s.metrics)
     {
@@ -244,6 +255,8 @@ bool WwmaAudioProcessor::latestSnapshotNeedsConfirmation() const
     return list.isValid() && list.getNumChildren() > 0 && ! (bool) list.getChild (list.getNumChildren() - 1).getProperty ("saved", false);
 }
 
+bool WwmaAudioProcessor::getShowDifference() const { return (bool) apvts.state.getProperty ("ghostDiff", true); }
+void WwmaAudioProcessor::setShowDifference (bool on) { apvts.state.setProperty ("ghostDiff", on, nullptr); }
 bool WwmaAudioProcessor::getLearnMode() const { return (bool) apvts.state.getProperty ("learn", false); }
 void WwmaAudioProcessor::setLearnMode (bool on) { apvts.state.setProperty ("learn", on, nullptr); }
 int WwmaAudioProcessor::getLessonIndex() const { return (int) apvts.state.getProperty ("lesson", 0); }

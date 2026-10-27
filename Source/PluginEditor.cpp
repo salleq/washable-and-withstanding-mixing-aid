@@ -111,6 +111,8 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     learnButton.onClick = [this] { setLearnMode (learnButton.getToggleState()); };
     reportButton.onClick = [this] { chooseReportFile(); };
     state.learnMode = proc.getLearnMode();
+    tonal.setShowDifference (proc.getShowDifference());
+    tonal.onShowDifferenceChanged = [this] (bool b) { proc.setShowDifference (b); };
     state.lessonIndex = juce::jlimit (0, lessonCount() - 1, proc.getLessonIndex());
     state.lessonsDone = proc.getLessonsDone();
     learnButton.setToggleState (state.learnMode, juce::dontSendNotification);
@@ -517,6 +519,7 @@ void WwmaAudioProcessorEditor::saveSnapshot()
     snap.time = juce::Time::getCurrentTime();
     snap.score = state.assessment.score;
     snap.metrics = toMap (keyMetrics (state.assessment, state.profile, state.stage));
+    snap.spectrum.assign (state.assessment.measures.spectrum.begin(), state.assessment.measures.spectrum.end());
     proc.addSnapshot (snap);
     loadSnapshots();
     setBaselineFromCurrent();

@@ -52,7 +52,7 @@ Prosentti jaetaan lähisukulaisten kesken: "House 72 %" tarkoittaa koko house-pe
 1. Paina **Snapshot** ennen kuin muutat jotain. WWMA tallentaa pisteet ja kaikki tärkeät lukemat.
 2. Edistyminen-paneeli pyytää sen jälkeen **tallentamaan DAW-projektin uutena versiona** (File > Save As..., esim. "Biisi v3"). Näin pääset aina takaisin muutosta edeltävään miksiin.
 3. Kun olet tallentanut, kuittaa painamalla **Tallensin**. Muistutus pysyy näkyvissä siihen asti, ja snapshot muistaa, että sille on DAW-versio (✓ kaaviossa).
-4. Tee muutos ja soita sama kohta uudestaan.
+4. Tee muutos ja soita sama kohta uudestaan. Taajuustasapainossa näkyy snapshotin käyrä himmeänä turkoosina **haamukäyränä**, ja ero sen ja miksisi välillä on täytetty sinisellä, joten näet heti, kuinka paljon sointi on muuttunut. Selitteen **Ero**-ruudusta saat täytön pois päältä tai takaisin.
 5. Paina **Ennen/jälkeen**: taulukko näyttää jokaisen lukeman ennen ja nyt, merkittynä PAREMPI, HUONOMPI tai =.
 
 ## 5. Opettelutila
