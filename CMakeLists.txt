@@ -57,6 +57,25 @@ juce_add_plugin(WWMA
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
+# CLAP (Bitwig, Reaper, FL Studio...) through clap-juce-extensions
+option(WWMA_CLAP "Build the CLAP format" ON)
+set(CJE_DIR "" CACHE PATH "Path to a local clap-juce-extensions checkout (optional)")
+if(WWMA_CLAP)
+    if(CJE_DIR)
+        add_subdirectory(${CJE_DIR} clap-juce-extensions EXCLUDE_FROM_ALL)
+    else()
+        include(FetchContent)
+        FetchContent_Declare(clap-juce-extensions
+            GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
+            GIT_TAG 7adee3a1bd4684d4caa5601100e364abccff4b4d # main, 2026-10-06 (JUCE 8 support)
+            GIT_SUBMODULES_RECURSE ON)
+        FetchContent_MakeAvailable(clap-juce-extensions)
+    endif()
+    clap_juce_extensions_plugin(TARGET WWMA
+        CLAP_ID "com.salleq.wwma"
+        CLAP_FEATURES audio-effect analyzer utility stereo)
+endif()
+
 set(WWMA_CORE_SOURCES
     Source/analysis/Analyzer.cpp
     Source/advice/Profiles.cpp

@@ -59,9 +59,9 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          targets="WWMA_VST3"
-          if [ "$RUNNER_OS" = "macOS" ]; then targets="WWMA_VST3 WWMA_AU"; fi
-          if [ "$RUNNER_OS" = "Linux" ]; then targets="WWMA_VST3 WWMA_LV2"; fi
+          targets="WWMA_VST3 WWMA_CLAP"
+          if [ "$RUNNER_OS" = "macOS" ]; then targets="$targets WWMA_AU"; fi
+          if [ "$RUNNER_OS" = "Linux" ]; then targets="$targets WWMA_LV2"; fi
           if [ "${{ matrix.selftest }}" = "true" ]; then targets="$targets wwma_selftest"; fi
           cmake --build build --config Release --target $targets --parallel 4
 
@@ -76,12 +76,15 @@ jobs:
           echo "au=$au" >> "$GITHUB_OUTPUT"
           lv2=$(find build -type d -name "WWMA Mixing Aid.lv2" -path "*Release*" | head -1)
           echo "lv2=$lv2" >> "$GITHUB_OUTPUT"
+          clap=$(find build -name "WWMA Mixing Aid.clap" -path "*Release*" | head -1)
+          echo "clap=$clap" >> "$GITHUB_OUTPUT"
 
       - name: Ad-hoc sign (macOS)
         if: runner.os == 'macOS'
         run: |
           codesign --force --deep --sign - "${{ steps.plugin.outputs.path }}"
           codesign --force --deep --sign - "${{ steps.plugin.outputs.au }}"
+          codesign --force --deep --sign - "${{ steps.plugin.outputs.clap }}"
 
       - name: Self test (measurement accuracy, advice, pass-through, reference tracks)
         if: matrix.selftest
@@ -96,7 +99,7 @@ jobs:
           version=$(grep -m1 -o 'project(WWMA VERSION [0-9.]*' CMakeLists.txt | awk '{print $3}')
           mkdir -p installers
           installer/macos/build_pkg.sh "${{ steps.plugin.outputs.path }}" "${{ steps.plugin.outputs.au }}" \
-            "$version" "installers/WWMA-$version-macOS-Installer.pkg"
+            "$version" "installers/WWMA-$version-macOS-Installer.pkg" "${{ steps.plugin.outputs.clap }}"
 
       - name: Validate with pluginval
         if: matrix.pluginval_url
@@ -117,6 +120,7 @@ jobs:
           cp -R "${{ steps.plugin.outputs.path }}" dist/
           if [ -n "${{ steps.plugin.outputs.au }}" ]; then cp -R "${{ steps.plugin.outputs.au }}" dist/; fi
           if [ -n "${{ steps.plugin.outputs.lv2 }}" ]; then cp -R "${{ steps.plugin.outputs.lv2 }}" dist/; fi
+          cp -R "${{ steps.plugin.outputs.clap }}" dist/
           cp docs/INSTALL.txt dist/
           cd dist
           if [ "$RUNNER_OS" != "Windows" ]; then

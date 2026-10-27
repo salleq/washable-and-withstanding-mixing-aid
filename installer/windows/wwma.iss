@@ -22,7 +22,7 @@ DefaultDirName={commoncf64}\VST3
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 Uninstallable=yes
-UninstallDisplayName=WWMA Mixing Aid (VST3)
+UninstallDisplayName=WWMA Mixing Aid (VST3, CLAP)
 CreateUninstallRegKey=yes
 PrivilegesRequired=admin
 LicenseFile=..\..\LICENSE
@@ -41,10 +41,12 @@ SolidCompression=yes
 WizardStyle=modern
 
 [Messages]
-FinishedLabel=WWMA is installed in %n{commoncf64}\VST3%n%nRescan plugins in your DAW and put WWMA last on your master bus. It only measures: your sound passes through untouched.
+FinishedLabel=WWMA is installed in %n{commoncf64}\VST3 and {commoncf64}\CLAP%n%nRescan plugins in your DAW and put WWMA last on your master bus. It only measures: your sound passes through untouched.
 
 [Files]
 Source: "{#SourceDir}\WWMA Mixing Aid.vst3\*"; DestDir: "{commoncf64}\VST3\WWMA Mixing Aid.vst3"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#SourceDir}\WWMA Mixing Aid.clap"; DestDir: "{commoncf64}\CLAP"; Flags: ignoreversion
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{commoncf64}\VST3\WWMA Mixing Aid.vst3"
+Type: files; Name: "{commoncf64}\CLAP\WWMA Mixing Aid.clap"

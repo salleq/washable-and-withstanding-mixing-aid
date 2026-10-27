@@ -20,6 +20,8 @@ WHICH ZIP?
 INSTALL ON WINDOWS
 1. Copy the folder "WWMA Mixing Aid.vst3" to:
    C:\Program Files\Common Files\VST3
+   For CLAP hosts (Bitwig, Reaper, FL Studio...), copy "WWMA Mixing Aid.clap" to
+   C:\Program Files\Common Files\CLAP
 2. Rescan plugins in your DAW.
 
 INSTALL ON macOS
@@ -28,6 +30,7 @@ INSTALL ON macOS
    or ~/Library/Audio/Plug-Ins/VST3  (just you)
    Logic Pro / GarageBand use the Audio Unit instead: copy
    "WWMA Mixing Aid.component" to /Library/Audio/Plug-Ins/Components
+   CLAP hosts: copy "WWMA Mixing Aid.clap" to /Library/Audio/Plug-Ins/CLAP
 2. The plugin is not notarized by Apple, so macOS blocks it at first.
    Open Terminal and run (each on one line):
    xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/WWMA Mixing Aid.vst3"
@@ -40,6 +43,7 @@ INSTALL ON LINUX (x64 or ARM64)
    or to /usr/lib/vst3 for all users.
 2. For LV2 hosts (Ardour, Carla, Qtractor...), you can instead copy
    "WWMA Mixing Aid.lv2" to ~/.lv2 (or /usr/lib/lv2 for all users).
+   For CLAP hosts, copy "WWMA Mixing Aid.clap" to ~/.clap (or /usr/lib/clap).
 3. Rescan plugins in your DAW (Reaper, Bitwig, Ardour...).
 
 HOW TO USE

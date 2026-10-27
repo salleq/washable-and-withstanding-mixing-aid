@@ -1,8 +1,8 @@
 #!/bin/bash
-# Builds an installer package for macOS that puts the VST3 and the Audio Unit in /Library/Audio/Plug-Ins.
-# Usage: build_pkg.sh <path to .vst3> <path to .component> <version> <output.pkg>
+# Builds an installer package for macOS that puts the VST3, the Audio Unit and the CLAP in /Library/Audio/Plug-Ins.
+# Usage: build_pkg.sh <path to .vst3> <path to .component> <version> <output.pkg> <path to .clap>
 set -euo pipefail
-vst3="$1"; au="$2"; version="$3"; out="$4"
+vst3="$1"; au="$2"; version="$3"; out="$4"; clap="$5"
 here="$(cd "$(dirname "$0")" && pwd)"
 work="$(mktemp -d)"
 
@@ -20,6 +20,7 @@ make_component () {   # name, bundle, install location
 
 make_component vst3 "$vst3" "/Library/Audio/Plug-Ins/VST3"
 make_component au   "$au"   "/Library/Audio/Plug-Ins/Components" "$here/scripts"
+make_component clap "$clap" "/Library/Audio/Plug-Ins/CLAP"
 
 sed "s/@VERSION@/$version/g" "$here/distribution.xml" > "$work/distribution.xml"
 cp "$here/welcome.html" "$work/"
