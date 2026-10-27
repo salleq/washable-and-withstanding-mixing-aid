@@ -1,0 +1,53 @@
+WWMA - Washable Withstandable Mixing Aid
+========================================
+
+Free VST3 / AU plugin that tells you, in plain words, what is too much or too
+little in your mix, and teaches you how to fix it yourself. It only measures:
+your sound passes through untouched.
+
+EASIEST: use the installer (.exe on Windows, .pkg on Mac) from the Releases page.
+This zip is for installing by hand.
+
+WHICH ZIP?
+  Windows PC (Intel/AMD) ......... WWMA-Windows.zip
+  Windows on ARM (Snapdragon) .... WWMA-Windows-ARM64.zip
+  Mac (Intel and Apple Silicon) .. WWMA-macOS.zip (one universal build for both)
+  Linux PC (x64) ................. WWMA-Linux.zip
+  Linux ARM64 (e.g. Raspberry Pi 4/5 64-bit) .. WWMA-Linux-ARM64.zip
+  Use the version that matches your DAW: an x64 DAW running in emulation on ARM
+  Windows needs the x64 plugin.
+
+INSTALL ON WINDOWS
+1. Copy the folder "WWMA Mixing Aid.vst3" to:
+   C:\Program Files\Common Files\VST3
+2. Rescan plugins in your DAW.
+
+INSTALL ON macOS
+1. Copy "WWMA Mixing Aid.vst3" to:
+   /Library/Audio/Plug-Ins/VST3      (all users)
+   or ~/Library/Audio/Plug-Ins/VST3  (just you)
+   Logic Pro / GarageBand use the Audio Unit instead: copy
+   "WWMA Mixing Aid.component" to /Library/Audio/Plug-Ins/Components
+2. The plugin is not notarized by Apple, so macOS blocks it at first.
+   Open Terminal and run (each on one line):
+   xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/VST3/WWMA Mixing Aid.vst3"
+   xattr -dr com.apple.quarantine "/Library/Audio/Plug-Ins/Components/WWMA Mixing Aid.component"
+   (change the paths if you used your own Library folder)
+3. Rescan plugins in your DAW.
+
+INSTALL ON LINUX (x64 or ARM64)
+1. Copy "WWMA Mixing Aid.vst3" to ~/.vst3 (create the folder if needed)
+   or to /usr/lib/vst3 for all users.
+2. Rescan plugins in your DAW (Reaper, Bitwig, Ardour...).
+
+HOW TO USE
+1. Put WWMA as the LAST plugin on your master bus (after your limiter).
+2. Pick a preset for your style, MIX or MASTER, and a loudness target.
+3. Play the whole song (SONG), or loop the part you work on (NOW).
+4. Fix the top findings one at a time. Save a snapshot before a change,
+   then watch the score - and listen: your ears decide.
+5. Drag a reference track (WAV, AIFF, FLAC, MP3) onto the window to compare.
+   B - REF plays it at the same loudness as your mix.
+
+Source code and updates: https://github.com/salleq/washable-withstandable-mixing-aid
+License: GNU AGPL v3. Fonts: Barlow and IBM Plex Mono, SIL Open Font License 1.1.

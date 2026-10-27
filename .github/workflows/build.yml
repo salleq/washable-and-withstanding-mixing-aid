@@ -1,0 +1,195 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# a newer push to the same branch cancels the older, still running build
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-14
+            pluginval_url: https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
+            pluginval_bin: pluginval.app/Contents/MacOS/pluginval
+          - name: Windows
+            os: windows-2022
+            pluginval_url: https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip
+            pluginval_bin: pluginval.exe
+          - name: Linux
+            os: ubuntu-22.04
+            pluginval_url: https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Linux.zip
+            pluginval_bin: pluginval
+          # ARM: pluginval has no ARM builds for Windows or Linux, so these run WWMA's own self test instead
+          - name: Windows-ARM64
+            os: windows-11-arm
+            selftest: true
+          - name: Linux-ARM64
+            os: ubuntu-22.04-arm
+            selftest: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev xvfb
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DWWMA_BUILD_TOOLS=${{ matrix.selftest && 'ON' || 'OFF' }}
+
+      - name: Build
+        shell: bash
+        run: |
+          targets="WWMA_VST3"
+          if [ "$RUNNER_OS" = "macOS" ]; then targets="WWMA_VST3 WWMA_AU"; fi
+          if [ "${{ matrix.selftest }}" = "true" ]; then targets="$targets wwma_selftest"; fi
+          cmake --build build --config Release --target $targets --parallel 4
+
+      - name: Find the plugin
+        id: plugin
+        shell: bash
+        run: |
+          path=$(find build -type d -name "WWMA Mixing Aid.vst3" -path "*Release*" | head -1)
+          echo "Found: $path"
+          echo "path=$path" >> "$GITHUB_OUTPUT"
+          au=$(find build -type d -name "WWMA Mixing Aid.component" -path "*Release*" | head -1)
+          echo "au=$au" >> "$GITHUB_OUTPUT"
+
+      - name: Ad-hoc sign (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          codesign --force --deep --sign - "${{ steps.plugin.outputs.path }}"
+          codesign --force --deep --sign - "${{ steps.plugin.outputs.au }}"
+
+      - name: Self test (measurement accuracy, advice, pass-through, reference tracks)
+        if: matrix.selftest
+        shell: bash
+        run: |
+          exe=$(find build -type f \( -name wwma_selftest -o -name wwma_selftest.exe \) -path "*Release*" | head -1)
+          "$exe"
+
+      - name: Installer package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          version=$(grep -m1 -o 'project(WWMA VERSION [0-9.]*' CMakeLists.txt | awk '{print $3}')
+          mkdir -p installers
+          installer/macos/build_pkg.sh "${{ steps.plugin.outputs.path }}" "${{ steps.plugin.outputs.au }}" \
+            "$version" "installers/WWMA-$version-macOS-Installer.pkg"
+
+      - name: Validate with pluginval
+        if: matrix.pluginval_url
+        shell: bash
+        run: |
+          curl -sSL -o pluginval.zip "${{ matrix.pluginval_url }}"
+          unzip -q pluginval.zip
+          chmod +x ./${{ matrix.pluginval_bin }} || true
+          run=""
+          if [ "$RUNNER_OS" = "Linux" ]; then run="xvfb-run -a"; fi
+          $run ./${{ matrix.pluginval_bin }} --strictness-level 5 --validate-in-process --skip-gui-tests \
+            --timeout-ms 300000 --validate "${{ steps.plugin.outputs.path }}"
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp -R "${{ steps.plugin.outputs.path }}" dist/
+          if [ -n "${{ steps.plugin.outputs.au }}" ]; then cp -R "${{ steps.plugin.outputs.au }}" dist/; fi
+          cp docs/INSTALL.txt dist/
+          cd dist
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            zip -qry "../WWMA-${{ matrix.name }}.zip" .
+          else
+            7z a -tzip "../WWMA-${{ matrix.name }}.zip" . > /dev/null
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WWMA-${{ matrix.name }}
+          path: |
+            WWMA-${{ matrix.name }}.zip
+            installers/*.pkg
+
+  windows-installers:
+    name: Windows installers
+    needs: build
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: WWMA-Windows*
+          path: artifacts
+      - name: Build the x64 and ARM64 installers
+        shell: bash
+        run: |
+          version=$(grep -m1 -o 'project(WWMA VERSION [0-9.]*' CMakeLists.txt | awk '{print $3}')
+          iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ ! -f "$iscc" ]; then choco install innosetup -y --no-progress; fi
+          for arch in x64 arm64; do
+            name=WWMA-Windows; [ $arch = arm64 ] && name=WWMA-Windows-ARM64
+            mkdir -p "unpacked/$arch"
+            7z x -y "artifacts/$name/$name.zip" -o"unpacked/$arch" > /dev/null
+            MSYS_NO_PATHCONV=1 "$iscc" /Q /DArch=$arch /DVersion=$version "/DSourceDir=$(cygpath -w "$PWD/unpacked/$arch")" installer/windows/wwma.iss
+          done
+          ls -la installers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WWMA-Windows-Installers
+          path: installers/*.exe
+
+  test:
+    name: Self test and screenshots
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev xvfb
+      - name: Build tools
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DWWMA_BUILD_TOOLS=ON
+          cmake --build build --target wwma_selftest --parallel 4
+      - name: Run the self test and render the UI
+        run: xvfb-run -a ./build/wwma_selftest_artefacts/Release/wwma_selftest screenshots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/*.png
+
+  release:
+    name: Release
+    needs: [build, test, windows-installers]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.pkg
+            artifacts/**/*.exe
+          generate_release_notes: true
