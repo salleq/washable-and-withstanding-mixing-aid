@@ -673,6 +673,22 @@ int main (int argc, char* argv[])
         check (p999 < 0.6 * budget, "256-sample blocks stay well inside their time budget",
                "99.9 % under " + juce::String (p999 * 1000.0, 3) + " ms, worst " + juce::String (worstBlock * 1000.0, 3)
                    + " ms, budget " + juce::String (budget * 1000.0, 2) + " ms");
+
+        // with the EQ and limiter on, the input gets its own analyser as well
+        WwmaAudioProcessor q;
+        q.setPlayConfigDetails (2, 2, sp.sr, 256);
+        q.prepareToPlay (sp.sr, 256);
+        for (const char* id : { WwmaAudioProcessor::ChainIds::eqOn, WwmaAudioProcessor::ChainIds::limOn })
+            q.apvts.getParameter (id)->setValueNotifyingHost (1.0f);
+        const auto startChain = juce::Time::getHighResolutionTicks();
+        for (size_t i = 0; i + 256 <= x.l.size(); i += 256)
+        {
+            buf.copyFrom (0, 0, x.l.data() + i, 256);
+            buf.copyFrom (1, 0, x.r.data() + i, 256);
+            q.processBlock (buf, midi);
+        }
+        const double chainLoad = 100.0 * juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - startChain) / sp.seconds;
+        check (chainLoad < 10.0, "with the EQ and limiter on, still light", juce::String (chainLoad, 2) + " % of one core");
     }
 
     std::cout << "Tempo and style guess" << std::endl;

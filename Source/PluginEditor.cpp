@@ -169,6 +169,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
 
     if (state.chainOpen && state.learnMode)
         state.chainOpen = false;
+    proc.inputAnalysisWanted.store (state.chainOpen);
     updatePanels();
     refresh();
     startTimerHz (30);
@@ -179,6 +180,7 @@ WwmaAudioProcessorEditor::~WwmaAudioProcessorEditor()
     stopTimer();
     proc.listenToReference.store (false); // never leave the reference playing with no window to show it
     proc.listenWithoutChain.store (false); // nor the bypass on
+    proc.inputAnalysisWanted.store (false);
     setLookAndFeel (nullptr);
 }
 
@@ -459,10 +461,14 @@ void WwmaAudioProcessorEditor::pushHistory()
 void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
 {
     proc.analyzer.readSnapshot (state.snap);
-    proc.inputAnalyzer.readSnapshot (state.inputSnap);
 
     // mastering EQ and limiter: what the user set, the limiter's meter, and the bypass level
     const auto settings = proc.getChainSettings();
+    // with both stages off the input is the output; otherwise the input has its own analyser
+    if (settings.anyOn())
+        proc.inputAnalyzer.readSnapshot (state.inputSnap);
+    else
+        state.inputSnap = state.snap;
     const bool settingsChanged = ! settings.sameAs (state.chainSettings);
     state.chainSettings = settings;
     state.gainReduction = juce::jmax (proc.takeGainReduction(), state.gainReduction - 0.4f);
@@ -659,6 +665,7 @@ void WwmaAudioProcessorEditor::setLearnMode (bool on)
         state.compareOpen = false;
         state.chainOpen = false;
         proc.setChainOpen (false);
+        proc.inputAnalysisWanted.store (false);
     }
     updatePanels();
     lessonSeconds = -1.0f;
@@ -682,6 +689,7 @@ void WwmaAudioProcessorEditor::setChainOpen (bool open)
 {
     state.chainOpen = open;
     proc.setChainOpen (open);
+    proc.inputAnalysisWanted.store (open);
     if (open)
     {
         state.compareOpen = false;

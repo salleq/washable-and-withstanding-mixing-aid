@@ -160,6 +160,10 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     const bool without = listenWithoutChain.load() && settings.anyOn();
     const float withoutGain = juce::Decibels::decibelsToGain (withoutChainGainDb.load());
     const float withoutStep = (float) (1.0 / (0.03 * getSampleRate()));
+    const bool measureInput = settings.anyOn() || inputAnalysisWanted.load();
+    if (measureInput && ! inputRunning)
+        inputAnalyzer.requestReset(); // start fresh, not from whatever it heard last time
+    inputRunning = measureInput;
     for (int start = 0; start < n; start += chainBlock)
     {
         const int len = juce::jmin (chainBlock, n - start);
@@ -167,7 +171,8 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         float* r = numCh > 1 ? buffer.getWritePointer (1, start) : l;
 
         // the suggestions come from the input, the meters and advice from what goes out
-        inputAnalyzer.process (l, r, len);
+        if (measureInput)
+            inputAnalyzer.process (l, r, len);
         if (r == l)
         {
             // mono: run the chain on a copy for the right side, keep the left

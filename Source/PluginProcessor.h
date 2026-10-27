@@ -97,8 +97,11 @@ public:
     void setReportFolder (const juce::File& f);
 
     // ---- mastering EQ and limiter (the user sets them, WWMA only suggests)
-    /** Measures the input, before the EQ and limiter: the suggestions are based on it. */
+    /** Measures the input, before the EQ and limiter: the suggestions are based on it.
+        It only runs while a stage is on or the editor asks for it (the panel is open):
+        with both stages off the input is the output, and the main analyser already has it. */
     wwma::Analyzer inputAnalyzer;
+    std::atomic<bool> inputAnalysisWanted { false };
     /** The knobs as the user set them. */
     wwma::ChainSettings getChainSettings() const;
     /** Largest limiter gain reduction since the last call, dB. */
@@ -147,6 +150,7 @@ private:
 
     wwma::MasterChain chain;
     int chainBlock = 512;
+    bool inputRunning = false;
     float withoutMix = 0.0f;
     struct ChainParams
     {
