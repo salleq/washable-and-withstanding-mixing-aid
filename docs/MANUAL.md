@@ -1,6 +1,6 @@
 # WWMA manual
 
-WWMA (Washable Withstandable Mixing Aid) listens to your master bus and teaches you what to change. It never changes your sound. The only exception is when you choose **B · REF** to hear a reference track.
+WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teaches you what to change. It never changes your sound. The only exception is when you choose **B · REF** to hear a reference track.
 
 **Your ears decide.** Every number in WWMA is advice, not a rule. If the mix sounds good on a phone and in a car, it is good.
 

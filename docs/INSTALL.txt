@@ -1,4 +1,4 @@
-WWMA - Washable Withstandable Mixing Aid
+WWMA - Washable and Withstanding Mixing Aid
 ========================================
 
 Free VST3 / AU plugin that tells you, in plain words, what is too much or too

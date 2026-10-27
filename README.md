@@ -1,4 +1,4 @@
-# WWMA – Washable Withstandable Mixing Aid
+# WWMA – Washable and Withstanding Mixing Aid
 
 A free, open source mixing teacher in a plugin (VST3, CLAP, AU on macOS and LV2 on Linux, for Windows, macOS and Linux, x64 and ARM).
 

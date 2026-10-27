@@ -45,7 +45,7 @@ juce_add_plugin(WWMA
     PLUGIN_MANUFACTURER_CODE Sllq
     PLUGIN_CODE Wwma
     PRODUCT_NAME "WWMA Mixing Aid"
-    DESCRIPTION "Washable Withstandable Mixing Aid - tells you what is too much or too little in your mix"
+    DESCRIPTION "Washable and Withstanding Mixing Aid - tells you what is too much or too little in your mix"
     FORMATS ${WWMA_FORMATS}
     VST3_CATEGORIES Fx Analyzer Tools
     LV2URI "https://github.com/salleq/washable-withstandable-mixing-aid"
