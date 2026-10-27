@@ -2,6 +2,8 @@
 
 #include "Theme.h"
 #include "advice/Advisor.h"
+#include "advice/Lessons.h"
+#include "advice/MixReport.h"
 #include <functional>
 #include <array>
 #include <map>
@@ -9,8 +11,6 @@
 
 namespace wwma::ui
 {
-struct ScorePoint { juce::Time time; float score; };
-
 /** One reference track slot as the panels see it. */
 struct RefView
 {
@@ -41,7 +41,17 @@ struct ViewState
     float trend = 0.0f;                  // score change over the last ~15 s
     std::vector<float> shortTermHistory; // one value every 0.5 s, last 3 minutes
 
-    std::vector<ScorePoint> snapshots;   // saved scores (progress)
+    std::vector<SavedSnapshot> snapshots; // saved snapshots (progress, before/after)
+    bool awaitingSaveConfirm = false;     // newest snapshot: DAW project not yet confirmed saved as a new version
+    bool compareOpen = false;             // the before/after panel is shown
+    std::vector<MetricChange> changes;    // newest snapshot vs now
+
+    // lesson mode
+    bool learnMode = false;
+    int lessonIndex = 0;
+    LessonCheck lesson;
+    float lessonHeld = 0.0f;              // seconds of music the goal has been met
+    juce::StringArray lessonsDone;
 
     // the last saved snapshot, for "better / worse" on the cards
     bool hasBaseline = false;
@@ -201,11 +211,42 @@ public:
     void resized() override;
     void updateTexts();
 
-    std::function<void()> onSave, onClear;
+    std::function<void()> onSave, onClear, onCompare, onConfirm;
+    /** Shows the confirm button while a snapshot waits for its DAW save, and enables Before/after. */
+    void syncButtons();
 
 private:
     const ViewState& state;
-    juce::TextButton saveButton, clearButton;
+    juce::TextButton saveButton, compareButton, clearButton, confirmButton;
+    juce::Rectangle<int> plotArea() const;
+};
+
+/** Newest snapshot vs now: which numbers got better or worse. Shown over the findings. */
+class BeforeAfterBox : public juce::Component
+{
+public:
+    explicit BeforeAfterBox (const ViewState& s);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void updateTexts();
+    std::function<void()> onClose;
+private:
+    const ViewState& state;
+    juce::TextButton closeButton;
+};
+
+/** Lesson mode: one hands-on task at a time, with a live meter towards its goal. */
+class LessonBox : public juce::Component
+{
+public:
+    explicit LessonBox (const ViewState& s);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void updateTexts();
+    std::function<void()> onPrev, onNext;
+private:
+    const ViewState& state;
+    juce::TextButton prevButton, nextButton;
 };
 
 /** Small helpers shared with the editor. */

@@ -8,6 +8,7 @@
 #include "PluginEditor.h"
 #include "SongSynth.h"
 #include "advice/StyleGuess.h"
+#include "advice/Lessons.h"
 #include <complex>
 #include <functional>
 #include <iostream>
@@ -351,7 +352,7 @@ int main (int argc, char* argv[])
         const auto a = run (balanced);
         bool tipOk = false;
         for (const auto& f : a.findings)
-            tipOk = tipOk || (f.id == "tip" && f.severity == Severity::info && f.penalty == 0.0f && f.why.isNotEmpty());
+            tipOk = tipOk || (f.id == "tip" && f.severity == Severity::info && f.penalty <= 0.0f && f.why.isNotEmpty());
         check (tipOk, "a listening tip is shown, at no cost to the score");
     }
 
@@ -521,6 +522,7 @@ int main (int argc, char* argv[])
             { "right channel 3 dB down", [] (synth::SongParams& x) { x.balanceDb = 3; }, "balance" },
             { "hard clipped master", [] (synth::SongParams& x) { x.limiter = false; x.driveDb = 12; }, "clipping" },
             { "too quiet master", [] (synth::SongParams& x) { x.driveDb = -1; }, "quiet" },
+            { "a loud lead in anti-phase", [] (synth::SongParams& x) { x.leadAntiPhase = 1; x.leadDb = 4; }, "monoloss" },
         };
         for (const auto& m : mistakes)
         {
@@ -625,6 +627,153 @@ int main (int argc, char* argv[])
         check (! editor->isStyleSuggestionShown(), "after switching, the chip only confirms the style");
     }
 
+    // ------------------------------------------------------------------ snapshots, lessons, report
+    std::cout << "Snapshots, lessons and the mix report" << std::endl;
+    {
+        // a plugin with its editor, fed like a DAW would, with the editor's 0.5 s refresh
+        struct Session
+        {
+            WwmaAudioProcessor p;
+            std::unique_ptr<juce::AudioProcessorEditor> ed;
+            WwmaAudioProcessorEditor* editor = nullptr;
+            Session()
+            {
+                p.setPlayConfigDetails (2, 2, 48000.0, 512);
+                p.prepareToPlay (48000.0, 512);
+                p.setProfileIndex (0);
+                p.setWindow (Window::song);
+                ed.reset (p.createEditor());
+                editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+            }
+            void play (const synth::SongParams& sp, double seconds = 0.0)
+            {
+                auto x = synth::renderSong (sp);
+                const size_t n = seconds > 0.0 ? juce::jmin (x.l.size(), (size_t) (seconds * sp.sr)) : x.l.size();
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                size_t since = 0;
+                for (size_t i = 0; i + 512 <= n; i += 512)
+                {
+                    buf.copyFrom (0, 0, x.l.data() + i, 512);
+                    buf.copyFrom (1, 0, x.r.data() + i, 512);
+                    p.processBlock (buf, midi);
+                    if ((since += 512) >= 24000)
+                    {
+                        since = 0;
+                        editor->refresh (true);
+                    }
+                }
+                editor->refresh (true);
+            }
+        };
+
+        {
+            Session s;
+            synth::SongParams messy;
+            messy.mudDb = 8;
+            messy.bassWidth = 1;
+            s.play (messy);
+            check (! s.editor->isAwaitingSaveConfirmation(), "no save reminder before a snapshot");
+            s.editor->saveSnapshot();
+            check (s.editor->isAwaitingSaveConfirmation(), "a snapshot asks to save the DAW project as a new version");
+            const auto snaps = s.p.getSnapshots();
+            check (snaps.size() == 1 && ! snaps[0].confirmed && snaps[0].metrics.size() >= 10, "the snapshot keeps its key metrics",
+                   juce::String ((int) (snaps.empty() ? 0 : snaps[0].metrics.size())) + " metrics");
+            s.editor->confirmSnapshotSaved();
+            check (! s.editor->isAwaitingSaveConfirmation() && s.p.getSnapshots()[0].confirmed, "\"I saved it\" is stored with the snapshot");
+
+            // the state survives the project being closed and opened
+            juce::MemoryBlock mb;
+            s.p.getStateInformation (mb);
+            WwmaAudioProcessor q;
+            q.setStateInformation (mb.getData(), (int) mb.getSize());
+            const auto restored = q.getSnapshots();
+            check (restored.size() == 1 && restored[0].confirmed && restored[0].metrics.size() == snaps[0].metrics.size(),
+                   "snapshots and their confirmation are saved with the project");
+
+            s.p.analyzer.requestReset();
+            s.play ({});
+            s.editor->setCompareOpen (true);
+            int better = 0, worse = 0;
+            juce::String improved;
+            for (const auto& c : s.editor->getChanges())
+            {
+                if (c.verdict > 0) { ++better; improved << c.id << " "; }
+                if (c.verdict < 0) ++worse;
+            }
+            check (better >= 2 && better > worse, "before/after shows which meters improved after fixing the mix",
+                   juce::String (better) + " better (" + improved.trim() + "), " + juce::String (worse) + " worse");
+            s.editor->setCompareOpen (false);
+        }
+
+        {
+            Session s;
+            s.editor->setLearnMode (true);
+            s.editor->showLesson (1); // keep the bass in mono
+            synth::SongParams wide;
+            wide.bassWidth = 1;
+            s.play (wide, 12.0);
+            check (s.editor->getLessonCheck().ready && ! s.editor->getLessonCheck().passed, "lesson \"bass in mono\": a stereo bass does not pass",
+                   s.editor->getLessonCheck().now);
+            check (! s.p.getLessonsDone().contains ("monobass"), "  and the lesson is not marked done");
+            s.p.analyzer.requestReset();
+            s.play ({}, 12.0);
+            check (s.editor->getLessonCheck().passed && s.p.getLessonsDone().contains ("monobass"), "  a mono bass passes and the lesson is marked done",
+                   s.editor->getLessonCheck().now);
+
+            s.editor->showLesson (0); // duck the bass under the kick
+            s.p.analyzer.requestReset();
+            s.play ({}, 12.0);
+            check (s.editor->getLessonCheck().passed, "lesson \"duck the bass\": a bass ducked by the kick passes", s.editor->getLessonCheck().now);
+            s.p.analyzer.requestReset();
+            synth::SongParams wall;
+            wall.duckDb = 0;
+            wall.bassDb = 6;
+            s.play (wall, 12.0);
+            check (! s.editor->getLessonCheck().passed, "  a loud bass without ducking does not",
+                   s.editor->getLessonCheck().now + " " + s.editor->getLessonCheck().waitingFor);
+            s.p.analyzer.requestReset();
+            synth::SongParams buried;
+            buried.bassSustain = true;
+            buried.duckDb = 0;
+            s.play (buried, 12.0);
+            check (s.editor->getLessonCheck().ready && ! s.editor->getLessonCheck().passed, "  a kick buried under a long bass note does not",
+                   s.editor->getLessonCheck().now + " " + s.editor->getLessonCheck().waitingFor);
+            s.editor->setLearnMode (false);
+        }
+
+        {
+            Session s;
+            const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-report-test");
+            dir.deleteRecursively();
+            dir.createDirectory();
+            synth::SongParams messy;
+            messy.mudDb = 8;
+            s.play (messy);
+            s.editor->saveSnapshot();
+            s.editor->confirmSnapshotSaved();
+            const auto first = dir.getChildFile ("WWMA report 2026-01-01 1200.md");
+            const auto prevOfFirst = s.editor->saveReport (first);
+            check (first.existsAsFile() && first.withFileExtension ("json").existsAsFile() && prevOfFirst == juce::File(),
+                   "the report is written as Markdown with a JSON copy");
+            const auto json = juce::JSON::parse (first.withFileExtension ("json"));
+            check (json.getProperty ("format", {}).toString() == "wwma-report-1", "  the JSON copy can be read back");
+            const auto text1 = first.loadFileAsString();
+            check (text1.contains ("Snapshots") && text1.contains ("Your ears decide"), "  it lists the findings and snapshots");
+
+            s.p.analyzer.requestReset();
+            s.play ({});
+            const auto second = dir.getChildFile ("WWMA report 2026-01-01 1300.md");
+            const auto prev = s.editor->saveReport (second);
+            const auto text2 = second.loadFileAsString();
+            check (prev == first && text2.contains ("Since the previous report"), "a later report is compared with the previous one",
+                   prev.getFileName());
+            if (argc > 1)
+                second.copyFileTo (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]).getChildFile ("wwma-report-example.md"));
+            dir.deleteRecursively();
+        }
+    }
+
     // ------------------------------------------------------------------ screenshots
     if (argc > 1)
     {
@@ -632,7 +781,7 @@ int main (int argc, char* argv[])
         dir.createDirectory();
         std::cout << "Screenshots -> " << dir.getFullPathName() << std::endl;
 
-        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; };
+        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson
         const auto refA = writeWav (refAudio, 44100.0, "Favourite club track.wav");
         const auto refB = writeWav (profileMix (house, 48000.0, [] (double f) { return f < 90.0 ? 2.0 : 0.0; }, -14.0, monoBass, -10.0, 33),
                                     48000.0, "Night drive loop.wav");
@@ -646,6 +795,10 @@ int main (int argc, char* argv[])
             { "wwma-reference-en.png", messy, Lang::english, false, true, false },
             { "wwma-reference-ab-en.png", messy, Lang::english, false, true, true },
             { "wwma-style-en.png", {}, Lang::english, false },
+            { "wwma-save-reminder-en.png", balanced, Lang::english, true, false, false, 1 },
+            { "wwma-before-after-en.png", balanced, Lang::english, true, false, false, 2 },
+            { "wwma-lesson-en.png", {}, Lang::english, false, false, false, 3 },
+            { "wwma-lesson-fi.png", {}, Lang::finnish, false, false, false, 3 },
         };
         {
             synth::SongParams sp;
@@ -654,6 +807,11 @@ int main (int argc, char* argv[])
             sp.subDb = -6.0;
             const auto x = synth::renderSong (sp);
             const_cast<Shot&> (shots[5]).audio = Stereo { x.l, x.r };
+            synth::SongParams good;
+            good.seconds = 12.0;
+            const auto g = synth::renderSong (good);
+            const_cast<Shot&> (shots[8]).audio = Stereo { g.l, g.r };
+            const_cast<Shot&> (shots[9]).audio = Stereo { g.l, g.r };
         }
 
         for (const auto& shot : shots)
@@ -675,6 +833,12 @@ int main (int argc, char* argv[])
                 editor->referencesChanged();
             if (shot.listen)
                 editor->setListening (true);
+            if (shot.view == 3)
+            {
+                p.markLessonDone ("monobass");
+                editor->setLearnMode (true);
+                editor->showLesson (0);
+            }
             juce::MidiBuffer midi;
             const size_t halfSecond = (size_t) (sr * 0.5);
             auto feed = [&] (const Stereo& x)
@@ -704,8 +868,12 @@ int main (int argc, char* argv[])
                 editor->refresh();
                 editor->settleDisplay();
                 editor->saveSnapshot();
+                if (shot.view != 1)
+                    editor->confirmSnapshotSaved();
                 p.analyzer.requestReset();
                 feed (balanced);
+                if (shot.view == 2)
+                    editor->setCompareOpen (true);
             }
             else
                 feed (shot.audio);

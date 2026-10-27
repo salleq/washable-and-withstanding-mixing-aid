@@ -94,6 +94,10 @@ int main (int argc, char** argv)
 
     const std::vector<Case> cases {
         { "good", [] (synth::SongParams&) {} },
+        { "sustain duck0", [] (synth::SongParams& p) { p.bassSustain = true; p.duckDb = 0; } },
+        { "sustain duck3", [] (synth::SongParams& p) { p.bassSustain = true; p.duckDb = 3; } },
+        { "sustain duck6", [] (synth::SongParams& p) { p.bassSustain = true; p.duckDb = 6; } },
+        { "sustain duck10", [] (synth::SongParams& p) { p.bassSustain = true; p.duckDb = 10; } },
         { "noduck+bass", [] (synth::SongParams& p) { p.duckDb = 0; p.bassDb = 6; } },
         { "squashed", [] (synth::SongParams& p) { p.driveDb = 17; } },
         { "quiet", [] (synth::SongParams& p) { p.driveDb = -1; } },
@@ -106,6 +110,7 @@ int main (int argc, char** argv)
         { "rumble", [] (synth::SongParams& p) { p.rumbleDb = 0; } },
         { "balance3", [] (synth::SongParams& p) { p.balanceDb = 3; } },
         { "hardclip", [] (synth::SongParams& p) { p.limiter = false; p.driveDb = 12; } },
+        { "lead anti-phase", [] (synth::SongParams& p) { p.leadAntiPhase = 1; p.leadDb = 4; } },
         { "nodrums", [] (synth::SongParams& p) { p.drums = false; } },
         { "snare-10", [] (synth::SongParams& p) { p.snareDb = -10; } },
         { "hats+10", [] (synth::SongParams& p) { p.hatDb = 10; } },
@@ -123,9 +128,9 @@ int main (int argc, char** argv)
         const auto as = assess (snap, *profile, Window::song, Lang::english);
         const auto& m = as.measures;
 
-        std::printf ("\n%-14s score %5.1f  I %6.1f TP %5.1f PLR %4.1f kick %c lowC %5.1f snap %5.1f lowW %6.1f W %6.1f ph %5.2f pb %5.1f bpm %5.1f (%.2f) hits %.1f/s\n",
+        std::printf ("\n%-14s score %5.1f  I %6.1f TP %5.1f PLR %4.1f kick %c lowC %5.1f snap %5.1f lowW %6.1f W %6.1f ph %5.2f pb %5.1f bpm %5.1f (%.2f) hits %.1f/s duck %.1f\n",
                      c.name, as.score, m.loudness, m.truePeak, m.plr, m.kickValid ? 'y' : 'n',
-                     m.lowContrast, m.highContrast, m.lowWidth, m.width, m.correlation, m.phoneBass, snap.tempoBpm, snap.tempoConfidence, snap.hitsPerSecond);
+                     m.lowContrast, m.highContrast, m.lowWidth, m.width, m.correlation, m.phoneBass, snap.tempoBpm, snap.tempoConfidence, snap.hitsPerSecond, snap.duckSong);
         std::printf ("               ranges");
         for (int r = 0; r < numRanges; ++r)
             std::printf (" %+5.1f", m.rangeDeviation[(size_t) r]);

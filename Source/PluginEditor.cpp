@@ -21,8 +21,10 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &loudness, &meters, &history, &compare, &refBox, &tonal, &findings, &score, &translation, &progress,
              &profileBox, &targetBox, &mixButton, &masterButton, &nowButton, &songButton, &mixAButton, &refBButton,
-             &resetButton, &langButton, &autoResetToggle, &styleButton })
+             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton })
         content.addAndMakeVisible (c);
+    content.addChildComponent (beforeAfter);
+    content.addChildComponent (lessonBox);
 
     profileBox.getProperties().set ("caption", "Preset");
     profileBox.onChange = [this]
@@ -99,6 +101,19 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
 
     progress.onSave = [this] { saveSnapshot(); };
     progress.onClear = [this] { clearSnapshots(); };
+    progress.onCompare = [this] { setCompareOpen (! state.compareOpen); };
+    progress.onConfirm = [this] { confirmSnapshotSaved(); };
+    beforeAfter.onClose = [this] { setCompareOpen (false); };
+    lessonBox.onPrev = [this] { showLesson (state.lessonIndex - 1); };
+    lessonBox.onNext = [this] { showLesson (state.lessonIndex + 1); };
+
+    learnButton.setClickingTogglesState (true);
+    learnButton.onClick = [this] { setLearnMode (learnButton.getToggleState()); };
+    reportButton.onClick = [this] { chooseReportFile(); };
+    state.learnMode = proc.getLearnMode();
+    state.lessonIndex = juce::jlimit (0, lessonCount() - 1, proc.getLessonIndex());
+    state.lessonsDone = proc.getLessonsDone();
+    learnButton.setToggleState (state.learnMode, juce::dontSendNotification);
 
     state.lang = proc.getLang();
     loadSnapshots();
@@ -111,6 +126,8 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
         c->setFixedAspectRatio ((double) baseWidth / baseHeight);
     setSize (baseWidth, baseHeight);
 
+    lessonBox.setVisible (state.learnMode);
+    findings.setVisible (! state.learnMode);
     refresh();
     startTimerHz (30);
 }
@@ -197,7 +214,7 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setFont (fonts::body (12.5f));
     g.drawFittedText (tr (lang, "Numbers are advice, not rules. If it sounds good on a phone and in a car, it is good.",
                                 "Luvut ovat neuvoja, eivät sääntöjä. Jos se kuulostaa hyvältä puhelimessa ja autossa, se on hyvä."),
-                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, 520 - earW, footer), juce::Justification::centredLeft, 2, 1.0f);
+                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, 360 - earW, footer), juce::Justification::centredLeft, 2, 0.9f);
 }
 
 void WwmaAudioProcessorEditor::Content::resized()
@@ -220,7 +237,9 @@ void WwmaAudioProcessorEditor::Content::resized()
     place (e.resetButton, 130, 12);
     place (e.autoResetToggle, 124, 10);
     place (e.songButton, 66, 0);
-    place (e.nowButton, 58);
+    place (e.nowButton, 58, 14);
+    place (e.reportButton, 84, 8);
+    place (e.learnButton, 78, 8);
 
     // columns
     const int top = topBar + gap, bottom = baseHeight - footer - gap;
@@ -237,6 +256,8 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.tonal.setBounds (cx, top + 108 + gap, cw, 256);
     e.styleButton.setBounds (cx + cw - 12 - 330, top + 108 + gap + 8, 330, 22);
     e.findings.setBounds (cx, top + 108 + 256 + 2 * gap, cw, bottom - (top + 108 + 256 + 2 * gap));
+    e.beforeAfter.setBounds (e.findings.getBounds());
+    e.lessonBox.setBounds (e.findings.getBounds());
 
     e.score.setBounds (rx, top, rightWidth, 196);
     e.translation.setBounds (rx, top + 196 + gap, rightWidth, 222);
@@ -307,6 +328,14 @@ void WwmaAudioProcessorEditor::updateTexts()
     langButton.setButtonText (lang == Lang::finnish ? "EN" : "FI");
     langButton.setTooltip (lang == Lang::finnish ? juce::String ("In English") : juce::String (juce::CharPointer_UTF8 ("Suomeksi")));
     progress.updateTexts();
+    beforeAfter.updateTexts();
+    lessonBox.updateTexts();
+    learnButton.setButtonText (ui::upper (tr (lang, "Learn", "Opettele")));
+    learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
+                                      "Oppimistila: lyhyitä käytännön tehtäviä (esim. basson duckaus kickin alle). WWMA seuraa viimeisiä 3 sekuntia ja kertoo, kun onnistuit."));
+    reportButton.setButtonText (ui::upper (tr (lang, "Report", "Raportti")));
+    reportButton.setTooltip (tr (lang, "Save a report of this mix (Markdown + JSON). If an earlier report is in the same folder, the new one shows what changed since.",
+                                       "Tallenna raportti tästä miksistä (Markdown + JSON). Jos samassa kansiossa on aiempi raportti, uusi näyttää, mikä muuttui sen jälkeen."));
 
     const bool now = proc.getWindow() == Window::now;
     nowButton.setToggleState (now, juce::dontSendNotification);
@@ -395,6 +424,13 @@ void WwmaAudioProcessorEditor::reassess()
             r.assessment = assess (r.snap, state.profile, Window::song, state.lang, state.stage);
 
     updateStyleButton();
+    if (state.compareOpen && ! state.snapshots.empty() && state.assessment.enoughData)
+        state.changes = compareMetrics (state.snapshots.back().metrics, keyMetrics (state.assessment, state.profile, state.stage));
+    else
+        state.changes.clear();
+    beforeAfter.repaint();
+    if (state.learnMode)
+        updateLesson();
     updateBaselineDiff();
     findings.refresh();
     findings.repaint();
@@ -451,9 +487,11 @@ void WwmaAudioProcessorEditor::updateStyleButton()
 // =====================================================================================
 void WwmaAudioProcessorEditor::loadSnapshots()
 {
-    state.snapshots.clear();
-    for (const auto& p : proc.getScoreSnapshots())
-        state.snapshots.push_back ({ p.time, p.score });
+    state.snapshots = proc.getSnapshots();
+    state.awaitingSaveConfirm = proc.latestSnapshotNeedsConfirmation();
+    if (state.snapshots.empty())
+        state.compareOpen = false;
+    progress.syncButtons();
 }
 
 void WwmaAudioProcessorEditor::setBaselineFromCurrent()
@@ -475,7 +513,11 @@ void WwmaAudioProcessorEditor::saveSnapshot()
 {
     if (! state.assessment.enoughData)
         return;
-    proc.addScoreSnapshot (state.assessment.score);
+    SavedSnapshot snap;
+    snap.time = juce::Time::getCurrentTime();
+    snap.score = state.assessment.score;
+    snap.metrics = toMap (keyMetrics (state.assessment, state.profile, state.stage));
+    proc.addSnapshot (snap);
     loadSnapshots();
     setBaselineFromCurrent();
     reassess();
@@ -491,6 +533,138 @@ void WwmaAudioProcessorEditor::clearSnapshots()
     baselineTitles.clear();
     reassess();
     progress.repaint();
+}
+
+void WwmaAudioProcessorEditor::confirmSnapshotSaved()
+{
+    proc.confirmLatestSnapshot();
+    loadSnapshots();
+    progress.repaint();
+    beforeAfter.repaint();
+}
+
+void WwmaAudioProcessorEditor::setCompareOpen (bool open)
+{
+    state.compareOpen = open && ! state.snapshots.empty();
+    if (state.compareOpen && state.learnMode)
+        setLearnMode (false);
+    beforeAfter.setVisible (state.compareOpen);
+    findings.setVisible (! state.compareOpen && ! state.learnMode);
+    progress.syncButtons();
+    reassess();
+}
+
+void WwmaAudioProcessorEditor::setLearnMode (bool on)
+{
+    state.learnMode = on;
+    proc.setLearnMode (on);
+    learnButton.setToggleState (on, juce::dontSendNotification);
+    if (on && state.compareOpen)
+    {
+        state.compareOpen = false;
+        beforeAfter.setVisible (false);
+        progress.syncButtons();
+    }
+    lessonBox.setVisible (on);
+    findings.setVisible (! on && ! state.compareOpen);
+    lessonSeconds = -1.0f;
+    state.lessonHeld = 0.0f;
+    reassess();
+}
+
+void WwmaAudioProcessorEditor::showLesson (int index)
+{
+    state.lessonIndex = (index + lessonCount()) % lessonCount();
+    proc.setLessonIndex (state.lessonIndex);
+    state.lessonHeld = 0.0f;
+    lessonSeconds = -1.0f;
+    reassess();
+}
+
+void WwmaAudioProcessorEditor::updateLesson()
+{
+    // lessons watch the last 3 seconds, so a looped part can be tweaked live
+    const auto nowAssessment = assess (state.snap, state.profile, Window::now, state.lang, state.stage);
+    state.lesson = checkLesson (state.lessonIndex, nowAssessment, state.profile, state.stage, state.lang);
+
+    // the goal must hold for 3 seconds of music (not wall-clock time: a stopped transport doesn't count)
+    const float t = state.snap.secondsAnalysed;
+    if (state.lesson.ready && state.lesson.passed)
+    {
+        if (lessonSeconds >= 0.0f)
+            state.lessonHeld += juce::jmax (0.0f, t - lessonSeconds);
+    }
+    else
+        state.lessonHeld = 0.0f;
+    lessonSeconds = t;
+
+    const auto id = juce::String (lessonId (state.lessonIndex));
+    if (state.lessonHeld >= 3.0f && ! state.lessonsDone.contains (id))
+    {
+        proc.markLessonDone (id);
+        state.lessonsDone = proc.getLessonsDone();
+    }
+    lessonBox.repaint();
+}
+
+void WwmaAudioProcessorEditor::chooseReportFile()
+{
+    auto folder = proc.getReportFolder();
+    folder.createDirectory();
+    const auto name = "WWMA report " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M") + ".md";
+    chooser = std::make_unique<juce::FileChooser> (tr (proc.getLang(), "Save the mix report", "Tallenna miksausraportti"),
+                                                   folder.getChildFile (name), "*.md");
+    juce::Component::SafePointer<WwmaAudioProcessorEditor> safe (this);
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [safe] (const juce::FileChooser& fc)
+                          {
+                              if (safe == nullptr || fc.getResult() == juce::File())
+                                  return;
+                              auto file = fc.getResult();
+                              if (! file.hasFileExtension ("md"))
+                                  file = file.withFileExtension ("md");
+                              safe->saveReport (file);
+                          });
+}
+
+juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
+{
+    const auto folder = markdownFile.getParentDirectory();
+    folder.createDirectory();
+    const auto jsonFile = markdownFile.withFileExtension ("json");
+
+    // the newest earlier report in the same folder, to compare with
+    juce::File previous;
+    for (const auto& f : folder.findChildFiles (juce::File::findFiles, false, "*.json"))
+        if (f != jsonFile && (previous == juce::File() || f.getLastModificationTime() > previous.getLastModificationTime()))
+            if (juce::JSON::parse (f).getProperty ("format", {}).toString() == "wwma-report-1")
+                previous = f;
+
+    ReportInput in;
+    in.time = juce::Time::getCurrentTime();
+    in.presetName = state.profileName;
+    in.stage = state.stage;
+    in.window = state.window;
+    in.secondsAnalysed = state.snap.secondsAnalysed;
+    in.tempoBpm = styleGuess.tempoFound ? styleGuess.bpm : 0.0f;
+    if (styleGuess.valid && styleGuess.best >= 0)
+        in.styleGuess = juce::String (builtInProfiles()[(size_t) styleGuess.best].family) + " ("
+                        + juce::String (juce::roundToInt (100.0f * styleGuess.familyConfidence)) + " %)";
+    in.assessment = state.assessment;
+    in.profile = state.profile;
+    in.snapshots = state.snapshots;
+    if (const auto* ref = state.activeRefView())
+    {
+        in.referenceName = ref->name;
+        in.referenceAssessment = ref->assessment;
+    }
+
+    const auto prevJson = previous.existsAsFile() ? juce::JSON::parse (previous) : juce::var();
+    markdownFile.replaceWithText (reportMarkdown (in, state.lang, prevJson, previous.getFileNameWithoutExtension()));
+    jsonFile.replaceWithText (juce::JSON::toString (reportJson (in)));
+    proc.setReportFolder (folder);
+    return previous == juce::File() ? previous : previous.withFileExtension ("md");
 }
 
 void WwmaAudioProcessorEditor::updateBaselineDiff()

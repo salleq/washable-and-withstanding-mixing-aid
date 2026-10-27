@@ -60,8 +60,13 @@ struct Measures
     float correlation = 1.0f;
     float width = -100.0f;        // side vs mid, dB
     float lowWidth = -100.0f;     // side vs mid below 140 Hz, dB
+    float monoLoss = 0.0f;        // largest level drop when summed to mono, 300 Hz-10 kHz, dB
+    int monoLossBand = -1;        // where that happens
+    float monoLossBass = 0.0f;    // level drop of the low end (below 140 Hz) in mono, dB
     float lowContrast = 0.0f, highContrast = 0.0f;
+    float duck = 0.0f;            // how far the bass dips right after each kick (sidechain ducking), dB
     bool contrastValid = false, kickValid = false;
+    bool beatSteady = false;      // a clear, steady beat was found (tempo confidence)
     float phoneBass = 0.0f;       // dB vs target
     float balance = 0.0f;         // left vs right, dB
     float dcOffset = -200.0f;     // dBFS

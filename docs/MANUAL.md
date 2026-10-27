@@ -33,7 +33,7 @@ WWMA (Washable Withstandable Mixing Aid) listens to your master bus and teaches 
 | Findings | At most four things to fix, most important first. Click a card for the reason, every step and the common trap. |
 | How close to a good mix | Score 0–100: Needs improvement, Not quite there yet, Close enough, Looks perfect. |
 | Translation | How the mix should hold up on a phone, in a car, on headphones and in a club. |
-| Progress | Save a snapshot before a change. The cards then show what got better or worse, and the chart tracks your score. |
+| Progress | Save a snapshot before a change. The cards then show what got better or worse, the chart tracks your score, and **Before/after** compares every meter. See section 5. |
 
 ## 3. Every check, explained
 
@@ -78,6 +78,7 @@ Each finding is **clearly** or **slightly** off. The score drops more for the cl
 | Finding | Fires when | First thing to try |
 |---|---|---|
 | Phase problems | Correlation below 0.3. | Look for wideners, Haas delays and flipped layers. |
+| Gets quieter in mono | Summed to mono, a loud part of the spectrum (140 Hz–5 kHz) drops more than about 4 dB: a wide synth or lead that partly cancels. Also shown under the low end width as "bass −x dB in mono". | Check the widener or chorus on that part, narrow it, or keep a mono core and widen only a copy. |
 | Very wide stereo image | Side is close to mid overall. | Less widening; keep important parts in the centre. |
 | Narrow, almost mono mix | Hardly any side signal. | Pan support parts and add a little stereo reverb. |
 | Top end mostly on the sides | Above 4 kHz the side is louder than the mid. | Put something bright in the centre and widen less. |
@@ -117,7 +118,52 @@ Limits:
 - Styles at the same tempo (techno and UK garage at 132, for example) are easy to mix up.
 - Your own choice and your ears win.
 
-## 5. Reference tracks
+## 5. Snapshots and before/after
+
+1. Press **Snapshot** before you change something. WWMA stores the score and every key number.
+2. The progress panel then asks you to **save your DAW project as a new version** (File > Save As..., e.g. "My song v3"). That way you can always go back to the mix before the change.
+3. Press **I saved it** once you have. The reminder stays until you do, and the snapshot remembers that a DAW version exists (✓ in the chart).
+4. Make your change and play the same part again.
+5. Press **Before/after**. A table shows every number before and now, marked **BETTER**, **WORSE** or **=**, with the better ones first.
+
+![The save reminder after a snapshot](images/wwma-save-reminder.png)
+
+![Before/after](images/wwma-before-after.png)
+
+Snapshots are saved with your DAW project.
+
+## 6. Learning mode
+
+Press **Learn** to get short, hands-on tasks instead of the findings. Each lesson says why it matters, what to do step by step, and shows a bar that fills up as you get closer. The lesson is done when the goal holds for 3 seconds of music. Loop a part and tweak while you watch (lessons always look at the last 3 seconds).
+
+| Lesson | Done when |
+|---|---|
+| Duck the bass under the kick | The kick rises clearly above the bass, or the bass dips clearly after each kick (sidechain). |
+| Make the low end mono | Hardly any side signal below 140 Hz. |
+| Make the bass heard on a phone | The bass harmonics (the part phones can play) are loud enough. |
+| Clear the mud | 200–450 Hz is no more than 1 dB above the style's target. |
+| Let the drums through | Snare and hats stand out of the 1.5–6 kHz region. |
+| Make it mono-safe | Nothing important gets quieter in mono, and correlation is at least 0.5. |
+| Leave headroom for mastering | The true peak sits between −6 and −3 dBTP. |
+| Reach the style's loudness without squashing | Loudness is in the style's range and the punch (PLR) is still there. |
+
+Finished lessons get a filled dot. Your progress is saved with the project. WWMA still never touches the sound: you do the work.
+
+![Learning mode](images/wwma-lesson.png)
+
+## 7. Mix report
+
+Press **Report** to save a report as a Markdown file (it opens in any text editor, and GitHub or Obsidian show it nicely). It holds:
+
+- the score and the playback estimates
+- what to fix, with the reasons and steps
+- every number, and the reference track's numbers if one is loaded
+- your snapshots, and whether a DAW version was saved for each
+- **Since the previous report**: when an earlier report is in the same folder, what got better or worse since then.
+
+A JSON copy is saved next to it so that later reports can compare. Keep the reports in one folder per song (the default is Documents/WWMA Reports). See an [example report](example-report.md).
+
+## 8. Reference tracks
 
 Drag a track you like (WAV, AIFF, FLAC, MP3 or OGG; also M4A on macOS and Windows) onto the window, or click a slot to browse. It is analysed once in the background. Then:
 
@@ -127,7 +173,7 @@ Drag a track you like (WAV, AIFF, FLAC, MP3 or OGG; also M4A on macOS and Window
 - Choose the **Reference track** preset to use the reference as the target.
 - **B · REF** plays the reference instead of your mix, at the same loudness and following your song position. This is the only time WWMA changes what you hear, and the top bar turns purple while it does.
 
-## 6. Good habits
+## 9. Good habits
 
 1. Balance first, plugins later: kick and bass, then snare, then the lead, then the rest.
 2. Decide who owns the sub (kick or bass), and keep everything below about 120 Hz mono.
@@ -136,7 +182,7 @@ Drag a track you like (WAV, AIFF, FLAC, MP3 or OGG; also M4A on macOS and Window
 5. Keep important parts in the centre, and check in mono.
 6. Master last: leave headroom while mixing, then set the limiter ceiling to −1 dBTP.
 
-## 7. Remember
+## 10. Remember
 
 - The score tells you how close you are to a typical master in the style. It does not tell you whether the song is good.
 - The presets are educated guesses from common practice. The most accurate target is a reference track you like.

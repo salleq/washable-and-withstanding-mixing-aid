@@ -26,11 +26,13 @@ struct SongParams
     bool breakbeat = false;       // kick on 1 and the "and" of 2 (DnB, breaks)
 
     double duckDb = 6.0;          // sidechain: how far the kick ducks the bass and pad
+    bool bassSustain = false;     // a long bass note under every kick instead of off-beat notes
     double bassHarmonics = 1.0;   // 0 = pure sine bass (nothing for phones), 1 = normal
     double subDb = -100.0;        // extra sine sub under the bass
     double bassWidth = 0.0;       // 0 = mono bass, 1 = fully different left and right
     double padWidth = 0.6;        // stereo detune of the pad
     double hatPan = 0.25;         // hats to the left (0..1)
+    double leadAntiPhase = 0.0;   // 1 = the lead is flipped in polarity on the right (vanishes in mono)
 
     // tone mistakes (dB)
     double mudDb = 0.0;           // 300 Hz bump on the music
@@ -151,8 +153,10 @@ inline Stereo renderSong (const SongParams& p, int seed = 1)
 
         // bass: off-beat eighths with harmonics, low-passed
         const double tOff = std::fmod (t + beat * 0.5, beat);
-        const double bassEnv = std::min (1.0, tOff / 0.004) * std::exp (-tOff * 3.0)
-                               * (tOff < beat * 0.45 ? 1.0 : std::exp (-(tOff - beat * 0.45) * 60.0));
+        const double tBass = std::fmod (t, 2.0 * beat);
+        const double bassEnv = p.bassSustain ? std::min (1.0, tBass / 0.004) * 0.75
+                                             : std::min (1.0, tOff / 0.004) * std::exp (-tOff * 3.0)
+                                                   * (tOff < beat * 0.45 ? 1.0 : std::exp (-(tOff - beat * 0.45) * 60.0));
         const double bf = bassNotes[bar];
         bassPhaseL += 2.0 * pi * bf / sr;
         bassPhaseR += 2.0 * pi * bf * (1.0 + 0.012 * p.bassWidth) / sr;
@@ -214,7 +218,7 @@ inline Stereo renderSong (const SongParams& p, int seed = 1)
 
         // the music (pad, lead, bass) gets the mud bump
         const double musicL = mudL.process (padL + lead + bl);
-        const double musicR = mudR.process (padR + lead + br);
+        const double musicR = mudR.process (padR + lead * (1.0 - 2.0 * p.leadAntiPhase) + br);
 
         double l = musicL + kick + snare + hatL;
         double r = musicR + kick + snare + hatR;

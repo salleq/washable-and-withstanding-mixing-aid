@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include "advice/MixReport.h"
 #include "analysis/Analyzer.h"
 #include "advice/Advisor.h"
 #include "advice/Profiles.h"
@@ -69,11 +70,25 @@ public:
     void setTarget (int t);
     static juce::StringArray targetNames (wwma::Lang lang);
 
-    /** Score snapshots for the progress chart, kept with the project. */
-    struct ScorePoint { juce::Time time; float score; };
-    std::vector<ScorePoint> getScoreSnapshots() const;
-    void addScoreSnapshot (float score);
+    /** Snapshots (score and key metrics) for the progress chart and before/after, kept with the project. */
+    std::vector<wwma::SavedSnapshot> getSnapshots() const;
+    void addSnapshot (const wwma::SavedSnapshot& s);
     void clearScoreSnapshots();
+    /** The user confirmed saving a new version of the DAW project for the newest snapshot. */
+    void confirmLatestSnapshot();
+    bool latestSnapshotNeedsConfirmation() const;
+
+    /** Lesson mode: on/off, which lesson is open, and which ones are done. Kept with the project. */
+    bool getLearnMode() const;
+    void setLearnMode (bool on);
+    int getLessonIndex() const;
+    void setLessonIndex (int i);
+    juce::StringArray getLessonsDone() const;
+    void markLessonDone (const juce::String& id);
+
+    /** Where the last report was saved, so the next one goes next to it and can compare with it. */
+    juce::File getReportFolder() const;
+    void setReportFolder (const juce::File& f);
 
     // ---- reference tracks
     wwma::ReferenceTracks refs;

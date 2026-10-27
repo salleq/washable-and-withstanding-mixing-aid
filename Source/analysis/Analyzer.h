@@ -92,25 +92,30 @@ private:
     int64_t songFrames = 0, sideSongFrames = 0;
 
     // drum and bass contrast
-    Biquad lowHp[2], lowLp[2], highHp[2], highLp[2];
+    Biquad lowHp[2], lowLp[2], highHp[2], highLp[2], harmHp[2], harmLp[2]; // harm: 130-400 Hz, bass harmonics
     int envLen = 240, envPos = 0;
-    double lowEnv1 = 0.0, lowEnv2 = 0.0, highEnv1 = 0.0, highEnv2 = 0.0, lowEnvCoef = 0.0, highEnvCoef = 0.0;
+    double lowEnv1 = 0.0, lowEnv2 = 0.0, highEnv1 = 0.0, highEnv2 = 0.0, harmEnv1 = 0.0, harmEnv2 = 0.0, lowEnvCoef = 0.0, highEnvCoef = 0.0;
     std::array<float, envRingSize> highEnv {}, scratch {};
 
     // kick detection on the low end envelope
     static constexpr int lineSize = 128;     // 640 ms of 5 ms frames
-    std::array<float, lineSize> lowLine {};
+    std::array<float, lineSize> lowLine {}, harmLine {};
     int64_t frameIndex = 0, lastOnset = -1000;
     std::array<int64_t, 8> pendingOnsets {};
     int numPending = 0;
     std::array<float, 16> kickSeps {};
     std::array<int64_t, 16> kickFrames {};
     int kickPos = 0;
-    double kickSepSum = 0.0;
+    double kickSepSum = 0.0, kickDuckSum = 0.0;
+    // ducking is also measured when single kicks are hard to tell apart but the beat is steady
+    std::array<float, 16> duckVals {};
+    std::array<int64_t, 16> duckFrames {};
+    int duckPos = 0;
+    int64_t duckCount = 0;
     int64_t kickSepCount = 0;
     std::array<int64_t, 8> onsetHistory {};
     int64_t onsetCount = 0;
-    void detectKicks (float lowDb) noexcept;
+    void detectKicks (float lowDb, float harmDb) noexcept;
     bool rhythmic() const noexcept;
     int envRingPos = 0, envFilled = 0;
     double highContrastNow = 0.0, highContrastSum = 0.0;

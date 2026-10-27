@@ -983,11 +983,31 @@ void TranslationBox::paint (juce::Graphics& g)
 ProgressBox::ProgressBox (const ViewState& s) : state (s)
 {
     saveButton.getProperties().set ("primary", true);
+    confirmButton.getProperties().set ("primary", true);
     saveButton.onClick = [this] { if (onSave) onSave(); };
     clearButton.onClick = [this] { if (onClear) onClear(); };
-    addAndMakeVisible (saveButton);
-    addAndMakeVisible (clearButton);
+    compareButton.onClick = [this] { if (onCompare) onCompare(); };
+    confirmButton.onClick = [this] { if (onConfirm) onConfirm(); };
+    compareButton.setClickingTogglesState (false);
+    for (auto* b : { &saveButton, &compareButton, &clearButton })
+        addAndMakeVisible (b);
+    addChildComponent (confirmButton);
     updateTexts();
+}
+
+void ProgressBox::syncButtons()
+{
+    confirmButton.setVisible (state.awaitingSaveConfirm);
+    compareButton.setEnabled (! state.snapshots.empty());
+    compareButton.setToggleState (state.compareOpen, juce::dontSendNotification);
+}
+
+juce::Rectangle<int> ProgressBox::plotArea() const
+{
+    auto r = content (*this);
+    r.removeFromTop (16);
+    r.removeFromBottom (32);
+    return r;
 }
 
 void ProgressBox::updateTexts()
@@ -998,15 +1018,26 @@ void ProgressBox::updateTexts()
                                     "Tallenna nykyiset pisteet. Kortit näyttävät sen jälkeen, mikä parani tai huononi, ja kaavio näyttää edistymisen. Kuuntele sitten: parani oikeasti?"));
     clearButton.setButtonText (upper (t (lang, "Clear", "Tyhjennä")));
     clearButton.setTooltip (t (lang, "Forget the saved snapshots.", "Unohda tallennetut snapshotit."));
+    saveButton.setButtonText (upper (t (lang, "Snapshot", "Snapshot")));
+    compareButton.setButtonText (upper (t (lang, "Before/after", "Ennen/jälkeen")));
+    compareButton.setTooltip (t (lang, "Compare the newest snapshot with now: which numbers got better, which got worse.",
+                                       "Vertaa uusinta snapshotia nykyhetkeen: mitkä luvut paranivat, mitkä huononivat."));
+    confirmButton.setButtonText (upper (t (lang, "I saved it", "Tallensin")));
+    confirmButton.setTooltip (t (lang, "Click after you have saved the DAW project under a new name.",
+                                       "Klikkaa, kun olet tallentanut DAW-projektin uudella nimellä."));
 }
 
 void ProgressBox::resized()
 {
     auto r = content (*this);
     auto buttons = r.removeFromBottom (26);
-    saveButton.setBounds (buttons.removeFromLeft (150));
-    buttons.removeFromLeft (8);
-    clearButton.setBounds (buttons.removeFromLeft (90));
+    saveButton.setBounds (buttons.removeFromLeft (82));
+    buttons.removeFromLeft (6);
+    compareButton.setBounds (buttons.removeFromLeft (98));
+    buttons.removeFromLeft (6);
+    clearButton.setBounds (buttons);
+    const auto plot = plotArea();
+    confirmButton.setBounds (plot.getCentreX() - 60, plot.getBottom() - 30, 120, 26);
 }
 
 void ProgressBox::paint (juce::Graphics& g)
@@ -1028,6 +1059,28 @@ void ProgressBox::paint (juce::Graphics& g)
     }
 
     r.removeFromBottom (32);
+    if (state.awaitingSaveConfirm)
+    {
+        // until the user confirms: save the DAW project as a new version, so this point can be found again
+        auto banner = r.toFloat().reduced (0.0f, 4.0f);
+        g.setColour (colours::accent.withAlpha (0.10f));
+        g.fillRoundedRectangle (banner, 6.0f);
+        g.setColour (colours::accent);
+        g.drawRoundedRectangle (banner, 6.0f, 1.2f);
+        auto text = banner.reduced (10.0f, 8.0f).withTrimmedBottom (34.0f).toNearestInt();
+        g.setFont (fonts::bodyBold (13.0f));
+        g.drawFittedText (t (lang, "Snapshot saved. Now save your DAW project as a new version",
+                                   "Snapshot tallennettu. Tallenna nyt DAW-projekti uutena versiona"),
+                          text.removeFromTop (34), juce::Justification::topLeft, 2);
+        g.setColour (colours::soft);
+        g.setFont (fonts::body (12.0f));
+        const int n = (int) state.snapshots.size();
+        g.drawFittedText (t (lang, "File > Save As..., e.g. \"My song v", "Tiedosto > Tallenna nimellä..., esim. \"Biisi v") + juce::String (n)
+                              + t (lang, "\". Then you can go back to this point if the next change makes it worse.",
+                                         "\". Silloin pääset palaamaan tähän, jos seuraava muutos huonontaa.") ,
+                          text, juce::Justification::topLeft, 4);
+        return;
+    }
     auto plot = r.toFloat().withTrimmedLeft (22.0f).withTrimmedBottom (14.0f).withTrimmedTop (6.0f);
     auto yFor = [&] (float v) { return plot.getY() + plot.getHeight() * (100.0f - v) / 100.0f; };
 
@@ -1062,7 +1115,7 @@ void ProgressBox::paint (juce::Graphics& g)
     std::vector<std::pair<juce::String, float>> pts;
     const size_t first = snaps.size() > 7 ? snaps.size() - 7 : 0;
     for (size_t i = first; i < snaps.size(); ++i)
-        pts.push_back ({ snaps[i].time.formatted ("%H:%M"), snaps[i].score });
+        pts.push_back ({ (snaps[i].confirmed ? juce::String (juce::CharPointer_UTF8 ("\xe2\x9c\x93")) : juce::String()) + snaps[i].time.formatted ("%H:%M"), snaps[i].score });
     if (live)
         pts.push_back ({ t (lang, "now", "nyt"), state.displayScore });
 
@@ -1403,6 +1456,248 @@ void CompareBox::paint (juce::Graphics& g)
             cell (rr, c2 - 50, c2, row.ref, colours::ref);
         }
         cell (rr, c3 - 40, r.getRight(), row.delta, row.deltaColour);
+    }
+}
+
+// =====================================================================================
+BeforeAfterBox::BeforeAfterBox (const ViewState& s) : state (s)
+{
+    closeButton.onClick = [this] { if (onClose) onClose(); };
+    addAndMakeVisible (closeButton);
+    updateTexts();
+}
+
+void BeforeAfterBox::updateTexts()
+{
+    closeButton.setButtonText (upper (t (state.lang, "Close", "Sulje")));
+}
+
+void BeforeAfterBox::resized()
+{
+    const auto r = content (*this);
+    closeButton.setBounds (r.getRight() - 70, r.getY() - 2, 70, 22);
+}
+
+void BeforeAfterBox::paint (juce::Graphics& g)
+{
+    const auto lang = state.lang;
+    drawBox (g, getLocalBounds().toFloat());
+    auto r = content (*this);
+    auto head = r.removeFromTop (18);
+    if (state.snapshots.empty())
+    {
+        drawLabel (g, t (lang, "Before / after", "Ennen / jälkeen"), head);
+        return;
+    }
+    const auto& snap = state.snapshots.back();
+    drawLabel (g, t (lang, "Before / after", "Ennen / jälkeen") + dot + t (lang, "snapshot ", "snapshot ") + juce::String ((int) state.snapshots.size())
+                      + " (" + snap.time.formatted ("%H:%M") + ")" + juce::String (juce::CharPointer_UTF8 (" \xe2\x86\x92 ")) + t (lang, "now", "nyt"), head);
+    head.removeFromRight (78);
+    drawLabel (g, snap.confirmed ? juce::String (juce::CharPointer_UTF8 ("\xe2\x9c\x93 ")) + t (lang, "DAW version saved", "DAW-versio tallennettu")
+                                 : t (lang, "DAW version not confirmed", "DAW-versiota ei kuitattu"),
+              head, snap.confirmed ? colours::good : colours::warn, juce::Justification::centredRight);
+    r.removeFromTop (8);
+
+    // the score, big
+    auto scoreRow = r.removeFromTop (34);
+    const float now = state.assessment.enoughData ? state.assessment.score : -1.0f;
+    g.setFont (fonts::numBold (26.0f));
+    g.setColour (scoreColour (snap.score));
+    g.drawText (juce::String (juce::roundToInt (snap.score)), scoreRow.removeFromLeft (50), juce::Justification::centredLeft);
+    g.setColour (colours::dim);
+    g.setFont (fonts::body (18.0f));
+    g.drawText (juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")), scoreRow.removeFromLeft (30), juce::Justification::centred);
+    if (now >= 0.0f)
+    {
+        g.setFont (fonts::numBold (26.0f));
+        g.setColour (scoreColour (now));
+        g.drawText (juce::String (juce::roundToInt (now)), scoreRow.removeFromLeft (50), juce::Justification::centredLeft);
+        const float d = now - snap.score;
+        g.setFont (fonts::bodyBold (14.0f));
+        g.setColour (d >= 1.0f ? colours::good : (d <= -1.0f ? colours::bad : colours::dim));
+        g.drawText (fmt (lang, d, 0, true) + t (lang, " points", " pistettä"), scoreRow.removeFromLeft (110), juce::Justification::centredLeft);
+    }
+    int better = 0, worse = 0;
+    for (const auto& c : state.changes) { better += c.verdict > 0; worse += c.verdict < 0; }
+    g.setFont (fonts::body (12.5f));
+    g.setColour (colours::soft);
+    g.drawText (juce::String (better) + t (lang, " better, ", " parempaa, ") + juce::String (worse) + t (lang, " worse", " huonompaa"),
+                scoreRow, juce::Justification::centredRight);
+    r.removeFromTop (6);
+
+    if (state.changes.empty())
+    {
+        g.setColour (colours::dim);
+        g.setFont (fonts::body (13.0f));
+        g.drawFittedText (t (lang, "Play the song to compare it with the snapshot.", "Soita kappaletta, niin vertaan sitä snapshotiin."),
+                          r.removeFromTop (40), juce::Justification::centredLeft, 2);
+        return;
+    }
+
+    // table: better first, then worse, then unchanged
+    auto footer = r.removeFromBottom (18);
+    const int rowH = 19;
+    const int cols[] = { 0, 230, 340, 450 };
+    auto header = r.removeFromTop (16);
+    g.setFont (fonts::label (10.5f));
+    g.setColour (colours::faint);
+    g.drawText (upper (t (lang, "Measure", "Mittari")), header.withX (header.getX() + cols[0]).withWidth (220), juce::Justification::centredLeft);
+    g.drawText (upper (t (lang, "Before", "Ennen")), header.withX (header.getX() + cols[1]).withWidth (100), juce::Justification::centredLeft);
+    g.drawText (upper (t (lang, "Now", "Nyt")), header.withX (header.getX() + cols[2]).withWidth (100), juce::Justification::centredLeft);
+    int shown = 0, hidden = 0;
+    for (const auto& c : state.changes)
+    {
+        if (r.getHeight() < rowH)
+        {
+            ++hidden;
+            continue;
+        }
+        auto row = r.removeFromTop (rowH);
+        if (shown++ % 2 == 0)
+        {
+            g.setColour (colours::raised.withAlpha (0.5f));
+            g.fillRect (row);
+        }
+        const auto colour = c.verdict > 0 ? colours::good : (c.verdict < 0 ? colours::bad : colours::dim);
+        g.setFont (fonts::body (12.5f));
+        g.setColour (c.verdict == 0 ? colours::dim : colours::text);
+        g.drawText (metricName (c.id, lang), row.withX (row.getX() + cols[0] + 4).withWidth (220), juce::Justification::centredLeft);
+        g.setFont (fonts::num (11.5f));
+        g.setColour (colours::dim);
+        g.drawText (metricValueText (c.id, c.before, lang), row.withX (row.getX() + cols[1]).withWidth (105), juce::Justification::centredLeft);
+        g.setColour (c.verdict == 0 ? colours::dim : colours::text);
+        g.drawText (metricValueText (c.id, c.now, lang), row.withX (row.getX() + cols[2]).withWidth (105), juce::Justification::centredLeft);
+        g.setFont (fonts::labelBold (10.5f));
+        g.setColour (colour);
+        g.drawText (c.verdict > 0 ? upper (t (lang, "Better", "Parempi")) : (c.verdict < 0 ? upper (t (lang, "Worse", "Huonompi")) : juce::String ("=")),
+                    row.withX (row.getX() + cols[3]).withRight (row.getRight() - 4), juce::Justification::centredLeft);
+    }
+    g.setFont (fonts::body (11.5f));
+    g.setColour (colours::faint);
+    g.drawFittedText ((hidden > 0 ? juce::String (hidden) + t (lang, " more unchanged. ", " muuta ennallaan. ") : juce::String())
+                          + t (lang, "Numbers are advice: open your saved DAW versions and listen to both.",
+                                     "Luvut ovat neuvoja: avaa tallennetut DAW-versiot ja kuuntele molemmat."),
+                      footer, juce::Justification::centredLeft, 1);
+}
+
+// =====================================================================================
+LessonBox::LessonBox (const ViewState& s) : state (s)
+{
+    prevButton.onClick = [this] { if (onPrev) onPrev(); };
+    nextButton.onClick = [this] { if (onNext) onNext(); };
+    addAndMakeVisible (prevButton);
+    addAndMakeVisible (nextButton);
+    updateTexts();
+}
+
+void LessonBox::updateTexts()
+{
+    prevButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xe2\x97\x80 ")) + upper (t (state.lang, "Previous", "Edellinen")));
+    nextButton.setButtonText (upper (t (state.lang, "Next", "Seuraava")) + juce::String (juce::CharPointer_UTF8 (" \xe2\x96\xb6")));
+}
+
+void LessonBox::resized()
+{
+    auto r = content (*this);
+    auto buttons = r.removeFromBottom (26);
+    nextButton.setBounds (buttons.removeFromRight (110));
+    buttons.removeFromRight (8);
+    prevButton.setBounds (buttons.removeFromRight (110));
+}
+
+void LessonBox::paint (juce::Graphics& g)
+{
+    const auto lang = state.lang;
+    drawBox (g, getLocalBounds().toFloat());
+    auto r = content (*this);
+    r.removeFromBottom (30);
+    const int count = lessonCount(), index = juce::jlimit (0, count - 1, state.lessonIndex);
+    const auto text = lessonText (index, lang);
+    const auto id = juce::String (lessonId (index));
+    const bool done = state.lessonsDone.contains (id);
+
+    auto head = r.removeFromTop (16);
+    drawLabel (g, t (lang, "Lesson ", "Oppitunti ") + juce::String (index + 1) + " / " + juce::String (count), head);
+    // one dot per lesson: filled = done, ring = the open one
+    for (int i = count - 1; i >= 0; --i)
+    {
+        auto d = head.removeFromRight (14).toFloat().withSizeKeepingCentre (8.0f, 8.0f);
+        const bool isDone = state.lessonsDone.contains (juce::String (lessonId (i)));
+        g.setColour (isDone ? colours::good : colours::line);
+        g.fillEllipse (d);
+        if (i == index)
+        {
+            g.setColour (colours::accent);
+            g.drawEllipse (d.expanded (2.0f), 1.2f);
+        }
+    }
+    r.removeFromTop (4);
+
+    g.setColour (colours::text);
+    g.setFont (fonts::bodyBold (17.0f));
+    g.drawFittedText (text.title, r.removeFromTop (24), juce::Justification::centredLeft, 1);
+    g.setColour (colours::soft);
+    g.setFont (fonts::body (12.5f));
+    g.drawFittedText (text.why, r.removeFromTop (34), juce::Justification::topLeft, 2);
+    r.removeFromTop (2);
+    g.setColour (colours::text);
+    g.drawFittedText (text.steps, r.removeFromTop (82), juce::Justification::topLeft, 5, 0.9f);
+    r.removeFromTop (6);
+
+    // the live meter towards the goal
+    const auto& c = state.lesson;
+    auto meter = r.removeFromTop (40);
+    auto labels = meter.removeFromTop (16);
+    if (c.ready)
+    {
+        const auto font = fonts::num (11.5f);
+        g.setFont (font);
+        // the goal keeps its room on the right; the current value squeezes in the rest
+        const int goalW = juce::jmin (labels.getWidth() / 2, (int) std::ceil (juce::GlyphArrangement::getStringWidth (font, c.goal)) + 2);
+        g.setColour (colours::dim);
+        g.drawFittedText (c.goal, labels.removeFromRight (goalW), juce::Justification::centredRight, 1, 0.8f);
+        labels.removeFromRight (10);
+        g.setColour (colours::text);
+        g.drawFittedText (c.now, labels, juce::Justification::centredLeft, 1, 0.8f);
+    }
+    auto bar = meter.removeFromTop (14).toFloat();
+    g.setColour (colours::raised);
+    g.fillRoundedRectangle (bar, 4.0f);
+    if (c.ready)
+    {
+        const auto fill = c.passed ? colours::good : colours::warn.interpolatedWith (colours::good, c.progress * 0.6f);
+        g.setColour (fill);
+        g.fillRoundedRectangle (bar.withWidth (juce::jmax (8.0f, bar.getWidth() * c.progress)), 4.0f);
+    }
+    r.removeFromTop (4);
+
+    auto status = r.removeFromTop (22);
+    if (done || (c.passed && state.lessonHeld >= 3.0f))
+    {
+        g.setColour (colours::good);
+        g.setFont (fonts::bodyBold (13.0f));
+        g.drawFittedText (juce::String (juce::CharPointer_UTF8 ("\xe2\x9c\x93 ")) + t (lang, "Done! ", "Onnistui! ") + text.doneNote,
+                          status, juce::Justification::centredLeft, 2, 0.85f);
+    }
+    else if (! c.ready)
+    {
+        g.setColour (colours::dim);
+        g.setFont (fonts::body (12.5f));
+        g.drawFittedText (c.waitingFor, status, juce::Justification::centredLeft, 1);
+    }
+    else if (c.passed)
+    {
+        g.setColour (colours::good);
+        g.setFont (fonts::body (12.5f));
+        g.drawFittedText (t (lang, "That's it, keep it there for a few seconds...", "Juuri noin, pidä se siinä muutama sekunti..."),
+                          status, juce::Justification::centredLeft, 1);
+    }
+    else
+    {
+        g.setColour (colours::dim);
+        g.setFont (fonts::body (12.5f));
+        g.drawFittedText (t (lang, "Loop a part, change one thing at a time and watch the bar.", "Looppaa kohtaa, muuta yhtä asiaa kerrallaan ja seuraa palkkia."),
+                          status, juce::Justification::centredLeft, 1);
     }
 }
 

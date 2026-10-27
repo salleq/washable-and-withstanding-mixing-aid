@@ -81,6 +81,8 @@ set(WWMA_CORE_SOURCES
     Source/advice/Profiles.cpp
     Source/advice/Advisor.cpp
     Source/advice/StyleGuess.cpp
+    Source/advice/MixReport.cpp
+    Source/advice/Lessons.cpp
     Source/reference/ReferenceTracks.cpp)
 
 set(WWMA_UI_SOURCES

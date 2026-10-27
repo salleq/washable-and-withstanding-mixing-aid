@@ -37,7 +37,19 @@ public:
     const wwma::StyleGuess& getStyleGuess() const noexcept { return styleGuess; }
     bool isStyleSuggestionShown() const noexcept { return styleButton.isVisible() && styleSuggests; }
     void acceptStyleSuggestion() { styleButton.onClick(); }
-    /** Re-reads the reference slots (screenshot tool, after loading synchronously). */
+    /** The user confirms the DAW project was saved as a new version for the newest snapshot. */
+    void confirmSnapshotSaved();
+    bool isAwaitingSaveConfirmation() const noexcept { return state.awaitingSaveConfirm; }
+    /** Before/after panel (newest snapshot vs now). */
+    void setCompareOpen (bool open);
+    const std::vector<wwma::MetricChange>& getChanges() const noexcept { return state.changes; }
+    /** Lesson mode. */
+    void setLearnMode (bool on);
+    void showLesson (int index);
+    const wwma::LessonCheck& getLessonCheck() const noexcept { return state.lesson; }
+    /** Writes the report (Markdown) and its JSON next to it, comparing with the newest earlier
+        report in the same folder. Returns the earlier report it compared with, if any. */
+    juce::File saveReport (const juce::File& markdownFile);
     /** A/B: true plays the reference instead of the mix. */
     void setListening (bool b);
     void referencesChanged() { refGeneration = -1; readReferences(); reassess(); }
@@ -83,6 +95,12 @@ private:
     wwma::ui::ProgressBox progress { state };
     wwma::ui::ReferenceBox refBox { state };
     wwma::ui::CompareBox compare { state };
+    wwma::ui::BeforeAfterBox beforeAfter { state };
+    wwma::ui::LessonBox lessonBox { state };
+    juce::TextButton learnButton, reportButton;
+    float lessonSeconds = -1.0f; // music time when the lesson goal was last checked
+    void updateLesson();
+    void chooseReportFile();
     std::unique_ptr<juce::FileChooser> chooser;
     int refGeneration = -1;
 

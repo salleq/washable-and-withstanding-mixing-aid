@@ -27,6 +27,8 @@ void Analyzer::prepare (double sampleRate)
         lowLp[i].setLowPass (sr, 120.0, 0.707);
         highHp[i].setHighPass (sr, 1500.0, 0.707);
         highLp[i].setLowPass (sr, 6000.0, 0.707);
+        harmHp[i].setHighPass (sr, 130.0, 0.707);
+        harmLp[i].setLowPass (sr, 400.0, 0.707);
     }
 
     // FFT bins no wider than ~3 Hz, so the lowest third-octave bands are resolved
@@ -70,7 +72,7 @@ void Analyzer::reset() noexcept
         kShelf[c].reset();
         kHigh[c].reset();
         truePeak[c].reset();
-        lowHp[c].reset(); lowLp[c].reset(); highHp[c].reset(); highLp[c].reset();
+        lowHp[c].reset(); lowLp[c].reset(); highHp[c].reset(); highLp[c].reset(); harmHp[c].reset(); harmLp[c].reset();
     }
     subPos = 0; subSum = 0.0;
     ring.fill (0.0); ringPos = ringFilled = 0;
@@ -96,13 +98,15 @@ void Analyzer::reset() noexcept
     midNowP.fill (0.0); sideNowP.fill (0.0); midSongP.fill (0.0); sideSongP.fill (0.0);
     nowFrames = sideNowFrames = 0; songFrames = sideSongFrames = 0;
 
-    envPos = 0; lowEnv1 = lowEnv2 = highEnv1 = highEnv2 = 0.0;
+    envPos = 0; lowEnv1 = lowEnv2 = highEnv1 = highEnv2 = harmEnv1 = harmEnv2 = 0.0;
     highEnv.fill (-200.0f);
     lowLine.fill (-200.0f);
+    harmLine.fill (-200.0f);
     frameIndex = 0; lastOnset = -1000; numPending = 0;
     onsetHistory.fill (0); onsetCount = 0;
     kickSeps.fill (0.0f); kickFrames.fill (-100000); kickPos = 0;
-    kickSepSum = 0.0; kickSepCount = 0;
+    kickSepSum = kickDuckSum = 0.0; kickSepCount = 0;
+    duckVals.fill (0.0f); duckFrames.fill (-100000); duckPos = 0; duckCount = 0;
     envRingPos = envFilled = 0;
     highContrastNow = highContrastSum = 0.0;
     contrastCount = 0;
@@ -195,6 +199,9 @@ void Analyzer::processChunk (const float* left, const float* right, int n) noexc
         lowEnv2 += lowEnvCoef * (lowEnv1 - lowEnv2);
         highEnv1 += highEnvCoef * (hi * hi - highEnv1);
         highEnv2 += highEnvCoef * (highEnv1 - highEnv2);
+        const double hm = harmLp[1].process (harmLp[0].process (harmHp[1].process (harmHp[0].process (m))));
+        harmEnv1 += highEnvCoef * (hm * hm - harmEnv1);
+        harmEnv2 += highEnvCoef * (harmEnv1 - harmEnv2);
         if (++envPos == envLen)
         {
             envPos = 0;
@@ -206,7 +213,7 @@ void Analyzer::processChunk (const float* left, const float* right, int n) noexc
 void Analyzer::endEnvelopeFrame() noexcept
 {
     const double lowDb = powerToDb (lowEnv2), highDb = powerToDb (highEnv2);
-    detectKicks ((float) lowDb);
+    detectKicks ((float) lowDb, (float) powerToDb (harmEnv2));
     const bool open = gateOpen();
     updateOnsets ((float) lowDb, (float) highDb, open);
     if (! open)
@@ -343,11 +350,12 @@ bool Analyzer::rhythmic() const noexcept
     return regular >= (n - 1) * 3 / 4 + ((n - 1) * 3 % 4 != 0 ? 1 : 0);
 }
 
-void Analyzer::detectKicks (float lowDb) noexcept
+void Analyzer::detectKicks (float lowDb, float harmDb) noexcept
 {
     auto at = [this] (int64_t i) { return lowLine[(size_t) (i % lineSize)]; };
     const int64_t now = frameIndex;
     lowLine[(size_t) (now % lineSize)] = lowDb;
+    harmLine[(size_t) (now % lineSize)] = harmDb;
 
     // a kick: the low end rises at least 3 dB within 40 ms (at most one per 200 ms)
     if (now >= 16 && now - lastOnset > 40 && lowDb > -60.0f && lowDb - at (now - 8) > 3.0f && numPending < (int) pendingOnsets.size())
@@ -357,8 +365,9 @@ void Analyzer::detectKicks (float lowDb) noexcept
         onsetHistory[(size_t) (onsetCount++ % (int64_t) onsetHistory.size())] = now - 4;
     }
 
-    // 100 ms after a kick: how far its peak rose above the bass just before it
-    while (numPending > 0 && now - pendingOnsets[0] >= 20)
+    // 200 ms after a kick: how far its peak rose above the bass just before it, and how far
+    // the low end dipped after it (ducking)
+    while (numPending > 0 && now - pendingOnsets[0] >= 40)
     {
         const int64_t o = pendingOnsets[0];
         float pre = 0.0f;
@@ -369,7 +378,27 @@ void Analyzer::detectKicks (float lowDb) noexcept
         for (int64_t i = o; i <= o + 16; ++i)
             peak = juce::jmax (peak, at (i));
         const float sep = peak - pre;
-        if (gateOpen() && rhythmic())
+        // ducking shows best in the bass harmonics (130-400 Hz), where the kick itself is mostly gone
+        // after its click: how far that band drops 40-160 ms after the kick, below its level before it
+        auto harmAt = [this] (int64_t i) { return harmLine[(size_t) (i % lineSize)]; };
+        float harmPre = 0.0f;
+        for (int64_t i = o - 12; i <= o - 3; ++i)
+            harmPre += harmAt (i);
+        harmPre /= 10.0f;
+        float harmMin = 0.0f;
+        for (int64_t i = o + 8; i <= o + 32; ++i)
+            harmMin = juce::jmin (harmMin, harmAt (i) - harmPre);
+        const float duck = harmPre > -70.0f ? -harmMin : 0.0f;
+        const bool kick = gateOpen() && rhythmic();
+        if (kick)
+        {
+            duckVals[(size_t) duckPos] = duck;
+            duckFrames[(size_t) duckPos] = o;
+            duckPos = (duckPos + 1) % (int) duckVals.size();
+            kickDuckSum += duck;
+            ++duckCount;
+        }
+        if (kick)
         {
             kickSeps[(size_t) kickPos] = sep;
             kickFrames[(size_t) kickPos] = o;
@@ -545,14 +574,22 @@ void Analyzer::publish() noexcept
 
     {
         // kicks of the last 3 seconds
-        double sum = 0.0;
-        int n = 0;
+        double sum = 0.0, duckSum = 0.0;
+        int n = 0, nd = 0;
         for (size_t k = 0; k < kickSeps.size(); ++k)
             if (frameIndex - kickFrames[k] <= envRingSize + 50)
             {
                 sum += kickSeps[k];
                 ++n;
             }
+        for (size_t k = 0; k < duckVals.size(); ++k)
+            if (frameIndex - duckFrames[k] <= envRingSize + 50)
+            {
+                duckSum += duckVals[k];
+                ++nd;
+            }
+        s.duckNow = nd > 0 ? (float) (duckSum / nd) : 0.0f;
+        s.duckSong = duckCount > 0 ? (float) (kickDuckSum / (double) duckCount) : 0.0f;
         s.kickNowValid = n >= 3;
         s.lowContrastNow = n > 0 ? (float) (sum / n) : 0.0f;
         s.kickSongValid = kickSepCount >= 8;

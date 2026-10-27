@@ -68,6 +68,9 @@ struct Snapshot
         kick's peak rises above the bass level just before it. Small = the bass covers the kick. */
     float lowContrastNow = 0.0f, lowContrastSong = 0.0f;
     bool kickNowValid = false, kickSongValid = false;
+    /** Sidechain ducking: how far the low end dips 80-200 ms after each kick, below its level just
+        before the kick (dB). About 0 = the bass keeps playing through the kicks. */
+    float duckNow = 0.0f, duckSong = 0.0f;
     /** Same for the snare / hat region (1.5-6 kHz): how much drum hits stick out. */
     float highContrastNow = 0.0f, highContrastSong = 0.0f;
 

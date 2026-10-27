@@ -45,7 +45,7 @@ namespace
         if (! id.empty() && id.back() == '+') return 1;
         if (! id.empty() && id.back() == '-') return -1;
         for (const char* up : { "loud", "peak", "squashed", "lra", "lowwidth", "wide", "spikydrums", "boomnote", "piercing",
-                                "clipping", "headroom", "hotmix", "rumble", "sibilance", "sidehigh" })
+                                "clipping", "headroom", "hotmix", "rumble", "sibilance", "sidehigh", "monoloss" })
             if (id == up) return 1;
         for (const char* down : { "quiet", "dynamic", "phonebass", "narrow", "kickbass", "flatdrums", "notch" })
             if (id == down) return -1;
@@ -235,6 +235,8 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
     m.contrastValid = song ? s.contrastSongValid : s.contrastNowValid;
     m.lowContrast = song ? s.lowContrastSong : s.lowContrastNow;
     m.kickValid = song ? s.kickSongValid : s.kickNowValid;
+    m.duck = song ? s.duckSong : s.duckNow;
+    m.beatSteady = s.tempoConfidence >= 0.5f;
     m.highContrast = song ? s.highContrastSong : s.highContrastNow;
 
     m.valid = spectrumValid && m.loudness > -50.0f && (! song || s.secondsAnalysed >= 5.0f);
@@ -289,6 +291,23 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
 
     m.lowWidth = sumBands (side, 0, 8) - sumBands (mid, 0, 8);
     m.width = sumBands (side, 0, Bands::count - 1) - sumBands (mid, 0, Bands::count - 1);
+
+    // mono check: how much the mix loses when it's summed to mono (phones, club PAs, Bluetooth speakers).
+    // Stereo power is mid + side; mono keeps only the mid. Three neighbouring bands at a time, loud ones only.
+    {
+        const float loudest = *std::max_element (total.begin(), total.end());
+        for (int b = 10; b <= 26; ++b)
+        {
+            const float stereoDb = sumBands (total, b - 1, b + 1), monoDb = sumBands (mid, b - 1, b + 1);
+            const float loss = stereoDb - monoDb;
+            if (stereoDb > loudest - 20.0f && loss > m.monoLoss)
+            {
+                m.monoLoss = loss;
+                m.monoLossBand = b;
+            }
+        }
+        m.monoLossBass = sumBands (total, 0, 8) - sumBands (mid, 0, 8);
+    }
 
     float penalty = 0.0f;
     Builder add { lang, a.findings, penalty };
@@ -381,7 +400,8 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
     // ---- stereo
     add.add ("lowwidth", { m.lowWidth - p.lowWidthMax, 6.0f }, 0.8f, tagPhone | tagClub,
              tr (lang, "Low end too wide", "Bassopää liian leveä"),
-             tr (lang, "Side below 140 Hz: ", "Sivusignaali alle 140 Hz: ") + num (lang, m.lowWidth) + " dB (max " + num (lang, p.lowWidthMax) + ")",
+             tr (lang, "Side below 140 Hz: ", "Sivusignaali alle 140 Hz: ") + num (lang, m.lowWidth) + " dB (max " + num (lang, p.lowWidthMax) + ")"
+                     + (m.monoLossBass >= 0.5f ? tr (lang, ", bass ", ", basso ") + juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92")) + num (lang, m.monoLossBass) + tr (lang, " dB in mono", " dB monona") : juce::String()),
              tr (lang, "Stereo bass collapses or cancels on mono phone speakers, club systems and Bluetooth speakers, and it blurs the low end.",
                        "Stereobasso romahtaa tai kumoutuu monokaiuttimissa (puhelin, klubi, Bluetooth) ja sumentaa bassopäätä."),
              tr (lang, "1. Keep everything below ~120 Hz mono: use a 'bass mono' / mono-maker tool on the bass bus or the master.\n2. Avoid wideners, chorus and stereo reverbs on bass sounds.\nTrap: a stereo widener or 'imager' on the master widens the bass too. Use one with a low-frequency mono option, or none.",
@@ -394,6 +414,20 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
                        "Puhelimet, monet Bluetooth-kaiuttimet ja klubit soittavat monona. Vastavaiheiset osat hiljenevät tai katoavat."),
              tr (lang, "1. Press mono and listen for what disappears.\n2. Usual causes: stereo wideners, Haas delays, phase-inverted layers, wide chorus.\n3. Reduce the width of that element or flip its polarity.",
                        "1. Kytke mono ja kuuntele, mikä katoaa.\n2. Tavalliset syyt: stereoleventäjät, Haas-viiveet, vastavaiheiset kerrokset, leveä chorus.\n3. Kavenna sen elementin leveyttä tai käännä sen polariteetti."));
+
+    if (m.correlation >= 0.3f && m.monoLossBand >= 0)
+    {
+        const auto where = freq (lang, Bands::centre (m.monoLossBand));
+        add.add ("monoloss", { m.monoLoss - 4.0f, 3.0f }, 0.6f, tagPhone | tagClub,
+                 tr (lang, "Gets quieter in mono around ", "Hiljenee monona noin ") + where,
+                 juce::String (juce::CharPointer_UTF8 ("\xe2\x88\x92")) + num (lang, m.monoLoss) + tr (lang, " dB in mono", " dB monona"),
+                 tr (lang, "Something here is mostly on the sides, so it drops when the mix is played in mono: on a phone, a Bluetooth speaker or a club PA. Often a wide synth, a stereo widener or a chorus.",
+                           "Jokin tässä on enimmäkseen sivuilla, joten se hiljenee, kun miksausta soitetaan monona: puhelimessa, Bluetooth-kaiuttimessa tai klubin PA:ssa. Usein leveä syna, stereoleventäjä tai chorus."),
+                 tr (lang, "1. Press mono on your monitor controller or master and listen for what drops around ",
+                           "1. Kytke mono kuuntelusta tai masterista ja kuuntele, mikä hiljenee noin ")
+                     + where + tr (lang, ".\n2. Narrow that sound (width 60-80 %), or keep a mono copy of it in the centre and blend the wide one on top.\n3. Check again in mono: the part should stay, just less wide.\nTrap: a 'super wide' preset or a Haas delay sounds huge on headphones and is the first thing to vanish in a club.",
+                                      ".\n2. Kavenna sitä ääntä (leveys 60–80 %), tai pidä siitä monokopio keskellä ja sekoita leveä päälle.\n3. Tarkista uudelleen monona: osan pitää jäädä, vain kapeampana.\nSudenkuoppa: ”super wide” -preset tai Haas-viive kuulostaa valtavalta kuulokkeilla ja katoaa klubilla ensimmäisenä."));
+    }
 
     if (m.correlation >= 0.3f)
         add.add ("wide", { m.width - p.widthMax, 4.0f }, 0.5f, tagPhone,

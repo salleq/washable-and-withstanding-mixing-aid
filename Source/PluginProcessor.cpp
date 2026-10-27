@@ -188,24 +188,89 @@ void WwmaAudioProcessor::setTarget (int t) { apvts.state.setProperty (targetId, 
 Stage WwmaAudioProcessor::getStage() const { return (int) apvts.state.getProperty (stageId, 1) == 0 ? Stage::mixing : Stage::mastering; }
 void WwmaAudioProcessor::setStage (Stage st) { apvts.state.setProperty (stageId, st == Stage::mixing ? 0 : 1, nullptr); }
 
-std::vector<WwmaAudioProcessor::ScorePoint> WwmaAudioProcessor::getScoreSnapshots() const
+std::vector<SavedSnapshot> WwmaAudioProcessor::getSnapshots() const
 {
-    std::vector<ScorePoint> out;
+    std::vector<SavedSnapshot> out;
     for (const auto& c : apvts.state.getChildWithName (snapshotsId))
-        out.push_back ({ juce::Time ((juce::int64) c.getProperty ("t")), (float) c.getProperty ("score") });
+    {
+        SavedSnapshot s;
+        s.time = juce::Time ((juce::int64) c.getProperty ("t"));
+        s.score = (float) c.getProperty ("score");
+        s.confirmed = (bool) c.getProperty ("saved", false);
+        s.confirmedAt = juce::Time ((juce::int64) c.getProperty ("savedAt", 0));
+        for (const auto& m : c.getChildWithName ("Metrics"))
+            s.metrics[m.getProperty ("id").toString().toStdString()] = { (float) m.getProperty ("v"), (float) m.getProperty ("o") };
+        out.push_back (s);
+    }
     return out;
 }
 
-void WwmaAudioProcessor::addScoreSnapshot (float score)
+void WwmaAudioProcessor::addSnapshot (const SavedSnapshot& s)
 {
     auto list = apvts.state.getOrCreateChildWithName (snapshotsId, nullptr);
     juce::ValueTree point (pointId);
-    point.setProperty ("t", juce::Time::getCurrentTime().toMilliseconds(), nullptr);
-    point.setProperty ("score", score, nullptr);
+    point.setProperty ("t", s.time.toMilliseconds(), nullptr);
+    point.setProperty ("score", s.score, nullptr);
+    point.setProperty ("saved", s.confirmed, nullptr);
+    juce::ValueTree metrics ("Metrics");
+    for (const auto& [id, vo] : s.metrics)
+    {
+        juce::ValueTree m ("M");
+        m.setProperty ("id", juce::String (id), nullptr);
+        m.setProperty ("v", vo.first, nullptr);
+        m.setProperty ("o", vo.second, nullptr);
+        metrics.addChild (m, -1, nullptr);
+    }
+    point.addChild (metrics, -1, nullptr);
     list.addChild (point, -1, nullptr);
     while (list.getNumChildren() > 40)
         list.removeChild (0, nullptr);
 }
+
+void WwmaAudioProcessor::confirmLatestSnapshot()
+{
+    auto list = apvts.state.getChildWithName (snapshotsId);
+    if (list.isValid() && list.getNumChildren() > 0)
+    {
+        auto last = list.getChild (list.getNumChildren() - 1);
+        last.setProperty ("saved", true, nullptr);
+        last.setProperty ("savedAt", juce::Time::getCurrentTime().toMilliseconds(), nullptr);
+    }
+}
+
+bool WwmaAudioProcessor::latestSnapshotNeedsConfirmation() const
+{
+    const auto list = apvts.state.getChildWithName (snapshotsId);
+    return list.isValid() && list.getNumChildren() > 0 && ! (bool) list.getChild (list.getNumChildren() - 1).getProperty ("saved", false);
+}
+
+bool WwmaAudioProcessor::getLearnMode() const { return (bool) apvts.state.getProperty ("learn", false); }
+void WwmaAudioProcessor::setLearnMode (bool on) { apvts.state.setProperty ("learn", on, nullptr); }
+int WwmaAudioProcessor::getLessonIndex() const { return (int) apvts.state.getProperty ("lesson", 0); }
+void WwmaAudioProcessor::setLessonIndex (int i) { apvts.state.setProperty ("lesson", i, nullptr); }
+
+juce::StringArray WwmaAudioProcessor::getLessonsDone() const
+{
+    return juce::StringArray::fromTokens (apvts.state.getProperty ("lessonsDone", "").toString(), ",", "");
+}
+
+void WwmaAudioProcessor::markLessonDone (const juce::String& id)
+{
+    auto done = getLessonsDone();
+    done.removeEmptyStrings();
+    done.addIfNotAlreadyThere (id);
+    apvts.state.setProperty ("lessonsDone", done.joinIntoString (","), nullptr);
+}
+
+juce::File WwmaAudioProcessor::getReportFolder() const
+{
+    const auto path = apvts.state.getProperty ("reportFolder", "").toString();
+    if (path.isNotEmpty() && juce::File::isAbsolutePath (path))
+        return juce::File (path);
+    return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("WWMA Reports");
+}
+
+void WwmaAudioProcessor::setReportFolder (const juce::File& f) { apvts.state.setProperty ("reportFolder", f.getFullPathName(), nullptr); }
 
 void WwmaAudioProcessor::clearScoreSnapshots()
 {
