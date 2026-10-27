@@ -38,7 +38,9 @@ INSTALL ON macOS
 INSTALL ON LINUX (x64 or ARM64)
 1. Copy "WWMA Mixing Aid.vst3" to ~/.vst3 (create the folder if needed)
    or to /usr/lib/vst3 for all users.
-2. Rescan plugins in your DAW (Reaper, Bitwig, Ardour...).
+2. For LV2 hosts (Ardour, Carla, Qtractor...), you can instead copy
+   "WWMA Mixing Aid.lv2" to ~/.lv2 (or /usr/lib/lv2 for all users).
+3. Rescan plugins in your DAW (Reaper, Bitwig, Ardour...).
 
 HOW TO USE
 1. Put WWMA as the LAST plugin on your master bus (after your limiter).

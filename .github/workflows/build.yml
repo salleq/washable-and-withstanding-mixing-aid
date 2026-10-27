@@ -61,6 +61,7 @@ jobs:
         run: |
           targets="WWMA_VST3"
           if [ "$RUNNER_OS" = "macOS" ]; then targets="WWMA_VST3 WWMA_AU"; fi
+          if [ "$RUNNER_OS" = "Linux" ]; then targets="WWMA_VST3 WWMA_LV2"; fi
           if [ "${{ matrix.selftest }}" = "true" ]; then targets="$targets wwma_selftest"; fi
           cmake --build build --config Release --target $targets --parallel 4
 
@@ -73,6 +74,8 @@ jobs:
           echo "path=$path" >> "$GITHUB_OUTPUT"
           au=$(find build -type d -name "WWMA Mixing Aid.component" -path "*Release*" | head -1)
           echo "au=$au" >> "$GITHUB_OUTPUT"
+          lv2=$(find build -type d -name "WWMA Mixing Aid.lv2" -path "*Release*" | head -1)
+          echo "lv2=$lv2" >> "$GITHUB_OUTPUT"
 
       - name: Ad-hoc sign (macOS)
         if: runner.os == 'macOS'
@@ -113,6 +116,7 @@ jobs:
           mkdir -p dist
           cp -R "${{ steps.plugin.outputs.path }}" dist/
           if [ -n "${{ steps.plugin.outputs.au }}" ]; then cp -R "${{ steps.plugin.outputs.au }}" dist/; fi
+          if [ -n "${{ steps.plugin.outputs.lv2 }}" ]; then cp -R "${{ steps.plugin.outputs.lv2 }}" dist/; fi
           cp docs/INSTALL.txt dist/
           cd dist
           if [ "$RUNNER_OS" != "Windows" ]; then

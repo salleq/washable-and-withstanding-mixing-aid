@@ -1,6 +1,6 @@
 # WWMA – Washable Withstandable Mixing Aid
 
-A free, open source mixing teacher in a plugin (VST3 and AU, for Windows, macOS and Linux, x64 and ARM).
+A free, open source mixing teacher in a plugin (VST3, AU on macOS and LV2 on Linux, for Windows, macOS and Linux, x64 and ARM).
 
 Put it last on your master bus. It listens to your mix and tells you in plain words what is **clearly** or **slightly** too much or too little, why it matters on a phone, in a car, on headphones and in a club, and how to fix it yourself. It never changes your sound.
 

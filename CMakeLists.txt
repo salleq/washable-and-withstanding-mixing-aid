@@ -32,6 +32,8 @@ endif()
 # Audio Unit as well on macOS, for Logic and GarageBand
 if(APPLE)
     set(WWMA_FORMATS VST3 AU Standalone)
+elseif(UNIX)
+    set(WWMA_FORMATS VST3 LV2 Standalone) # LV2 for Ardour, Carla, Qtractor and friends
 else()
     set(WWMA_FORMATS VST3 Standalone)
 endif()
@@ -46,6 +48,7 @@ juce_add_plugin(WWMA
     DESCRIPTION "Washable Withstandable Mixing Aid - tells you what is too much or too little in your mix"
     FORMATS ${WWMA_FORMATS}
     VST3_CATEGORIES Fx Analyzer Tools
+    LV2URI "https://github.com/salleq/washable-withstandable-mixing-aid"
     AU_MAIN_TYPE kAudioUnitType_Effect
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE
