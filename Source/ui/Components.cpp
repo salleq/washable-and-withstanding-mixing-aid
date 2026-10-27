@@ -857,19 +857,25 @@ void ScoreBox::paint (juce::Graphics& g)
         const float widths[] = { 0.40f, 0.30f, 0.20f, 0.10f };
         const float scores[] = { 20.0f, 55.0f, 80.0f, 95.0f };
         float x = (float) zones.getX();
+        const float lineH = zones.getHeight() * 0.5f;
         for (int i = 0; i < 4; ++i)
         {
             const float w = zones.getWidth() * widths[i];
-            // the last zone is narrow: its label borrows room from the one before it
-            const float lastLabel = 40.0f;
             auto box = juce::Rectangle<float> (x, (float) zones.getY(), w - 3.0f, (float) zones.getHeight());
-            if (i == 2) box.setRight ((float) zones.getRight() - lastLabel - 3.0f);
-            if (i == 3) box = box.withLeft ((float) zones.getRight() - lastLabel).withRight ((float) zones.getRight());
+            int lines = 2;
+            // the two right-hand zones are narrow: they share their space on two lines,
+            // "close enough" on top from its zone's start, "looks perfect" below, right-aligned
+            if (i >= 2)
+            {
+                const float start = (float) zones.getX() + zones.getWidth() * (widths[0] + widths[1]);
+                box = juce::Rectangle<float> (start, (float) zones.getY() + (i == 3 ? lineH : 0.0f), (float) zones.getRight() - start, lineH);
+                lines = 1;
+            }
             const bool current = valid && verdictFor (score, lang) == verdictFor (scores[i], lang);
             g.setColour (current ? col : colours::dim);
             g.setFont ((current ? fonts::labelBold (11.0f) : fonts::label (10.5f)).withExtraKerningFactor (0.04f));
             g.drawFittedText (upper (verdictFor (scores[i], lang)), box.toNearestInt(),
-                              i == 3 ? juce::Justification::topRight : juce::Justification::topLeft, 2, 0.8f);
+                              i == 3 ? juce::Justification::topRight : juce::Justification::topLeft, lines, 0.7f);
             x += w;
         }
     }
@@ -1068,6 +1074,15 @@ void ProgressBox::paint (juce::Graphics& g)
                                    "Tallenna snapshot ennen muutosta ja seuraa sitten pisteitä."),
                           plot.toNearestInt().reduced (10, 0), juce::Justification::centred, 3);
         return;
+    }
+
+    if (snaps.empty())
+    {
+        g.setColour (colours::dim);
+        g.setFont (fonts::body (11.5f));
+        g.drawFittedText (t (lang, "Save a snapshot before a change, then watch the score.",
+                                   "Tallenna snapshot ennen muutosta ja seuraa pisteitä."),
+                          plot.toNearestInt().reduced (8, 4).removeFromTop (34), juce::Justification::centredTop, 2);
     }
 
     auto xFor = [&] (size_t i) { return pts.size() == 1 ? plot.getCentreX() : plot.getX() + 8.0f + (plot.getWidth() - 16.0f) * (float) i / (float) (pts.size() - 1); };

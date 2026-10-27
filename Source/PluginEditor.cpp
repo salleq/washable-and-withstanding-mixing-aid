@@ -89,7 +89,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     styleButton.onClick = [this]
     {
         // the user accepted the suggestion: switch to the closest preset
-        if (styleGuess.valid && styleGuess.best >= 0)
+        if (styleSuggests && styleGuess.valid && styleGuess.best >= 0)
         {
             proc.setProfileIndex (styleGuess.best);
             profileBox.setSelectedId (styleGuess.best + 1, juce::dontSendNotification);
@@ -412,6 +412,7 @@ void WwmaAudioProcessorEditor::updateStyleButton()
     const bool show = styleGuess.valid && state.activeRefView() == nullptr;
     state.styleChipShown = show;
     styleButton.setVisible (show);
+    styleSuggests = false;
     if (! show)
         return;
 
@@ -426,7 +427,9 @@ void WwmaAudioProcessorEditor::updateStyleButton()
     {
         styleButton.setButtonText ((bpm.isNotEmpty() ? bpm + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) : juce::String())
                                    + tr (lang, "sounds like ", "kuulostaa tyyliltä ") + family + " (" + percent + ")");
-        styleButton.setEnabled (false);
+        styleSuggests = false;
+        styleButton.setColour (juce::TextButton::buttonColourId, colours::panel);
+        styleButton.setColour (juce::TextButton::textColourOffId, colours::soft);
         styleButton.setTooltip (tr (lang, "WWMA's guess from the tempo, tonal balance and dynamics agrees with your preset.",
                                           "WWMA:n arvaus tempon, taajuustasapainon ja dynamiikan perusteella vastaa valitsemaasi presettiä."));
     }
@@ -435,7 +438,9 @@ void WwmaAudioProcessorEditor::updateStyleButton()
         styleButton.setButtonText (tr (lang, "Sounds like ", "Kuulostaa tyyliltä ") + family + " (" + percent + ")"
                                    + (bpm.isNotEmpty() ? juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) + bpm : juce::String())
                                    + tr (lang, "  - use it?", "  - vaihdetaanko?"));
-        styleButton.setEnabled (true);
+        styleSuggests = true;
+        styleButton.setColour (juce::TextButton::buttonColourId, colours::accent.withAlpha (0.14f));
+        styleButton.setColour (juce::TextButton::textColourOffId, colours::accent);
         styleButton.setTooltip (tr (lang, "A guess from the tempo, tonal balance and dynamics, not a fact. Click to switch to the closest preset, ",
                                           "Arvaus tempon, taajuustasapainon ja dynamiikan perusteella, ei fakta. Klikkaa vaihtaaksesi lähimpään presettiin, ")
                                 + name + tr (lang, ". Nothing changes unless you click. Styles with the same tempo are easy to mix up; your ears and your own choice win.",

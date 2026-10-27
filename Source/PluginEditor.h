@@ -35,7 +35,7 @@ public:
     void pushHistory();
     /** The current style guess, and what clicking its suggestion does (also used by the self test). */
     const wwma::StyleGuess& getStyleGuess() const noexcept { return styleGuess; }
-    bool isStyleSuggestionShown() const noexcept { return styleButton.isVisible() && styleButton.isEnabled(); }
+    bool isStyleSuggestionShown() const noexcept { return styleButton.isVisible() && styleSuggests; }
     void acceptStyleSuggestion() { styleButton.onClick(); }
     /** Re-reads the reference slots (screenshot tool, after loading synchronously). */
     /** A/B: true plays the reference instead of the mix. */
@@ -93,6 +93,7 @@ private:
     // style guess: only ever a suggestion, the preset changes when the user clicks it
     juce::TextButton styleButton;
     wwma::StyleGuess styleGuess;
+    bool styleSuggests = false; // false: the chip only confirms the chosen preset
     void updateStyleButton();
     juce::TooltipWindow tooltips { this, 600 };
 
