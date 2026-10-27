@@ -135,6 +135,10 @@ if(WWMA_BUILD_TOOLS)
     target_link_libraries(wwma_selftest PRIVATE
         WWMAAssets juce::juce_audio_utils juce::juce_dsp
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+    # main() keeps many processors (each with two analysers) on the stack; Windows' default 1 MB is too small
+    if(MSVC)
+        target_link_options(wwma_selftest PRIVATE /STACK:16777216)
+    endif()
 
     juce_add_console_app(wwma_calibrate PRODUCT_NAME "wwma_calibrate")
     target_sources(wwma_calibrate PRIVATE tools/Calibrate.cpp ${WWMA_CORE_SOURCES})
