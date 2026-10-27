@@ -42,11 +42,12 @@ float styleDistance (const Snapshot& s, const Profile& p)
     if (tempoUsable (s))
     {
         float best = 1.0e9f;
-        for (float factor : { 1.0f, 2.0f, 0.5f })
+        const float factors[] = { 1.0f, 2.0f, 0.5f };
+        for (int k = 0; k < 3; ++k)
         {
-            const float bpm = s.tempoBpm * factor;
+            const float bpm = s.tempoBpm * factors[k];
             const float outside = std::max ({ 0.0f, p.bpmMin - bpm, bpm - p.bpmMax });
-            best = std::min (best, outside / 4.0f + (factor != 1.0f ? 0.3f : 0.0f));
+            best = std::min (best, outside / 4.0f + (k > 0 ? 0.3f : 0.0f));
         }
         dist += best + (p.bpmMax - p.bpmMin) / 60.0f; // a wide range fits anything, so it says less
     }
@@ -104,10 +105,11 @@ StyleGuess guessStyle (const Snapshot& s)
         // say the tempo the way the style counts it: drum & bass is 174, not 87
         const auto& bp = profiles[(size_t) g.best];
         float bestOutside = 1.0e9f;
-        for (float factor : { 1.0f, 2.0f, 0.5f })
+        const float factors[] = { 1.0f, 2.0f, 0.5f };
+        for (int k = 0; k < 3; ++k)
         {
-            const float bpm = s.tempoBpm * factor;
-            const float outside = std::max ({ 0.0f, bp.bpmMin - bpm, bpm - bp.bpmMax }) + (factor != 1.0f ? 0.5f : 0.0f);
+            const float bpm = s.tempoBpm * factors[k];
+            const float outside = std::max ({ 0.0f, bp.bpmMin - bpm, bpm - bp.bpmMax }) + (k > 0 ? 0.5f : 0.0f);
             if (outside < bestOutside)
             {
                 bestOutside = outside;

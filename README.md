@@ -30,6 +30,7 @@ Put it last on your master bus. It listens to your mix and tells you in plain wo
 
   **A/B** plays the reference instead of your mix at the same loudness, following your song position. Click the waveform to jump. This is the only time WWMA changes what you hear, and only while you have B selected.
 - **Mix and Master modes.** In Mix mode, loudness and ceiling are not judged yet; you get headroom advice instead.
+- **Style suggestion.** After 15 seconds WWMA guesses the closest preset from the tempo (it knows half-time, so drum & bass counts as 174 BPM), the tonal balance and the dynamics, with a confidence: "Sounds like House (72 %) · 124 BPM - use it?". It only switches when you click.
 - **NOW and SONG.** NOW looks at the last 3 seconds, so you can loop a part and tweak it. SONG looks at everything since the last reset.
 - **English and Finnish.** Use the FI/EN button to switch.
 
@@ -39,10 +40,11 @@ Put it last on your master bus. It listens to your mix and tells you in plain wo
 
 **Electronic:**
 
-- House, Deep House, Tech House
-- Techno, Melodic Techno / Progressive
-- Trance, EDM / Big Room
-- Drum & Bass, Dubstep / Bass Music, Hardstyle
+- House, Deep House, Tech House, Afro House, Minimal / Microhouse
+- Techno, Hard Techno, Melodic Techno / Progressive
+- Trance, Psytrance, EDM / Big Room
+- UK Garage / Speed Garage, Breaks
+- Drum & Bass, Dubstep / Bass Music, Future Bass, Hardstyle
 - Synthwave, Ambient / Downtempo, Lo-fi / Chillhop
 - Electronic (streaming)
 
@@ -61,7 +63,9 @@ The loudness target can follow the style, or be set to -14 LUFS (streaming), -8 
 
 Get the installer for your system from the [Releases](../../releases) page. See [docs/INSTALL.txt](docs/INSTALL.txt) for installing by hand (including macOS quarantine and Linux paths).
 
-There is a beginner's guide to mixing with WWMA in Finnish: [docs/OPAS.md](docs/OPAS.md).
+The [manual](docs/MANUAL.md) explains every check and what to try first. There is also a beginner's guide to mixing with WWMA in Finnish: [docs/OPAS.md](docs/OPAS.md).
+
+![The style suggestion](docs/images/wwma-style.png)
 
 ## Build
 
@@ -78,6 +82,9 @@ The self test checks:
 - the advice on synthetic mixes
 - bit-exact pass-through and stability from 22 to 192 kHz
 - reference tracks and A/B level matching
+- synthetic songs (kick, bass, snare, hats, pad, lead, limiter) with typical mistakes, each of which must be caught
+- tempo and the style guess
+- CPU load (about 2 % of one core at 48 kHz)
 
 It also renders the screenshots.
 
@@ -86,6 +93,8 @@ cmake -B build -DWWMA_BUILD_TOOLS=ON
 cmake --build build --target wwma_selftest
 ./build/wwma_selftest_artefacts/Release/wwma_selftest screenshots
 ```
+
+`wwma_calibrate` prints what WWMA says about each synthetic mistake (or `wwma_calibrate styles` for the style guess), which is handy when tuning thresholds.
 
 CI builds macOS (universal), Windows x64 and ARM64, and Linux x64 and ARM64. On x64 it validates the plugin with pluginval, and on ARM it runs the self test. It also builds installers, and makes a release for every `v*` tag.
 

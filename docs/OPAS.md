@@ -9,7 +9,7 @@ WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielel
 ## 1. Käyttöönotto
 
 1. Laita WWMA masterväylän **viimeiseksi** pluginiksi, limitterin jälkeen.
-2. Valitse **Preset**: oma tyylisi. Elektroniset ovat listan alussa.
+2. Valitse **Preset**: oma tyylisi. Elektroniset ovat listan alussa. Jos et ole varma, soita kappaletta 15 sekuntia: WWMA ehdottaa lähintä tyyliä (ks. alla).
 3. Valitse **MIX**, kun vielä miksaat. Silloin äänekkyyttä ja huippuja ei arvioida, vain tasapainoa, leveyttä, dynamiikkaa ja rumpuja. Valitse **MASTER**, kun masteroit.
 4. Valitse **Target** eli äänekkyystavoite. Tyylin oma on hyvä alku. Jos kappale menee vain suoratoistoon, −14 LUFS riittää.
 5. Soita koko kappale **BIISI**-tilassa tai looppaa työstettävää kohtaa **NYT**-tilassa. Kielen vaihdat oikean yläkulman FI/EN-napista.
@@ -34,7 +34,19 @@ WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielel
 
   **A/B**-kytkin soittaa referenssiä miksauksesi tilalla samalla äänekkyydellä. Se on ainoa tilanne, jossa WWMA muuttaa kuulemaasi, ja silloin yläpalkin merkki muuttuu violetiksi.
 
-## 3. Hyvä työjärjestys
+## 3. Tyyliehdotus
+
+Noin 15 sekunnin jälkeen WWMA arvaa, mitä presettiä kappale muistuttaa eniten, ja näyttää sen taajuustasapainon yläreunassa, esimerkiksi "Kuulostaa tyyliltä Drum & Bass (40 %) · 174 BPM – vaihdetaanko?". Klikkaa, niin preset vaihtuu. **Mikään ei muutu, ellet klikkaa.**
+
+Arvaus perustuu kolmeen asiaan, eikä siinä ole koneoppimista:
+
+- **Tempo** lasketaan siitä, kuinka säännöllisesti rumpuiskut toistuvat. Half-time ymmärretään, joten 87 BPM:nä kuuluva drum & bass lasketaan 174:ksi.
+- **Taajuustasapainoa** verrataan jokaisen presetin käytävään.
+- **Dynamiikka** vaikuttaa myös: hyvin dynaaminen kappale tuskin on klubityyliä.
+
+Prosentti jaetaan lähisukulaisten kesken: "House 72 %" tarkoittaa koko house-perhettä (House, Deep, Tech, Afro, Minimal). Samassa tempossa olevat tyylit, kuten techno ja UK garage 132 BPM:ssä, menevät helposti sekaisin, joten oma valintasi ja korvasi ratkaisevat.
+
+## 4. Hyvä työjärjestys
 
 1. **Tasapaino ensin.** Säädä faderit ennen pluginien lisäämistä. Kick ja basso ensin, sitten virveli, sitten liidi tai vokaali, sitten loput.
 2. **Matalat kuntoon.** Päätä, kumpi omistaa subin, kick vai basso. Pidä kaikki alle noin 120 Hz monona. Ylipäästösuodata muut äänet.
@@ -43,7 +55,7 @@ WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielel
 5. **Tila ja leveys.** Pidä tärkeät äänet keskellä ja levitä tukiosat sivuille. Tarkista monona.
 6. **Masterointi vasta lopuksi.** Jätä miksaukseen tilaa (huiput noin −6…−3 dBFS). Lisää limitteri vasta MASTER-vaiheessa ja säädä katto (−1 dBTP) sekä äänekkyys tyylin mukaan.
 
-## 4. Perusasiat lyhyesti
+## 5. Perusasiat lyhyesti
 
 ### EQ
 
@@ -69,7 +81,7 @@ WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielel
 - **Virveli tarvitsee** runkoa noin 200 Hz:ssä ja napsua 2–5 kHz:ssä.
 - Jos rummuista puuttuu terävyys, syyllinen on usein limitteri tai väyläkompressori, ei EQ.
 
-## 5. Yleiset sudenkuopat (WWMA huomaa nämä)
+## 6. Yleiset sudenkuopat (WWMA huomaa nämä)
 
 | Sudenkuoppa | Mitä tapahtuu | Mitä tehdä |
 |---|---|---|
@@ -99,8 +111,10 @@ WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielel
 - **Kovempi kuulostaa paremmalta.** Tasaa äänekkyys aina ennen vertailua. A/B-kytkin tekee sen referenssille.
 - **Soolo johtaa harhaan.** Tee päätökset kaiken soidessa.
 
-## 6. Muista
+## 7. Muista
 
 - Pisteet kertovat, kuinka lähellä tyylin tyypillistä masteria olet. Ne eivät kerro, onko biisi hyvä.
 - Presetit ovat valistuneita arvauksia yleisestä käytännöstä. Tarkin tavoite on referenssiraita, josta pidät.
 - Tarkista lopuksi aina puhelimesta ja autossa. Jos se kuulostaa niissä hyvältä, se on hyvä.
+
+Jokainen tarkistus on selitetty englanniksi [käyttöohjeessa](MANUAL.md).

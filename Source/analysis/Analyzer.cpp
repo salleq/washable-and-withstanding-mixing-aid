@@ -249,7 +249,6 @@ void Analyzer::updateOnsets (float lowDb, float highDb, bool open) noexcept
 void Analyzer::updateTempo() noexcept
 {
     // about once a second: autocorrelation of the last 5 s of onset strength, summed over the song
-    double mean = 0.0;
     // oldest first, lightly blurred (1-2-1) so that hits a frame apart still line up, mean removed
     auto prepareCurve = [this] (const std::array<float, fluxSize>& src, std::array<float, fluxSize>& dst) -> double
     {
