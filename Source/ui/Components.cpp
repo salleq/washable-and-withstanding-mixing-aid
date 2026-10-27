@@ -1242,6 +1242,61 @@ namespace
         const int s = (int) std::round (secs);
         return juce::String (s / 60) + ":" + juce::String (s % 60).paddedLeft ('0', 2);
     }
+
+    /** A reference waveform with its loop and play position. The peaks are merged per pixel. */
+    void drawRefWave (juce::Graphics& g, const RefView& ref, juce::Rectangle<float> wb, bool active, bool showHead, double playPosition)
+    {
+        const auto n = ref.wave.size();
+        if (n == 0 || wb.getWidth() < 2.0f)
+            return;
+        auto xOf = [&] (double f) { return wb.getX() + wb.getWidth() * (float) juce::jlimit (0.0, 1.0, f); };
+        if (ref.hasLoop())
+        {
+            const float a = xOf (ref.loopStart), b = xOf (ref.loopEnd);
+            g.setColour (colours::ref.withAlpha (0.16f));
+            g.fillRect (a, wb.getY() - 2.0f, b - a, wb.getHeight() + 4.0f);
+            g.setColour (colours::ref.withAlpha (0.8f));
+            g.fillRect (a - 0.5f, wb.getY() - 2.0f, 1.0f, wb.getHeight() + 4.0f);
+            g.fillRect (b - 0.5f, wb.getY() - 2.0f, 1.0f, wb.getHeight() + 4.0f);
+        }
+        const int columns = juce::jmax (1, (int) (wb.getWidth() / 1.5f));
+        const float colW = wb.getWidth() / (float) columns;
+        for (int c = 0; c < columns; ++c)
+        {
+            const auto from = (size_t) ((double) c / columns * (double) n);
+            const auto to = juce::jmax (from + 1, (size_t) ((double) (c + 1) / columns * (double) n));
+            float peak = 0.0f;
+            for (size_t k = from; k < to && k < n; ++k)
+                peak = juce::jmax (peak, ref.wave[k]);
+            const double centre = (c + 0.5) / columns;
+            const bool inLoop = ! ref.hasLoop() || (centre >= ref.loopStart && centre <= ref.loopEnd);
+            g.setColour (active ? colours::ref.withAlpha (inLoop ? 1.0f : 0.45f) : colours::faint);
+            const float h = juce::jmax (1.0f, peak * wb.getHeight());
+            g.fillRect (wb.getX() + colW * (float) c, wb.getCentreY() - h * 0.5f, juce::jmax (0.8f, colW * 0.7f), h);
+        }
+        if (showHead)
+        {
+            g.setColour (juce::Colours::white);
+            g.fillRect (xOf (playPosition) - 0.6f, wb.getY() - 3.0f, 1.2f, wb.getHeight() + 6.0f);
+        }
+    }
+
+    void drawPlayIcon (juce::Graphics& g, juce::Rectangle<float> r, bool playing, juce::Colour c)
+    {
+        g.setColour (c);
+        auto b = r.withSizeKeepingCentre (8.0f, 9.0f);
+        if (playing)
+        {
+            g.fillRect (b.removeFromLeft (3.0f));
+            g.fillRect (b.removeFromRight (3.0f));
+        }
+        else
+        {
+            juce::Path tri;
+            tri.addTriangle (b.getX() + 0.5f, b.getY(), b.getX() + 0.5f, b.getBottom(), b.getRight() + 0.5f, b.getCentreY());
+            g.fillPath (tri);
+        }
+    }
 }
 
 juce::Rectangle<int> ReferenceBox::slotBounds (int i) const
@@ -1260,7 +1315,18 @@ juce::Rectangle<int> ReferenceBox::dropBounds() const
 
 juce::Rectangle<int> ReferenceBox::waveBounds (int i) const
 {
-    return slotBounds (i).reduced (10, 0).withTrimmedBottom (7).removeFromBottom (18);
+    return slotBounds (i).reduced (10, 0).withTrimmedBottom (7).removeFromBottom (18).withTrimmedLeft (26);
+}
+
+juce::Rectangle<int> ReferenceBox::playBounds (int i) const
+{
+    const auto w = waveBounds (i);
+    return { w.getX() - 26, w.getCentreY() - 10, 20, 20 };
+}
+
+juce::Rectangle<int> ReferenceBox::infoBounds (int i) const
+{
+    return slotBounds (i).reduced (10, 7).removeFromTop (33).withTrimmedRight (22);
 }
 
 juce::Rectangle<int> ReferenceBox::closeBounds (int i) const
@@ -1343,25 +1409,15 @@ void ReferenceBox::paint (juce::Graphics& g)
         g.drawText (fmt (lang, ref.snap.integrated) + " LUFS" + dot + duration (ref.seconds) + dot + t (lang, "analysed", "analysoitu"),
                     line2, juce::Justification::centredLeft);
 
-        // waveform
-        auto wb = waveBounds (i).toFloat();
-        const auto n = ref.wave.size();
-        if (n > 0)
-        {
-            const float colW = wb.getWidth() / (float) n;
-            g.setColour (act ? colours::ref : colours::faint);
-            for (size_t k = 0; k < n; ++k)
-            {
-                const float h = juce::jmax (1.0f, ref.wave[k] * wb.getHeight());
-                g.fillRect (wb.getX() + colW * (float) k, wb.getCentreY() - h * 0.5f, juce::jmax (0.8f, colW * 0.7f), h);
-            }
-            if (act && state.listening)
-            {
-                const float x = wb.getX() + wb.getWidth() * (float) juce::jlimit (0.0, 1.0, state.playPosition);
-                g.setColour (juce::Colours::white);
-                g.fillRect (x - 0.6f, wb.getY() - 2.0f, 1.2f, wb.getHeight() + 4.0f);
-            }
-        }
+        // waveform, loop and play / pause
+        const bool playingHere = act && state.listening && state.refPlaying;
+        drawRefWave (g, ref, waveBounds (i).toFloat(), act, act, state.playPosition);
+        auto pb = playBounds (i).toFloat();
+        g.setColour (playingHere ? colours::ref.withAlpha (0.25f) : colours::panel);
+        g.fillEllipse (pb);
+        g.setColour (act ? colours::ref : colours::line);
+        g.drawEllipse (pb.reduced (0.5f), 1.0f);
+        drawPlayIcon (g, pb, playingHere, act ? colours::text : colours::dim);
     }
 
     // drop zone
@@ -1389,9 +1445,49 @@ void ReferenceBox::paint (juce::Graphics& g)
     g.drawText (t (lang, "or click to browse", "tai klikkaa ja valitse"), dc, juce::Justification::centred);
 }
 
+void ReferenceBox::mouseDown (const juce::MouseEvent& e)
+{
+    // click or drag on a ready waveform: jump there
+    seekingSlot = -1;
+    for (int i = 0; i < (int) state.refs.size(); ++i)
+    {
+        const auto wb = waveBounds (i).expanded (0, 4);
+        if (state.refs[(size_t) i].ready() && wb.contains (e.getPosition()))
+        {
+            seekingSlot = i;
+            if (onSelect && i != state.activeRef) onSelect (i);
+            mouseDrag (e);
+            return;
+        }
+    }
+}
+
+void ReferenceBox::mouseDrag (const juce::MouseEvent& e)
+{
+    if (seekingSlot < 0 || ! onCue)
+        return;
+    const auto wb = waveBounds (seekingSlot);
+    onCue (seekingSlot, juce::jlimit (0.0, 1.0, (double) (e.position.x - (float) wb.getX()) / (double) juce::jmax (1, wb.getWidth())));
+}
+
+void ReferenceBox::mouseMove (const juce::MouseEvent& e)
+{
+    bool hand = false;
+    for (int i = 0; i < (int) state.refs.size(); ++i)
+        if (state.refs[(size_t) i].ready())
+            hand = hand || waveBounds (i).expanded (0, 4).contains (e.getPosition()) || playBounds (i).contains (e.getPosition())
+                   || infoBounds (i).contains (e.getPosition());
+    setMouseCursor (hand ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
 void ReferenceBox::mouseUp (const juce::MouseEvent& e)
 {
     const auto p = e.getPosition();
+    if (seekingSlot >= 0)
+    {
+        seekingSlot = -1;
+        return;
+    }
     if (dropBounds().contains (p))
     {
         if (onBrowse) onBrowse (-1);
@@ -1412,10 +1508,15 @@ void ReferenceBox::mouseUp (const juce::MouseEvent& e)
         }
         else if (ref.ready())
         {
-            if (onSelect) onSelect (i);
-            const auto wb = waveBounds (i).expanded (0, 4);
-            if (wb.contains (p) && onCue)
-                onCue (i, (double) (p.x - wb.getX()) / (double) juce::jmax (1, wb.getWidth()));
+            if (onSelect && i != state.activeRef) onSelect (i);
+            if (playBounds (i).expanded (3).contains (p))
+            {
+                if (onPlayPause) onPlayPause (i);
+            }
+            else if (infoBounds (i).contains (p))
+            {
+                if (onOpenDetail) onOpenDetail (i);
+            }
         }
         else if (ref.status == RefView::Status::failed)
         {
@@ -1761,6 +1862,198 @@ void LessonBox::paint (juce::Graphics& g)
         g.drawFittedText (t (lang, "Loop a part, change one thing at a time and watch the bar.", "Looppaa kohtaa, muuta yhtä asiaa kerrallaan ja seuraa palkkia."),
                           status, juce::Justification::centredLeft, 1);
     }
+}
+
+// =====================================================================================
+RefDetailBox::RefDetailBox (const ViewState& s) : state (s)
+{
+    closeButton.onClick = [this] { if (onClose) onClose(); };
+    playButton.onClick = [this] { if (onPlayPause) onPlayPause(); };
+    loopButton.onClick = [this] { if (onPlayLoop) onPlayLoop(); };
+    clearButton.onClick = [this] { if (onClearLoop) onClearLoop(); };
+    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton })
+        addAndMakeVisible (b);
+    updateTexts();
+}
+
+const RefView* RefDetailBox::view() const
+{
+    return juce::isPositiveAndBelow (slot, (int) state.refs.size()) && state.refs[(size_t) slot].ready() ? &state.refs[(size_t) slot] : nullptr;
+}
+
+void RefDetailBox::updateTexts()
+{
+    const auto lang = state.lang;
+    const auto* v = view();
+    const bool playing = state.listening && state.refPlaying && slot == state.activeRef;
+    closeButton.setButtonText (upper (t (lang, "Close", "Sulje")));
+    playButton.setButtonText (upper (playing ? t (lang, "Pause", "Tauko") : t (lang, "Play", "Soita")));
+    loopButton.setButtonText (upper (t (lang, "Play the loop", "Soita looppi")));
+    clearButton.setButtonText (upper (t (lang, "Clear loop", "Poista looppi")));
+    const bool loop = v != nullptr && v->hasLoop();
+    loopButton.setEnabled (loop);
+    clearButton.setEnabled (loop);
+}
+
+void RefDetailBox::resized()
+{
+    const auto r = content (*this);
+    closeButton.setBounds (r.getRight() - 70, r.getY() - 2, 70, 22);
+    auto row = juce::Rectangle<int> (r.getX(), r.getBottom() - 26, r.getWidth(), 26);
+    playButton.setBounds (row.removeFromLeft (96));
+    row.removeFromLeft (8);
+    loopButton.setBounds (row.removeFromLeft (130));
+    row.removeFromLeft (8);
+    clearButton.setBounds (row.removeFromLeft (130));
+}
+
+juce::Rectangle<int> RefDetailBox::waveArea() const
+{
+    auto r = content (*this);
+    r.removeFromTop (18 + 22);
+    r.removeFromBottom (26 + 30);
+    return r.withTrimmedBottom (16); // room for the time ruler
+}
+
+double RefDetailBox::fractionAt (float x) const
+{
+    const auto w = waveArea().toFloat();
+    return juce::jlimit (0.0, 1.0, (double) ((x - w.getX()) / juce::jmax (1.0f, w.getWidth())));
+}
+
+void RefDetailBox::paint (juce::Graphics& g)
+{
+    const auto lang = state.lang;
+    drawBox (g, getLocalBounds().toFloat());
+    updateTexts();
+    auto r = content (*this);
+    auto head = r.removeFromTop (18);
+    const auto* v = view();
+    if (v == nullptr)
+    {
+        drawLabel (g, t (lang, "Reference track", "Referenssiraita"), head);
+        return;
+    }
+    drawLabel (g, "Ref " + juce::String (slot + 1) + dot + v->name, head.withTrimmedRight (80), colours::ref);
+
+    auto info = r.removeFromTop (22);
+    juce::String text = fmt (lang, v->snap.integrated) + " LUFS" + dot + duration (v->seconds);
+    if (v->hasLoop())
+        text << dot << t (lang, "Loop ", "Looppi ") << duration (v->loopStart * v->seconds) << juce::String (juce::CharPointer_UTF8 (" \xe2\x80\x93 "))
+             << duration (v->loopEnd * v->seconds) << " (" << duration ((v->loopEnd - v->loopStart) * v->seconds) << ")";
+    g.setColour (colours::dim);
+    g.setFont (fonts::num (12.0f));
+    g.drawText (text, info, juce::Justification::centredLeft);
+
+    // the big waveform, with the selection being dragged shown as the loop
+    const auto wa = waveArea().toFloat();
+    g.setColour (colours::raised);
+    g.fillRoundedRectangle (wa.expanded (4.0f, 6.0f), 6.0f);
+    RefView shown = *v;
+    if (drag == Drag::select || drag == Drag::startEdge || drag == Drag::endEdge)
+    {
+        shown.loopStart = juce::jmin (selA, selB);
+        shown.loopEnd = juce::jmax (selA, selB);
+    }
+    const bool act = slot == state.activeRef;
+    drawRefWave (g, shown, wa, true, act, state.playPosition);
+
+    // time ruler
+    if (v->seconds > 0.0)
+    {
+        const double steps[] = { 5, 10, 15, 30, 60, 120, 300 };
+        double step = 300;
+        for (double st : steps)
+            if (v->seconds / st <= 12.0) { step = st; break; }
+        g.setFont (fonts::num (10.0f));
+        for (double tt = 0.0; tt <= v->seconds; tt += step)
+        {
+            const float x = wa.getX() + wa.getWidth() * (float) (tt / v->seconds);
+            g.setColour (colours::line);
+            g.fillRect (x - 0.5f, wa.getBottom() + 6.0f, 1.0f, 4.0f);
+            g.setColour (colours::faint);
+            g.drawText (duration (tt), juce::Rectangle<float> (x - 20.0f, wa.getBottom() + 9.0f, 40.0f, 12.0f), juce::Justification::centred);
+        }
+    }
+
+    // how to use it
+    auto hint = juce::Rectangle<int> (r.getX(), r.getBottom() - 26 - 26, r.getWidth(), 20);
+    g.setColour (colours::faint);
+    g.setFont (fonts::body (12.0f));
+    g.drawFittedText (t (lang, "Click to jump. Drag over the waveform to choose a loop, drag its edges to adjust. The loop stays when you close this view.",
+                               "Klikkaa hypätäksesi. Raahaa aaltomuodon yli valitaksesi loopin, raahaa reunoista säätääksesi. Looppi säilyy, kun suljet näkymän."),
+                      hint, juce::Justification::centredLeft, 1, 0.85f);
+}
+
+void RefDetailBox::mouseDown (const juce::MouseEvent& e)
+{
+    drag = Drag::none;
+    const auto* v = view();
+    const auto wa = waveArea().toFloat().expanded (0.0f, 8.0f);
+    if (v == nullptr || ! wa.contains (e.position))
+        return;
+    const auto w = waveArea().toFloat();
+    auto xOf = [&] (double f) { return w.getX() + w.getWidth() * (float) f; };
+    if (v->hasLoop() && std::abs (e.position.x - xOf (v->loopStart)) <= 5.0f)
+    {
+        drag = Drag::startEdge;
+        selA = v->loopEnd;
+        selB = v->loopStart;
+    }
+    else if (v->hasLoop() && std::abs (e.position.x - xOf (v->loopEnd)) <= 5.0f)
+    {
+        drag = Drag::endEdge;
+        selA = v->loopStart;
+        selB = v->loopEnd;
+    }
+    else
+    {
+        drag = Drag::pending;
+        dragFrom = fractionAt (e.position.x);
+    }
+}
+
+void RefDetailBox::mouseDrag (const juce::MouseEvent& e)
+{
+    if (drag == Drag::pending && e.getDistanceFromDragStart() > 4)
+    {
+        drag = Drag::select;
+        selA = dragFrom;
+    }
+    if (drag == Drag::select || drag == Drag::startEdge || drag == Drag::endEdge)
+    {
+        selB = fractionAt (e.position.x);
+        repaint();
+    }
+}
+
+void RefDetailBox::mouseUp (const juce::MouseEvent& e)
+{
+    if (drag == Drag::pending)
+    {
+        if (onCue) onCue (fractionAt (e.position.x));
+    }
+    else if (drag != Drag::none)
+    {
+        if (onLoop) onLoop (juce::jmin (selA, selB), juce::jmax (selA, selB));
+    }
+    drag = Drag::none;
+    repaint();
+}
+
+void RefDetailBox::mouseMove (const juce::MouseEvent& e)
+{
+    const auto* v = view();
+    const auto w = waveArea().toFloat();
+    auto wanted = juce::MouseCursor::NormalCursor;
+    if (v != nullptr && w.expanded (0.0f, 8.0f).contains (e.position))
+    {
+        wanted = juce::MouseCursor::IBeamCursor;
+        auto xOf = [&] (double f) { return w.getX() + w.getWidth() * (float) f; };
+        if (v->hasLoop() && (std::abs (e.position.x - xOf (v->loopStart)) <= 5.0f || std::abs (e.position.x - xOf (v->loopEnd)) <= 5.0f))
+            wanted = juce::MouseCursor::LeftRightResizeCursor;
+    }
+    setMouseCursor (wanted);
 }
 
 } // namespace wwma::ui

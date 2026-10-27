@@ -35,6 +35,12 @@ WWMA ei korjaa mitään puolestasi. Se kuuntelee miksauksesi, kertoo selkokielel
 
   **A/B**-kytkin soittaa referenssiä miksauksesi tilalla samalla äänekkyydellä. Se on ainoa tilanne, jossa WWMA muuttaa kuulemaasi, ja silloin yläpalkin merkki muuttuu violetiksi.
 
+  Referenssin soittaminen pluginissa:
+  - **▶ / ❚❚** pienen aaltomuodon vieressä soittaa ja pysäyttää referenssin, vaikka DAW olisi pysähdyksissä. Tauko palauttaa miksisi ja muistaa kohdan.
+  - **Klikkaa tai raahaa pientä aaltomuotoa** kelataksesi.
+  - **Klikkaa raidan nimeä tai lukemia**, niin aukeaa iso näkymä. Siinä voit hypätä klikkaamalla, **raahata aaltomuodon yli valitaksesi loopin**, säätää loopin reunoja raahaamalla sekä käyttää **Soita looppi**- ja **Poista looppi** -nappeja.
+  - Kun suljet ison näkymän, looppi jää voimaan: se näkyy pienessä aaltomuodossa, ja ▶ soittaa vain sitä kohtaa yhä uudelleen. Looppi tallentuu projektin mukana.
+
 ## 3. Tyyliehdotus
 
 Noin 15 sekunnin jälkeen WWMA arvaa, mitä presettiä kappale muistuttaa eniten, ja näyttää sen taajuustasapainon yläreunassa, esimerkiksi "Kuulostaa tyyliltä Drum & Bass (40 %) · 174 BPM – vaihdetaanko?". Klikkaa, niin preset vaihtuu. **Mikään ei muutu, ellet klikkaa.**

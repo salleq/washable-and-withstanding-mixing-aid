@@ -173,6 +173,15 @@ Drag a track you like (WAV, AIFF, FLAC, MP3 or OGG; also M4A on macOS and Window
 - Choose the **Reference track** preset to use the reference as the target.
 - **B · REF** plays the reference instead of your mix, at the same loudness and following your song position. This is the only time WWMA changes what you hear, and the top bar turns purple while it does.
 
+Playing the reference inside WWMA:
+
+- **▶ / ❚❚** next to the small waveform plays and pauses the reference on its own, even while the DAW is stopped. Pause takes you back to your mix and keeps the position.
+- **Click or drag on the small waveform** to jump.
+- **Click the track's name or numbers** for a big view. There you can click to jump, **drag over the waveform to choose a loop**, drag the loop's edges to adjust it, and use **Play the loop** or **Clear loop**.
+- Close the big view and the loop stays: it is shaded on the small waveform, and ▶ plays only that part, over and over. The loop is saved with your project.
+
+![Choosing a loop in the big reference view](images/wwma-reference-loop.png)
+
 ## 9. Good habits
 
 1. Balance first, plugins later: kick and bass, then snare, then the lead, then the rest.

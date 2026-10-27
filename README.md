@@ -31,7 +31,7 @@ Put it last on your master bus. It listens to your mix and tells you in plain wo
   - its numbers next to every finding
   - its score on the meters
 
-  **A/B** plays the reference instead of your mix at the same loudness, following your song position. Click the waveform to jump. This is the only time WWMA changes what you hear, and only while you have B selected.
+  **A/B** plays the reference instead of your mix at the same loudness, following your song position. Each reference also has its own **play/pause**, so it plays inside WWMA even with the DAW stopped. Click or drag the waveform to jump; click the track's name for a big view where you **choose a loop**, which then plays from the small strip and is saved with the project. This is the only time WWMA changes what you hear, and only while you have B selected or a reference playing.
 - **Mix and Master modes.** In Mix mode, loudness and ceiling are not judged yet; you get headroom advice instead.
 - **Style suggestion.** After 15 seconds WWMA guesses the closest preset from the tempo (it knows half-time, so drum & bass counts as 174 BPM), the tonal balance and the dynamics, with a confidence: "Sounds like House (72 %) · 124 BPM - use it?". It only switches when you click.
 - **NOW and SONG.** NOW looks at the last 3 seconds, so you can loop a part and tweak it. SONG looks at everything since the last reset.

@@ -25,6 +25,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
         content.addAndMakeVisible (c);
     content.addChildComponent (beforeAfter);
     content.addChildComponent (lessonBox);
+    content.addChildComponent (refDetail);
 
     profileBox.getProperties().set ("caption", "Preset");
     profileBox.onChange = [this]
@@ -63,6 +64,33 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     refBox.onSelect = [this] (int slot) { proc.refs.setActive (slot); readReferences(); reassess(); };
     refBox.onRemove = [this] (int slot) { proc.removeReference (slot); readReferences(); reassess(); };
     refBox.onCue = [this] (int, double fraction) { proc.refs.setCue (fraction); };
+    refBox.onPlayPause = [this] (int slot) { toggleReferencePlay (slot); };
+    refBox.onOpenDetail = [this] (int slot) { openReferenceDetail (slot); };
+    refDetail.onClose = [this] { closeReferenceDetail(); };
+    refDetail.onPlayPause = [this] { toggleReferencePlay (refDetail.getSlot()); };
+    refDetail.onCue = [this] (double f)
+    {
+        proc.refs.setActive (refDetail.getSlot());
+        proc.refs.setCue (f);
+        readReferences();
+    };
+    refDetail.onLoop = [this] (double a, double b)
+    {
+        proc.refs.setLoop (refDetail.getSlot(), a, b);
+        proc.refs.setActive (refDetail.getSlot());
+        proc.refs.setCue (a);
+        readReferences();
+    };
+    refDetail.onClearLoop = [this] { proc.refs.clearLoop (refDetail.getSlot()); readReferences(); };
+    refDetail.onPlayLoop = [this]
+    {
+        const int slot = refDetail.getSlot();
+        proc.refs.setActive (slot);
+        proc.refs.setCue (proc.refs.getLoop (slot).first);
+        if (! (state.listening && proc.refs.isPlaying()))
+            toggleReferencePlay (slot);
+        readReferences();
+    };
 
     mixButton.onClick = [this] { if (mixButton.getToggleState()) { proc.setStage (Stage::mixing); reassess(); } };
     masterButton.onClick = [this] { if (masterButton.getToggleState()) { proc.setStage (Stage::mastering); reassess(); } };
@@ -260,6 +288,7 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.findings.setBounds (cx, top + 108 + 256 + 2 * gap, cw, bottom - (top + 108 + 256 + 2 * gap));
     e.beforeAfter.setBounds (e.findings.getBounds());
     e.lessonBox.setBounds (e.findings.getBounds());
+    e.refDetail.setBounds (e.tonal.getBounds());
 
     e.score.setBounds (rx, top, rightWidth, 196);
     e.translation.setBounds (rx, top + 196 + gap, rightWidth, 222);
@@ -331,6 +360,7 @@ void WwmaAudioProcessorEditor::updateTexts()
     langButton.setTooltip (lang == Lang::finnish ? juce::String ("In English") : juce::String (juce::CharPointer_UTF8 ("Suomeksi")));
     progress.updateTexts();
     beforeAfter.updateTexts();
+    refDetail.updateTexts();
     lessonBox.updateTexts();
     learnButton.setButtonText (ui::upper (tr (lang, "Learn", "Opettele")));
     learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
@@ -410,6 +440,8 @@ void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
         c->repaint();
     if (state.listening)
         refBox.repaint();
+    if (refDetail.isVisible())
+        refDetail.repaint();
 }
 
 void WwmaAudioProcessorEditor::reassess()
@@ -711,6 +743,7 @@ void WwmaAudioProcessorEditor::readReferences()
                 v.seconds = info->seconds;
                 v.snap = info->snap;
                 v.wave = info->wave;
+                std::tie (v.loopStart, v.loopEnd) = refs.getLoop (i);
                 v.assessment = assess (v.snap, state.profile, Window::song, state.lang, state.stage);
             }
             else if (v.status != ui::RefView::Status::loading)
@@ -722,6 +755,7 @@ void WwmaAudioProcessorEditor::readReferences()
         state.activeRef = refs.getActive();
         fillProfileBox();
         refBox.repaint();
+        refDetail.repaint();
         tonal.repaint();
         findings.refresh();
 
@@ -731,14 +765,58 @@ void WwmaAudioProcessorEditor::readReferences()
         history.setVisible (! hasRef);
         if (! hasRef && state.listening)
             setListening (false);
+        if (refDetail.isVisible() && ! state.refs[(size_t) juce::jlimit (0, (int) state.refs.size() - 1, refDetail.getSlot())].ready())
+            closeReferenceDetail();
         content.repaint();
     }
     state.playPosition = refs.getPlayPosition();
+    state.refPlaying = refs.isPlaying();
+}
+
+void WwmaAudioProcessorEditor::toggleReferencePlay (int slot)
+{
+    auto& refs = proc.refs;
+    if (refs.getStatus (slot) != ReferenceTracks::Status::ready)
+        return;
+    if (state.listening && refs.isPlaying() && refs.getActive() == slot)
+    {
+        setListening (false); // pause: back to your mix, the position is kept
+        return;
+    }
+    refs.setActive (slot);
+    readReferences();
+    refs.setPlaying (true);
+    state.refPlaying = true;
+    setListening (true);
+}
+
+void WwmaAudioProcessorEditor::openReferenceDetail (int slot)
+{
+    if (proc.refs.getStatus (slot) != ReferenceTracks::Status::ready)
+        return;
+    proc.refs.setActive (slot);
+    readReferences();
+    refDetail.setSlot (slot);
+    refDetail.setVisible (true);
+    refDetail.toFront (false);
+    styleButton.setVisible (false);
+}
+
+void WwmaAudioProcessorEditor::closeReferenceDetail()
+{
+    refDetail.setVisible (false);
+    updateStyleButton();
 }
 
 void WwmaAudioProcessorEditor::setListening (bool b)
 {
     b = b && state.activeRefView() != nullptr;
+    if (! b)
+    {
+        // A, or pause: the reference's own playback stops too
+        proc.refs.setPlaying (false);
+        state.refPlaying = false;
+    }
     state.listening = b;
     proc.listenToReference.store (b);
     mixAButton.setToggleState (! b, juce::dontSendNotification);

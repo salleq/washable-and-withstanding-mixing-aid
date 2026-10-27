@@ -32,7 +32,7 @@ class ReferenceTracks
 public:
     static constexpr int numSlots = 2;
     static constexpr double maxSeconds = 20.0 * 60.0;
-    static constexpr int waveColumns = 200;
+    static constexpr int waveColumns = 800;
 
     enum class Status { empty, loading, ready, failed };
 
@@ -63,6 +63,17 @@ public:
     /** Where the playback of the active slot is now, 0..1. */
     double getPlayPosition() const { return playPosition.load(); }
 
+    /** WWMA's own play/pause for the reference: plays it without the DAW's transport. */
+    void setPlaying (bool shouldPlay) { ownTransport.store (shouldPlay); }
+    bool isPlaying() const { return ownTransport.load(); }
+
+    /** A loop region of a slot, 0..1 (end <= start: no loop). Kept per slot; playback of the
+        active slot stays inside it. */
+    void setLoop (int slot, double start, double end);
+    void clearLoop (int slot) { setLoop (slot, 0.0, 0.0); }
+    std::pair<double, double> getLoop (int slot) const;
+    bool hasLoop (int slot) const { const auto l = getLoop (slot); return l.second > l.first; }
+
     /** Host sample rate changes: playback copies are rebuilt for the new rate. */
     void setPlaybackRate (double hostRate);
 
@@ -85,6 +96,7 @@ private:
         std::shared_ptr<const ReferenceInfo> info;
         std::shared_ptr<Playback> playback;
         int job = 0;   // newest load request, older results are dropped
+        double loopStart = 0.0, loopEnd = 0.0;
     };
 
     struct Result
@@ -112,6 +124,8 @@ private:
     int64_t cueSamples = 0, freePosition = 0;
     std::atomic<double> pendingCue { -1.0 };
     std::atomic<double> playPosition { 0.0 };
+    std::atomic<bool> ownTransport { false };
+    std::atomic<double> loopStartNow { 0.0 }, loopEndNow { 0.0 }; // the active slot's loop
     float gainNow = 1.0f;
 
     std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);

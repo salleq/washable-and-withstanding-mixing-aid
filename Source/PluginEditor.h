@@ -53,6 +53,12 @@ public:
     /** Writes the report (Markdown) and its JSON next to it, comparing with the newest earlier
         report in the same folder. Returns the earlier report it compared with, if any. */
     juce::File saveReport (const juce::File& markdownFile);
+    /** The reference's own play/pause (plays it without the DAW's transport, loop included). */
+    void toggleReferencePlay (int slot);
+    /** The big reference view, where a loop is chosen. */
+    void openReferenceDetail (int slot);
+    void closeReferenceDetail();
+    bool isReferenceDetailOpen() const noexcept { return refDetail.isVisible(); }
     /** A/B: true plays the reference instead of the mix. */
     void setListening (bool b);
     void referencesChanged() { refGeneration = -1; readReferences(); reassess(); }
@@ -100,6 +106,7 @@ private:
     wwma::ui::CompareBox compare { state };
     wwma::ui::BeforeAfterBox beforeAfter { state };
     wwma::ui::LessonBox lessonBox { state };
+    wwma::ui::RefDetailBox refDetail { state };
     juce::TextButton learnButton, reportButton;
     float lessonSeconds = -1.0f; // music time when the lesson goal was last checked
     void updateLesson();

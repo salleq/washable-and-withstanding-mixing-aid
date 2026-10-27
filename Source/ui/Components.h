@@ -21,6 +21,8 @@ struct RefView
     Snapshot snap;
     Assessment assessment;          // the track measured against the current profile
     std::vector<float> wave;
+    double loopStart = 0.0, loopEnd = 0.0;   // 0..1, end <= start: no loop
+    bool hasLoop() const { return loopEnd > loopStart; }
     bool ready() const { return status == Status::ready; }
 };
 
@@ -65,6 +67,7 @@ struct ViewState
     bool listening = false;          // A/B is on B: the reference is playing
     float refGainDb = 0.0f;          // level matching applied to the reference
     double playPosition = 0.0;
+    bool refPlaying = false;         // WWMA's own play button runs the reference (not the DAW)
     bool dragOver = false;
 
     /** The active, analysed reference, or nullptr. */
@@ -115,20 +118,60 @@ class ReferenceBox : public juce::Component
 public:
     explicit ReferenceBox (const ViewState& s) : state (s) {}
     void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
     /** Which slot a point falls on (for drag and drop), -1 for none / the drop zone. */
     int slotAt (juce::Point<int>) const;
 
     std::function<void (int slot)> onBrowse;   // slot -1: the first free one
     std::function<void (int slot)> onSelect, onRemove;
     std::function<void (int slot, double fraction)> onCue;
+    std::function<void (int slot)> onPlayPause, onOpenDetail;
+
+    juce::Rectangle<int> playBounds (int i) const;
+    juce::Rectangle<int> waveBounds (int i) const;
+    juce::Rectangle<int> infoBounds (int i) const;   // name and numbers: click for the big view
 
 private:
     juce::Rectangle<int> slotBounds (int i) const;
     juce::Rectangle<int> dropBounds() const;
-    juce::Rectangle<int> waveBounds (int i) const;
     juce::Rectangle<int> closeBounds (int i) const;
+    int seekingSlot = -1;
     const ViewState& state;
+};
+
+/** A bigger view of one reference track: jump anywhere, choose a loop, play and pause.
+    The loop stays when the view is closed, and the small strip's play button plays it. */
+class RefDetailBox : public juce::Component
+{
+public:
+    explicit RefDetailBox (const ViewState& s);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+    void updateTexts();
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+
+    void setSlot (int s) { slot = s; repaint(); }
+    int getSlot() const noexcept { return slot; }
+    juce::Rectangle<int> waveArea() const;
+
+    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop;
+    std::function<void (double fraction)> onCue;
+    std::function<void (double start, double end)> onLoop;
+
+private:
+    const RefView* view() const;
+    double fractionAt (float x) const;
+    const ViewState& state;
+    int slot = 0;
+    juce::TextButton closeButton, playButton, loopButton, clearButton;
+    enum class Drag { none, pending, select, startEdge, endEdge } drag = Drag::none;
+    double dragFrom = 0.0, selA = 0.0, selB = 0.0;
 };
 
 /** Mix against the active reference: loudness, peaks, dynamics, width and the biggest tonal differences. */

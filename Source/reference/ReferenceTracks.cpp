@@ -147,7 +147,10 @@ void ReferenceTracks::install (int slot, int job, Result r, bool keepInfo)
     if (r.ok)
     {
         if (! keepInfo)
+        {
             s.info = r.info;
+            s.loopStart = s.loopEnd = 0.0; // a new file: the old loop doesn't apply
+        }
         s.playback = r.playback;
         s.status = Status::ready;
         s.error = {};
@@ -171,7 +174,7 @@ void ReferenceTracks::remove (int slot)
         return;
     auto& s = slots[(size_t) slot];
     ++s.job;
-    s = Slot { Status::empty, {}, {}, {}, s.job };
+    s = Slot { Status::empty, {}, {}, {}, s.job, 0.0, 0.0 };
     if (active.load() == slot)
     {
         active.store (-1);
@@ -209,6 +212,33 @@ void ReferenceTracks::setActive (int slot)
         updateAudioSide();
         ++generation;
     }
+}
+
+void ReferenceTracks::setLoop (int slot, double start, double end)
+{
+    if (! juce::isPositiveAndBelow (slot, numSlots))
+        return;
+    start = juce::jlimit (0.0, 1.0, start);
+    end = juce::jlimit (0.0, 1.0, end);
+    if (end < start)
+        std::swap (start, end);
+    if (end - start < 0.002)
+        start = end = 0.0; // too short to be a loop
+    slots[(size_t) slot].loopStart = start;
+    slots[(size_t) slot].loopEnd = end;
+    if (slot == active.load())
+    {
+        loopStartNow.store (start);
+        loopEndNow.store (end);
+    }
+    ++generation;
+}
+
+std::pair<double, double> ReferenceTracks::getLoop (int slot) const
+{
+    if (! juce::isPositiveAndBelow (slot, numSlots))
+        return { 0.0, 0.0 };
+    return { slots[(size_t) slot].loopStart, slots[(size_t) slot].loopEnd };
 }
 
 void ReferenceTracks::setCue (double fraction)
@@ -257,6 +287,8 @@ void ReferenceTracks::updateAudioSide()
 {
     std::shared_ptr<Playback> next;
     const int a = active.load();
+    loopStartNow.store (juce::isPositiveAndBelow (a, numSlots) ? slots[(size_t) a].loopStart : 0.0);
+    loopEndNow.store (juce::isPositiveAndBelow (a, numSlots) ? slots[(size_t) a].loopEnd : 0.0);
     if (juce::isPositiveAndBelow (a, numSlots) && slots[(size_t) a].status == Status::ready)
         next = slots[(size_t) a].playback;
 
@@ -284,25 +316,36 @@ bool ReferenceTracks::render (float* l, float* r, int n, int64_t hostSample, boo
     if (len <= 0)
         return false;
 
-    const bool synced = hostSample >= 0;
+    // the reference follows the DAW's song position, unless WWMA's own play button runs it
+    const bool synced = hostSample >= 0 && ! ownTransport.load();
     if (const double cue = pendingCue.exchange (-1.0); cue >= 0.0)
     {
         const auto target = (int64_t) (cue * (double) len);
-        if (synced)
+        if (hostSample >= 0)
             cueSamples = target - hostSample;
-        else
-            freePosition = target;
+        freePosition = target;
     }
 
     if (synced && ! hostPlaying)
         return false;
 
+    // a loop keeps playback between its two points
+    int64_t loopA = 0, loopB = len;
+    if (const double la = loopStartNow.load(), lb = loopEndNow.load(); lb > la)
+    {
+        loopA = juce::jlimit ((int64_t) 0, len - 1, (int64_t) (la * (double) len));
+        loopB = juce::jlimit (loopA + 1, len, (int64_t) (lb * (double) len));
+    }
+    const int64_t loopLen = loopB - loopA;
+
     int64_t pos = synced ? hostSample + cueSamples : freePosition;
-    pos %= len;
-    if (pos < 0)
-        pos += len;
-    if (! synced)
-        freePosition = (pos + n) % len;
+    if (pos < loopA || pos >= loopB)
+    {
+        pos = (pos - loopA) % loopLen;
+        if (pos < 0)
+            pos += loopLen;
+        pos += loopA;
+    }
 
     const float target = juce::Decibels::decibelsToGain (juce::jlimit (-30.0f, 30.0f, gainDb));
     const float step = (target - gainNow) / (float) juce::jmax (1, n);
@@ -313,9 +356,10 @@ bool ReferenceTracks::render (float* l, float* r, int n, int64_t hostSample, boo
         gainNow += step;
         l[i] = srcL[pos] * gainNow;
         r[i] = srcR[pos] * gainNow;
-        if (++pos >= len)
-            pos = 0;
+        if (++pos >= loopB)
+            pos = loopA;
     }
+    freePosition = pos;
     playPosition.store ((double) pos / (double) len);
     return true;
 }

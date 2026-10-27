@@ -425,7 +425,10 @@ void WwmaAudioProcessor::restoreReferenceTracks()
         const int slot = (int) c.getProperty ("index", -1);
         const juce::File file (c.getProperty ("path").toString());
         if (juce::isPositiveAndBelow (slot, ReferenceTracks::numSlots) && file.existsAsFile())
+        {
             refs.load (slot, file);
+            wantedLoops[(size_t) slot] = { (double) c.getProperty ("loopA", 0.0), (double) c.getProperty ("loopB", 0.0) };
+        }
     }
     savedRefGeneration = refs.getGeneration();
 }
@@ -439,6 +442,16 @@ void WwmaAudioProcessor::updateReferenceState()
             refs.setActive (wantedActiveRef);
         if (st != ReferenceTracks::Status::loading)
             wantedActiveRef = -1;
+    }
+
+    for (int i = 0; i < ReferenceTracks::numSlots; ++i)
+    {
+        auto& wl = wantedLoops[(size_t) i];
+        if (wl.second <= wl.first || refs.getStatus (i) == ReferenceTracks::Status::loading)
+            continue;
+        if (refs.getStatus (i) == ReferenceTracks::Status::ready)
+            refs.setLoop (i, wl.first, wl.second);
+        wl = {};
     }
 
     // keep the saved state in step (only slots that loaded, so a missing file is not forgotten while loading)
@@ -459,6 +472,11 @@ void WwmaAudioProcessor::updateReferenceState()
             juce::ValueTree c (slotId);
             c.setProperty ("index", i, nullptr);
             c.setProperty ("path", info->file.getFullPathName(), nullptr);
+            if (refs.hasLoop (i))
+            {
+                c.setProperty ("loopA", refs.getLoop (i).first, nullptr);
+                c.setProperty ("loopB", refs.getLoop (i).second, nullptr);
+            }
             t.addChild (c, -1, nullptr);
         }
     if (auto old = apvts.state.getChildWithName (refsId); old.isValid())

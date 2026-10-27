@@ -478,6 +478,79 @@ int main (int argc, char* argv[])
         }
         check (identical, "back on A the output is bit-identical again");
     }
+    {
+        // the reference's own play / pause and its loop, with the DAW stopped
+        struct StoppedHost : juce::AudioPlayHead
+        {
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo info;
+                info.setIsPlaying (false);
+                info.setTimeInSamples (0);
+                return info;
+            }
+        } host;
+        WwmaAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, sr, 512);
+        p.prepareToPlay (sr, 512);
+        p.setPlayHead (&host);
+        p.refs.loadNow (0, refFile);
+        std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+        auto* editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+        editor->referencesChanged();
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> buf (2, 512);
+        auto blockLevel = [&]
+        {
+            float peak = 0.0f;
+            for (int k = 0; k < 20; ++k)
+            {
+                buf.clear();
+                p.processBlock (buf, midi);
+                peak = juce::jmax (peak, buf.getMagnitude (0, 512));
+            }
+            return peak;
+        };
+        editor->setListening (true);
+        check (blockLevel() < 1.0e-6f, "B follows the DAW: silent while the DAW is stopped");
+        editor->toggleReferencePlay (0);
+        check (p.refs.isPlaying() && p.listenToReference.load() && blockLevel() > 0.01f, "the reference's own play button plays it with the DAW stopped");
+        editor->toggleReferencePlay (0);
+        check (! p.refs.isPlaying() && ! p.listenToReference.load(), "  and pause stops it and goes back to the mix");
+
+        editor->openReferenceDetail (0);
+        check (editor->isReferenceDetailOpen(), "clicking the reference name opens the big view");
+        p.refs.setLoop (0, 0.5, 0.6);
+        editor->closeReferenceDetail();
+        editor->toggleReferencePlay (0);
+        bool inside = true;
+        for (int k = 0; k < 400; ++k) // about 4 s: longer than the loop
+        {
+            buf.clear();
+            p.processBlock (buf, midi);
+            const double pos = p.refs.getPlayPosition();
+            inside = inside && pos >= 0.5 - 1.0e-6 && pos <= 0.6 + 1.0e-6;
+        }
+        check (! editor->isReferenceDetailOpen() && inside, "after closing the big view, play stays inside the chosen loop",
+               juce::String (p.refs.getPlayPosition(), 3));
+        p.refs.setCue (0.1);
+        buf.clear();
+        p.processBlock (buf, midi);
+        check (p.refs.getPlayPosition() >= 0.5 && p.refs.getPlayPosition() <= 0.6, "  a jump outside the loop lands back inside it");
+        editor->toggleReferencePlay (0);
+
+        p.updateReferenceState();
+        juce::MemoryBlock mb;
+        p.getStateInformation (mb);
+        WwmaAudioProcessor q;
+        q.setStateInformation (mb.getData(), (int) mb.getSize());
+        q.refs.loadNow (0, refFile); // what the background load does when the project opens
+        q.updateReferenceState();
+        const auto loop = q.refs.getLoop (0);
+        check (near (loop.first, 0.5, 1.0e-4) && near (loop.second, 0.6, 1.0e-4), "the loop is saved with the project",
+               juce::String (loop.first, 3) + " - " + juce::String (loop.second, 3));
+        p.setPlayHead (nullptr);
+    }
 
     // ------------------------------------------------------------------ synthetic songs
     std::cout << "Synthetic songs (kick, bass, snare, hats, pad, lead, limiter)" << std::endl;
@@ -806,6 +879,7 @@ int main (int argc, char* argv[])
             { "wwma-before-after-en.png", balanced, Lang::english, true, false, false, 2 },
             { "wwma-lesson-en.png", {}, Lang::english, false, false, false, 3 },
             { "wwma-lesson-fi.png", {}, Lang::finnish, false, false, false, 3 },
+            { "wwma-reference-loop-en.png", {}, Lang::english, false, true, true, 4 },
         };
         {
             synth::SongParams sp;
@@ -819,6 +893,7 @@ int main (int argc, char* argv[])
             const auto g = synth::renderSong (good);
             const_cast<Shot&> (shots[8]).audio = Stereo { g.l, g.r };
             const_cast<Shot&> (shots[9]).audio = Stereo { g.l, g.r };
+            const_cast<Shot&> (shots[10]).audio = messy;
         }
 
         for (const auto& shot : shots)
@@ -840,6 +915,12 @@ int main (int argc, char* argv[])
                 editor->referencesChanged();
             if (shot.listen)
                 editor->setListening (true);
+            if (shot.view == 4)
+            {
+                p.refs.setLoop (0, 0.42, 0.58);
+                editor->referencesChanged();
+                editor->openReferenceDetail (0);
+            }
             if (shot.view == 3)
             {
                 p.markLessonDone ("monobass");
