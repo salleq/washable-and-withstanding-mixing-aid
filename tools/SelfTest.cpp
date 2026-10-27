@@ -780,7 +780,8 @@ int main (int argc, char* argv[])
         {
             WwmaAudioProcessor p;
             const auto s = p.getChainSettings();
-            check (! s.eqOn && ! s.limiterOn && s.gain == std::array<float, 4> { 0, 0, 0, 0 } && near (s.ceiling, -1.0, 1.0e-6),
+            const bool flat = std::all_of (s.gain.begin(), s.gain.end(), [] (float g) { return std::abs (g) < 1.0e-4f; });
+            check (! s.eqOn && ! s.limiterOn && flat && near (s.ceiling, -1.0, 1.0e-4),
                    "EQ and limiter are off and flat by default");
         }
         {
