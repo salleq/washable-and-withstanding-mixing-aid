@@ -40,7 +40,7 @@ endif()
 
 juce_add_plugin(WWMA
     COMPANY_NAME "salleq"
-    COMPANY_WEBSITE "https://github.com/salleq/washable-withstandable-mixing-aid"
+    COMPANY_WEBSITE "https://github.com/salleq/washable-and-withstanding-mixing-aid"
     BUNDLE_ID "com.salleq.wwma"
     PLUGIN_MANUFACTURER_CODE Sllq
     PLUGIN_CODE Wwma
@@ -48,7 +48,7 @@ juce_add_plugin(WWMA
     DESCRIPTION "Washable and Withstanding Mixing Aid - tells you what is too much or too little in your mix"
     FORMATS ${WWMA_FORMATS}
     VST3_CATEGORIES Fx Analyzer Tools
-    LV2URI "https://github.com/salleq/washable-withstandable-mixing-aid"
+    LV2URI "https://github.com/salleq/washable-withstandable-mixing-aid"  # fixed plugin ID, kept from the first repo name so LV2 hosts still find the plugin
     AU_MAIN_TYPE kAudioUnitType_Effect
     IS_SYNTH FALSE
     NEEDS_MIDI_INPUT FALSE

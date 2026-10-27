@@ -55,5 +55,5 @@ HOW TO USE
 5. Drag a reference track (WAV, AIFF, FLAC, MP3) onto the window to compare.
    B - REF plays it at the same loudness as your mix.
 
-Source code and updates: https://github.com/salleq/washable-withstandable-mixing-aid
+Source code and updates: https://github.com/salleq/washable-and-withstanding-mixing-aid
 License: GNU AGPL v3. Fonts: Barlow and IBM Plex Mono, SIL Open Font License 1.1.
