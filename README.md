@@ -4,6 +4,8 @@ A free, open source mixing teacher in a plugin (VST3, CLAP, AU on macOS and LV2 
 
 Put it last on your master bus. It listens to your mix and tells you in plain words what is **clearly** or **slightly** too much or too little, why it matters on a phone, in a car, on headphones and in a club, and how to fix it yourself. It never changes your sound.
 
+> **Heads-up: WWMA is 100 % vibe coded.** It was built entirely with an AI coding assistant, not by a seasoned plugin developer. Install and use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes.
+
 ![WWMA with a reference track loaded](docs/images/wwma-reference.png)
 
 ## What it does
@@ -104,6 +106,10 @@ cmake --build build --target wwma_selftest
 `wwma_calibrate` prints what WWMA says about each synthetic mistake (or `wwma_calibrate styles` for the style guess), which is handy when tuning thresholds.
 
 CI builds macOS (universal), Windows x64 and ARM64, and Linux x64 and ARM64. On x64 it validates the plugin with pluginval, and on ARM it runs the self test. It also builds installers, and makes a release for every `v*` tag.
+
+## Disclaimer
+
+**Heads-up: WWMA is 100 % vibe coded.** It was built entirely with an AI coding assistant, not by a seasoned plugin developer. Install and use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes. The AGPL licence's "no warranty" terms apply in full.
 
 ## License
 

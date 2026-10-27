@@ -5,6 +5,11 @@ Free VST3 / AU plugin that tells you, in plain words, what is too much or too
 little in your mix, and teaches you how to fix it yourself. It only measures:
 your sound passes through untouched.
 
+HEADS-UP: WWMA is 100 % vibe coded. It was built entirely with an AI coding
+assistant, not by a seasoned plugin developer. Install and use it at your own
+risk: there is no warranty, and it may have bugs. It was made in good faith, in
+the hope that it helps someone make better mixes.
+
 EASIEST: use the installer (.exe on Windows, .pkg on Mac) from the Releases page.
 This zip is for installing by hand.
 
