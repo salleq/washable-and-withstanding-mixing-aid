@@ -58,6 +58,7 @@ set(WWMA_CORE_SOURCES
     Source/analysis/Analyzer.cpp
     Source/advice/Profiles.cpp
     Source/advice/Advisor.cpp
+    Source/advice/StyleGuess.cpp
     Source/reference/ReferenceTracks.cpp)
 
 set(WWMA_UI_SOURCES
@@ -101,10 +102,17 @@ option(WWMA_BUILD_TOOLS "Build the self test / screenshot tool" OFF)
 if(WWMA_BUILD_TOOLS)
     juce_add_console_app(wwma_selftest PRODUCT_NAME "wwma_selftest")
     target_sources(wwma_selftest PRIVATE tools/SelfTest.cpp ${WWMA_CORE_SOURCES} ${WWMA_UI_SOURCES})
-    target_include_directories(wwma_selftest PRIVATE Source)
+    target_include_directories(wwma_selftest PRIVATE Source tools)
     target_compile_definitions(wwma_selftest PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="WWMA" JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_USE_MP3AUDIOFORMAT=1)
     target_link_libraries(wwma_selftest PRIVATE
         WWMAAssets juce::juce_audio_utils juce::juce_dsp
+        juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+
+    juce_add_console_app(wwma_calibrate PRODUCT_NAME "wwma_calibrate")
+    target_sources(wwma_calibrate PRIVATE tools/Calibrate.cpp ${WWMA_CORE_SOURCES})
+    target_include_directories(wwma_calibrate PRIVATE Source tools)
+    target_compile_definitions(wwma_calibrate PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_USE_MP3AUDIOFORMAT=1)
+    target_link_libraries(wwma_calibrate PRIVATE juce::juce_audio_formats juce::juce_events juce::juce_dsp
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endif()

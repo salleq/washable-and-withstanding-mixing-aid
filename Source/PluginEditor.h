@@ -4,6 +4,7 @@
 #include "PluginProcessor.h"
 #include "ui/Components.h"
 #include "ui/Theme.h"
+#include "advice/StyleGuess.h"
 
 class WwmaAudioProcessorEditor : public juce::AudioProcessorEditor,
                                  public juce::FileDragAndDropTarget,
@@ -32,6 +33,10 @@ public:
     void clearSnapshots();
     /** Feeds the 3-minute loudness history (screenshot tool fills it without waiting). */
     void pushHistory();
+    /** The current style guess, and what clicking its suggestion does (also used by the self test). */
+    const wwma::StyleGuess& getStyleGuess() const noexcept { return styleGuess; }
+    bool isStyleSuggestionShown() const noexcept { return styleButton.isVisible() && styleButton.isEnabled(); }
+    void acceptStyleSuggestion() { styleButton.onClick(); }
     /** Re-reads the reference slots (screenshot tool, after loading synchronously). */
     /** A/B: true plays the reference instead of the mix. */
     void setListening (bool b);
@@ -84,6 +89,11 @@ private:
     juce::ComboBox profileBox, targetBox;
     juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, langButton, mixAButton, refBButton;
     juce::ToggleButton autoResetToggle;
+
+    // style guess: only ever a suggestion, the preset changes when the user clicks it
+    juce::TextButton styleButton;
+    wwma::StyleGuess styleGuess;
+    void updateStyleButton();
     juce::TooltipWindow tooltips { this, 600 };
 
     int ticks = 0;

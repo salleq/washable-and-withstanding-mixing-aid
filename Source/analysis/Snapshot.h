@@ -71,6 +71,11 @@ struct Snapshot
     /** Same for the snare / hat region (1.5-6 kHz): how much drum hits stick out. */
     float highContrastNow = 0.0f, highContrastSong = 0.0f;
 
+    /** Tempo from how regularly drum hits repeat over the song (0 = not found yet). */
+    float tempoBpm = 0.0f;
+    float tempoConfidence = 0.0f;  // 0-1, how clearly one beat stands out
+    float hitsPerSecond = 0.0f;    // transient density: clear hits per second, song average
+
     float secondsAnalysed = 0.0f;  // music above the gates since reset
     float secondsNow = 0.0f;       // how much of the "now" window is filled (0-3 s)
 

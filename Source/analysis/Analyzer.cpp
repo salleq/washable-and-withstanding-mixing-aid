@@ -94,7 +94,7 @@ void Analyzer::reset() noexcept
     std::fill (sideFifo.begin(), sideFifo.end(), 0.0f);
     fifoPos = hopCount = 0;
     midNowP.fill (0.0); sideNowP.fill (0.0); midSongP.fill (0.0); sideSongP.fill (0.0);
-    nowFrames = 0; songFrames = 0;
+    nowFrames = sideNowFrames = 0; songFrames = sideSongFrames = 0;
 
     envPos = 0; lowEnv1 = lowEnv2 = highEnv1 = highEnv2 = 0.0;
     highEnv.fill (-200.0f);
@@ -106,6 +106,14 @@ void Analyzer::reset() noexcept
     envRingPos = envFilled = 0;
     highContrastNow = highContrastSum = 0.0;
     contrastCount = 0;
+
+    flux.fill (0.0f);
+    tempoAcf.fill (0.0);
+    fluxPos = fluxFilled = framesSinceTempo = tempoUpdates = 0;
+    prevLowDb = prevHighDb = -100.0f;
+    fluxAverage = tempoBpm = tempoConfidence = 0.0f;
+    hitCount = hitFrames = 0;
+    lastHit = -1000;
 
     secondsAnalysed = 0.0;
 }
@@ -172,10 +180,13 @@ void Analyzer::processChunk (const float* left, const float* right, int n) noexc
         sideFifo[(size_t) fifoPos] = (float) s;
         if (++fifoPos == fftSize)
             fifoPos = 0;
-        if (++hopCount == hop)
+        // mid and side spectra half a hop apart, so no single audio block pays for both FFTs
+        if (++hopCount == hop / 2)
+            runFft (1);
+        else if (hopCount == hop)
         {
             hopCount = 0;
-            runFft();
+            runFft (0);
         }
 
         const double lo = lowLp[1].process (lowLp[0].process (lowHp[1].process (lowHp[0].process (m)))) ;
@@ -196,11 +207,112 @@ void Analyzer::endEnvelopeFrame() noexcept
 {
     const double lowDb = powerToDb (lowEnv2), highDb = powerToDb (highEnv2);
     detectKicks ((float) lowDb);
-    if (! gateOpen())
+    const bool open = gateOpen();
+    updateOnsets ((float) lowDb, (float) highDb, open);
+    if (! open)
         return;
     highEnv[(size_t) envRingPos] = (float) highDb;
     envRingPos = (envRingPos + 1) % envRingSize;
     envFilled = juce::jmin (envFilled + 1, envRingSize);
+}
+
+void Analyzer::updateOnsets (float lowDb, float highDb, bool open) noexcept
+{
+    // onset strength: how much the low end and the snare/hat region rose in the last 5 ms
+    const float lo = juce::jmax (lowDb, -100.0f), hi = juce::jmax (highDb, -100.0f);
+    const float f = 1.5f * juce::jmax (0.0f, lo - prevLowDb) + juce::jmax (0.0f, hi - prevHighDb);
+    prevLowDb = lo;
+    prevHighDb = hi;
+    if (! open)
+        return;
+
+    flux[(size_t) fluxPos] = f;
+    fluxPos = (fluxPos + 1) % fluxSize;
+    fluxFilled = juce::jmin (fluxFilled + 1, fluxSize);
+
+    // transient density: a clear rise well above the recent average, at most one per 80 ms
+    fluxAverage += 0.002f * (f - fluxAverage);
+    ++hitFrames;
+    if (f > 1.0f && f > 3.0f * fluxAverage && frameIndex - lastHit > 16)
+    {
+        ++hitCount;
+        lastHit = frameIndex;
+    }
+
+    if (++framesSinceTempo >= 200 && fluxFilled == fluxSize)
+    {
+        framesSinceTempo = 0;
+        updateTempo();
+    }
+}
+
+void Analyzer::updateTempo() noexcept
+{
+    // about once a second: autocorrelation of the last 5 s of onset strength, summed over the song
+    double mean = 0.0;
+    // oldest first, lightly blurred (1-2-1) so that hits a frame apart still line up, mean removed
+    auto prepareCurve = [this] (const std::array<float, fluxSize>& src, std::array<float, fluxSize>& dst) -> double
+    {
+        auto at = [&] (int k) { return src[(size_t) ((fluxPos + juce::jlimit (0, fluxSize - 1, k)) % fluxSize)]; };
+        double m = 0.0;
+        for (int i = 0; i < fluxSize; ++i)
+        {
+            dst[(size_t) i] = 0.25f * at (i - 1) + 0.5f * at (i) + 0.25f * at (i + 1);
+            m += dst[(size_t) i];
+        }
+        m /= fluxSize;
+        double energy = 0.0;
+        for (auto& x : dst)
+        {
+            x -= (float) m;
+            energy += (double) x * x;
+        }
+        return energy;
+    };
+    const double a0 = prepareCurve (flux, fluxLinear);
+    if (a0 < 0.01 * fluxSize)
+        return; // nothing hits: a steady sound has no tempo
+
+    const double framePeriod = envLen / sr;
+    const int minLag = juce::jmax (1, (int) std::floor (60.0 / (460.0 * framePeriod)));
+    for (int lag = minLag; lag <= maxLag; ++lag)
+    {
+        double sum = 0.0;
+        const float* x = fluxLinear.data();
+        for (int i = 0; i + lag < fluxSize; ++i)
+            sum += (double) x[i] * x[i + lag];
+        tempoAcf[(size_t) lag] += sum / (fluxSize - lag) * fluxSize / a0;
+    }
+    ++tempoUpdates;
+
+    auto acf = [this] (double lag)
+    {
+        if (lag < 1.0 || lag >= maxLag)
+            return 0.0;
+        // the best of the two nearest lags: peaks are only a frame or two wide
+        const int i = (int) lag;
+        return juce::jmax (tempoAcf[(size_t) i], tempoAcf[(size_t) i + 1]) / tempoUpdates;
+    };
+
+    // a real beat repeats at its own period, at twice that, and is usually split in half
+    // (off-beats, eighth notes); most music sits around 120 BPM
+    double bestScore = 0.0, best = 0.0;
+    for (double bpm = 60.0; bpm <= 200.0; bpm += 0.25)
+    {
+        const double lag = 60.0 / (bpm * framePeriod);
+        const double s = acf (lag) + 0.5 * acf (2.0 * lag) + 0.5 * acf (0.5 * lag);
+        const double octaves = std::log2 (bpm / 120.0) / 0.9;
+        const double score = juce::jmax (0.0, s) * std::exp (-0.5 * octaves * octaves);
+        if (score > bestScore)
+        {
+            bestScore = score;
+            best = bpm;
+        }
+    }
+    tempoBpm = (float) best;
+    tempoConfidence = best > 0.0 ? (float) (juce::jlimit (0.0, 1.0, acf (60.0 / (best * framePeriod)) / 0.35)
+                                            * juce::jmin (1.0, tempoUpdates / 4.0))
+                                 : 0.0f;
 }
 
 bool Analyzer::rhythmic() const noexcept
@@ -354,55 +466,49 @@ void Analyzer::endSubBlock() noexcept
     publish();
 }
 
-void Analyzer::runFft() noexcept
+void Analyzer::runFft (int pass) noexcept
 {
     const bool open = gateOpen();
     const bool audible = momentary > -60.0;
     if (! open && ! audible)
         return;
 
-    std::array<double, Bands::count> midP {}, sideP {};
-    for (int pass = 0; pass < 2; ++pass)
-    {
-        const auto& fifo = pass == 0 ? midFifo : sideFifo;
-        // oldest sample first
-        for (int i = 0; i < fftSize; ++i)
-            work[(size_t) i] = fifo[(size_t) ((fifoPos + i) % fftSize)] * window[(size_t) i];
-        std::fill (work.begin() + fftSize, work.end(), 0.0f);
-        fft->performFrequencyOnlyForwardTransform (work.data(), true);
+    const auto& fifo = pass == 0 ? midFifo : sideFifo;
+    // oldest sample first
+    for (int i = 0; i < fftSize; ++i)
+        work[(size_t) i] = fifo[(size_t) ((fifoPos + i) % fftSize)] * window[(size_t) i];
+    std::fill (work.begin() + fftSize, work.end(), 0.0f);
+    fft->performFrequencyOnlyForwardTransform (work.data(), true);
 
-        auto& dest = pass == 0 ? midP : sideP;
-        for (int b = 0; b < Bands::count; ++b)
+    std::array<double, Bands::count> power {};
+    for (int b = 0; b < Bands::count; ++b)
+    {
+        double p = 0.0;
+        for (int k = bandStart[(size_t) b]; k < bandStart[(size_t) b + 1]; ++k)
         {
-            double p = 0.0;
-            for (int k = bandStart[(size_t) b]; k < bandStart[(size_t) b + 1]; ++k)
-            {
-                const auto& bw = binWeights[(size_t) k];
-                const double mag = work[(size_t) bw.bin];
-                p += bw.weight * mag * mag;
-            }
-            dest[(size_t) b] = p;
+            const auto& bw = binWeights[(size_t) k];
+            const double mag = work[(size_t) bw.bin];
+            p += bw.weight * mag * mag;
         }
+        power[(size_t) b] = p;
     }
 
+    auto& nowP = pass == 0 ? midNowP : sideNowP;
+    auto& songP = pass == 0 ? midSongP : sideSongP;
+    auto& nowCount = pass == 0 ? nowFrames : sideNowFrames;
+    auto& songCount = pass == 0 ? songFrames : sideSongFrames;
     if (audible)
     {
-        const double k = nowFrames == 0 ? 1.0 : fftNowCoef;
+        const double k = nowCount == 0 ? 1.0 : fftNowCoef;
         for (int b = 0; b < Bands::count; ++b)
-        {
-            midNowP[(size_t) b] += k * (midP[(size_t) b] - midNowP[(size_t) b]);
-            sideNowP[(size_t) b] += k * (sideP[(size_t) b] - sideNowP[(size_t) b]);
-        }
-        ++nowFrames;
+            nowP[(size_t) b] += k * (power[(size_t) b] - nowP[(size_t) b]);
+        ++nowCount;
     }
     if (open)
     {
         for (int b = 0; b < Bands::count; ++b)
-        {
-            midSongP[(size_t) b] += midP[(size_t) b];
-            sideSongP[(size_t) b] += sideP[(size_t) b];
-        }
-        ++songFrames;
+            songP[(size_t) b] += power[(size_t) b];
+        ++songCount;
     }
 }
 
@@ -458,6 +564,10 @@ void Analyzer::publish() noexcept
     s.contrastSongValid = contrastCount >= 20;
     s.highContrastSong = contrastCount > 0 ? (float) (highContrastSum / contrastCount) : 0.0f;
 
+    s.tempoBpm = tempoBpm;
+    s.tempoConfidence = tempoConfidence;
+    s.hitsPerSecond = hitFrames > 0 ? (float) (hitCount / (hitFrames * envLen / sr)) : 0.0f;
+
     s.secondsAnalysed = (float) secondsAnalysed;
     s.secondsNow = (float) (ringFilled * 0.05);
 
@@ -467,9 +577,9 @@ void Analyzer::publish() noexcept
     {
         s.midNow[(size_t) b] = (float) powerToDb (midNowP[(size_t) b]);
         s.sideNow[(size_t) b] = (float) powerToDb (sideNowP[(size_t) b]);
-        const double n = songFrames > 0 ? (double) songFrames : 1.0;
+        const double n = songFrames > 0 ? (double) songFrames : 1.0, ns = sideSongFrames > 0 ? (double) sideSongFrames : 1.0;
         s.midSong[(size_t) b] = (float) powerToDb (midSongP[(size_t) b] / n);
-        s.sideSong[(size_t) b] = (float) powerToDb (sideSongP[(size_t) b] / n);
+        s.sideSong[(size_t) b] = (float) powerToDb (sideSongP[(size_t) b] / ns);
     }
     s.sequence = ++sequence;
     published.publish();

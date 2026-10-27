@@ -6,6 +6,8 @@
 #include <juce_dsp/juce_dsp.h>
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "SongSynth.h"
+#include "advice/StyleGuess.h"
 #include <complex>
 #include <functional>
 #include <iostream>
@@ -476,6 +478,153 @@ int main (int argc, char* argv[])
         check (identical, "back on A the output is bit-identical again");
     }
 
+    // ------------------------------------------------------------------ synthetic songs
+    std::cout << "Synthetic songs (kick, bass, snare, hats, pad, lead, limiter)" << std::endl;
+    auto songSnap = [] (const synth::SongParams& sp)
+    {
+        const auto x = synth::renderSong (sp);
+        return analyse (Stereo { x.l, x.r }, sp.sr);
+    };
+    auto has = [] (const Assessment& a, const char* id, bool fixOnly = false)
+    {
+        for (auto& f : a.findings)
+            if (f.id == id && (! fixOnly || f.severity == Severity::fix))
+                return true;
+        return false;
+    };
+    auto ids = [] (const Assessment& a)
+    {
+        juce::String out;
+        for (auto& f : a.findings)
+            if (f.id != "tip")
+                out << f.id << " ";
+        return out.trim();
+    };
+    {
+        const auto snap = songSnap ({});
+        const auto a = assess (snap, house, Window::song, Lang::english);
+        bool anyFix = false;
+        for (auto& f : a.findings)
+            anyFix = anyFix || f.severity == Severity::fix;
+        check (a.score >= 80.0f && ! anyFix, "a well balanced house song scores well with nothing to fix",
+               juce::String (a.score, 1) + ": " + ids (a));
+    }
+    {
+        struct Mistake { const char* what; std::function<void (synth::SongParams&)> setup; const char* id; };
+        const Mistake mistakes[] = {
+            { "no sidechain and a loud bass", [] (synth::SongParams& x) { x.duckDb = 0; x.bassDb = 6; }, "kickbass" },
+            { "sine-only bass with a sub", [] (synth::SongParams& x) { x.bassHarmonics = 0; x.subDb = 0; }, "phonebass" },
+            { "stereo bass", [] (synth::SongParams& x) { x.bassWidth = 1; }, "lowwidth" },
+            { "mud +8 dB at 300 Hz", [] (synth::SongParams& x) { x.mudDb = 8; }, "range2+" },
+            { "hats 10 dB too loud", [] (synth::SongParams& x) { x.hatDb = 10; }, "range5+" },
+            { "21 Hz rumble", [] (synth::SongParams& x) { x.rumbleDb = 0; }, "rumble" },
+            { "right channel 3 dB down", [] (synth::SongParams& x) { x.balanceDb = 3; }, "balance" },
+            { "hard clipped master", [] (synth::SongParams& x) { x.limiter = false; x.driveDb = 12; }, "clipping" },
+            { "too quiet master", [] (synth::SongParams& x) { x.driveDb = -1; }, "quiet" },
+        };
+        for (const auto& m : mistakes)
+        {
+            synth::SongParams sp;
+            m.setup (sp);
+            const auto a = assess (songSnap (sp), house, Window::song, Lang::english);
+            check (has (a, m.id), juce::String ("song with ") + m.what + " -> " + m.id, juce::String (a.score, 1) + ": " + ids (a));
+        }
+    }
+
+    {
+        const auto a = assess (analyse (balanced, sr), house, Window::song, Lang::english);
+        check (! has (a, "flatdrums") && ! has (a, "spikydrums"), "no drum advice for music without drums", ids (a));
+    }
+
+    std::cout << "Performance" << std::endl;
+    {
+        synth::SongParams sp;
+        sp.seconds = 60.0;
+        const auto x = synth::renderSong (sp);
+        WwmaAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, sp.sr, 256);
+        p.prepareToPlay (sp.sr, 256);
+        juce::AudioBuffer<float> buf (2, 256);
+        juce::MidiBuffer midi;
+        double worstBlock = 0.0;
+        std::vector<double> blockTimes;
+        const auto start = juce::Time::getHighResolutionTicks();
+        for (size_t i = 0; i + 256 <= x.l.size(); i += 256)
+        {
+            buf.copyFrom (0, 0, x.l.data() + i, 256);
+            buf.copyFrom (1, 0, x.r.data() + i, 256);
+            const auto t0 = juce::Time::getHighResolutionTicks();
+            p.processBlock (buf, midi);
+            const double dt = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - t0);
+            blockTimes.push_back (dt);
+            worstBlock = juce::jmax (worstBlock, dt);
+        }
+        const double seconds = juce::Time::highResolutionTicksToSeconds (juce::Time::getHighResolutionTicks() - start);
+        const double load = 100.0 * seconds / sp.seconds, budget = 256.0 / sp.sr;
+        check (load < 5.0, "60 s of audio at 48 kHz analysed in " + juce::String (seconds, 2) + " s", juce::String (load, 2) + " % of one core");
+        // the worst single block depends on the machine's scheduler, so test the 99.9th percentile
+        std::sort (blockTimes.begin(), blockTimes.end());
+        const double p999 = blockTimes[(size_t) (0.999 * (double) (blockTimes.size() - 1))];
+        check (p999 < 0.6 * budget, "256-sample blocks stay well inside their time budget",
+               "99.9 % under " + juce::String (p999 * 1000.0, 3) + " ms, worst " + juce::String (worstBlock * 1000.0, 3)
+                   + " ms, budget " + juce::String (budget * 1000.0, 2) + " ms");
+    }
+
+    std::cout << "Tempo and style guess" << std::endl;
+    {
+        for (double bpm : { 82.0, 90.0, 124.0, 132.0, 140.0, 150.0 })
+        {
+            synth::SongParams sp;
+            sp.bpm = bpm;
+            const auto snap = songSnap (sp);
+            check (near (snap.tempoBpm, bpm, 1.5) && snap.tempoConfidence >= 0.5f, "tempo of a " + juce::String ((int) bpm) + " BPM song",
+                   juce::String (snap.tempoBpm, 1) + " BPM, confidence " + juce::String (snap.tempoConfidence, 2));
+        }
+        synth::SongParams dnb;
+        dnb.bpm = 174.0;
+        dnb.breakbeat = true;
+        dnb.subDb = -6.0;
+        const auto dnbSnap = songSnap (dnb);
+        check (near (dnbSnap.tempoBpm, 174.0, 2.0) || near (dnbSnap.tempoBpm, 87.0, 1.0), "drum & bass breakbeat: 174 or half-time 87 BPM",
+               juce::String (dnbSnap.tempoBpm, 1));
+        check (analyse (sine (48000.0, 20.0, 997.0, -20.0), 48000.0).tempoConfidence < 0.5f, "a steady tone has no tempo");
+
+        const auto& profiles = builtInProfiles();
+        auto nameOf = [&profiles] (int i) { return i >= 0 ? juce::String (profiles[(size_t) i].name) : juce::String ("-"); };
+        const auto houseGuess = guessStyle (songSnap ({}));
+        check (houseGuess.valid && profiles[(size_t) houseGuess.best].family == "House", "a 124 BPM four-on-the-floor song sounds like house",
+               nameOf (houseGuess.best) + ", family " + juce::String (juce::roundToInt (100 * houseGuess.familyConfidence)) + " %");
+        const auto dnbGuess = guessStyle (dnbSnap);
+        check (dnbGuess.valid && nameOf (dnbGuess.best) == "Drum & Bass", "a 174 BPM breakbeat song sounds like drum & bass",
+               nameOf (dnbGuess.best) + " " + juce::String (juce::roundToInt (100 * dnbGuess.confidence)) + " %");
+        check (near (dnbGuess.bpm, 174.0, 2.0), "  and its tempo is counted as 174, not half-time", juce::String (dnbGuess.bpm, 1));
+        check (! guessStyle (analyse (sine (48000.0, 10.0, 997.0, -20.0), 48000.0)).valid, "no guess before 15 s of music");
+
+        // the guess is only a suggestion: the preset changes only when the user accepts it
+        WwmaAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, 48000.0, 512);
+        p.prepareToPlay (48000.0, 512);
+        p.setProfileIndex (0);
+        std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+        auto* editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+        const auto x = synth::renderSong (dnb);
+        juce::AudioBuffer<float> buf (2, 512);
+        juce::MidiBuffer midi;
+        for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+        {
+            buf.copyFrom (0, 0, x.l.data() + i, 512);
+            buf.copyFrom (1, 0, x.r.data() + i, 512);
+            p.processBlock (buf, midi);
+        }
+        editor->refresh (true);
+        check (editor->isStyleSuggestionShown() && p.getProfileIndex() == 0, "the editor suggests drum & bass but keeps the House preset",
+               nameOf (editor->getStyleGuess().best));
+        editor->acceptStyleSuggestion();
+        check (nameOf (p.getProfileIndex()) == "Drum & Bass", "accepting the suggestion switches the preset");
+        editor->refresh (true);
+        check (! editor->isStyleSuggestionShown(), "after switching, the chip only confirms the style");
+    }
+
     // ------------------------------------------------------------------ screenshots
     if (argc > 1)
     {
@@ -496,7 +645,16 @@ int main (int argc, char* argv[])
             { "wwma-good-en.png", balanced, Lang::english, true },
             { "wwma-reference-en.png", messy, Lang::english, false, true, false },
             { "wwma-reference-ab-en.png", messy, Lang::english, false, true, true },
+            { "wwma-style-en.png", {}, Lang::english, false },
         };
+        {
+            synth::SongParams sp;
+            sp.bpm = 174.0;
+            sp.breakbeat = true;
+            sp.subDb = -6.0;
+            const auto x = synth::renderSong (sp);
+            const_cast<Shot&> (shots[5]).audio = Stereo { x.l, x.r };
+        }
 
         for (const auto& shot : shots)
         {

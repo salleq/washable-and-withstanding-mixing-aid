@@ -38,12 +38,15 @@ public:
 
     double getSampleRate() const noexcept { return sr; }
 
+    /** For tests and calibration: the summed onset autocorrelation per 5 ms lag. */
+    double tempoAcfAt (int lag) const noexcept { return lag >= 0 && lag <= maxLag && tempoUpdates > 0 ? tempoAcf[(size_t) lag] / tempoUpdates : 0.0; }
+
 private:
     void reset() noexcept;
     void processChunk (const float* left, const float* right, int n) noexcept;
     void endSubBlock() noexcept;
     void endEnvelopeFrame() noexcept;
-    void runFft() noexcept;
+    void runFft (int pass) noexcept; // 0 = mid, 1 = side
     bool gateOpen() const noexcept;
     void publish() noexcept;
 
@@ -85,8 +88,8 @@ private:
     std::array<int, Bands::count + 1> bandStart {};
     std::array<double, Bands::count> midNowP {}, sideNowP {}, midSongP {}, sideSongP {};
     double fftNowCoef = 0.0;
-    int nowFrames = 0;
-    int64_t songFrames = 0;
+    int nowFrames = 0, sideNowFrames = 0;
+    int64_t songFrames = 0, sideSongFrames = 0;
 
     // drum and bass contrast
     Biquad lowHp[2], lowLp[2], highHp[2], highLp[2];
@@ -112,6 +115,18 @@ private:
     int envRingPos = 0, envFilled = 0;
     double highContrastNow = 0.0, highContrastSum = 0.0;
     int64_t contrastCount = 0;
+
+    // tempo: autocorrelation of an onset strength curve (rises of the low and high envelopes)
+    static constexpr int fluxSize = 1024;  // about 5 s of 5 ms frames
+    static constexpr int maxLag = 420;     // about 2 s, so a whole bar at 120 BPM fits
+    std::array<float, fluxSize> flux {}, fluxLinear {};
+    std::array<double, maxLag + 1> tempoAcf {};
+    int fluxPos = 0, fluxFilled = 0, framesSinceTempo = 0, tempoUpdates = 0;
+    float prevLowDb = -100.0f, prevHighDb = -100.0f, fluxAverage = 0.0f;
+    float tempoBpm = 0.0f, tempoConfidence = 0.0f;
+    int64_t hitCount = 0, hitFrames = 0, lastHit = -1000;
+    void updateOnsets (float lowDb, float highDb, bool open) noexcept;
+    void updateTempo() noexcept;
 
     // balance, DC, clipping
     double dcSumL = 0.0, dcSumR = 0.0;

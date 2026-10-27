@@ -39,6 +39,10 @@ struct Profile
     float highContrastMin = 7.0f;  // drum hits should poke out of the 1.5-6 kHz region
     float highContrastMax = 22.0f;
 
+    // typical tempo, for guessing the style from the music (0 = not a style, never suggested)
+    float bpmMin = 0.0f, bpmMax = 0.0f;
+    std::string family;          // styles that sound alike ("House", "Techno"...), for the style guess
+
     /** Target third-octave levels, dB, relative to the target's own total. */
     std::array<float, Bands::count> target {};
 

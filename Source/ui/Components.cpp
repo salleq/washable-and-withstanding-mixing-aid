@@ -321,7 +321,7 @@ void TonalView::paint (juce::Graphics& g)
     const auto* refView = state.activeRefView();
     if (refView != nullptr)
         drawLabel (g, t (lang, "ref level-matched ", "ref tasattu ") + fmt (lang, state.refGainDb, 1, true) + " dB", head, colours::ref, juce::Justification::centredRight);
-    else
+    else if (! state.styleChipShown)
         drawLabel (g, t (lang, "green band = the style's normal range", "vihreä kaista = tyylin normaali alue"), head, colours::faint, juce::Justification::centredRight);
     r.removeFromTop (6);
 

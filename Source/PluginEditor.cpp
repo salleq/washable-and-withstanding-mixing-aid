@@ -21,7 +21,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &loudness, &meters, &history, &compare, &refBox, &tonal, &findings, &score, &translation, &progress,
              &profileBox, &targetBox, &mixButton, &masterButton, &nowButton, &songButton, &mixAButton, &refBButton,
-             &resetButton, &langButton, &autoResetToggle })
+             &resetButton, &langButton, &autoResetToggle, &styleButton })
         content.addAndMakeVisible (c);
 
     profileBox.getProperties().set ("caption", "Preset");
@@ -82,6 +82,20 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     };
     autoResetToggle.setToggleState (proc.getAutoReset(), juce::dontSendNotification);
     autoResetToggle.onClick = [this] { proc.setAutoReset (autoResetToggle.getToggleState()); };
+
+    styleButton.setColour (juce::TextButton::buttonColourId, colours::accent.withAlpha (0.14f));
+    styleButton.setColour (juce::TextButton::textColourOffId, colours::accent);
+    styleButton.setVisible (false);
+    styleButton.onClick = [this]
+    {
+        // the user accepted the suggestion: switch to the closest preset
+        if (styleGuess.valid && styleGuess.best >= 0)
+        {
+            proc.setProfileIndex (styleGuess.best);
+            profileBox.setSelectedId (styleGuess.best + 1, juce::dontSendNotification);
+            reassess();
+        }
+    };
 
     progress.onSave = [this] { saveSnapshot(); };
     progress.onClear = [this] { clearSnapshots(); };
@@ -221,6 +235,7 @@ void WwmaAudioProcessorEditor::Content::resized()
 
     e.refBox.setBounds (cx, top, cw, 108);
     e.tonal.setBounds (cx, top + 108 + gap, cw, 256);
+    e.styleButton.setBounds (cx + cw - 12 - 330, top + 108 + gap + 8, 330, 22);
     e.findings.setBounds (cx, top + 108 + 256 + 2 * gap, cw, bottom - (top + 108 + 256 + 2 * gap));
 
     e.score.setBounds (rx, top, rightWidth, 196);
@@ -379,9 +394,53 @@ void WwmaAudioProcessorEditor::reassess()
         if (r.ready())
             r.assessment = assess (r.snap, state.profile, Window::song, state.lang, state.stage);
 
+    updateStyleButton();
     updateBaselineDiff();
     findings.refresh();
     findings.repaint();
+}
+
+void WwmaAudioProcessorEditor::updateStyleButton()
+{
+    const auto lang = state.lang;
+    styleGuess = guessStyle (state.snap);
+    const auto& all = builtInProfiles();
+    const int current = proc.getProfileIndex();
+    const bool usingPreset = current >= 0 && current < (int) all.size();
+
+    // a loaded reference is the better target, and its legend uses this spot
+    const bool show = styleGuess.valid && state.activeRefView() == nullptr;
+    state.styleChipShown = show;
+    styleButton.setVisible (show);
+    if (! show)
+        return;
+
+    const auto& best = all[(size_t) styleGuess.best];
+    const auto percent = juce::String (juce::roundToInt (100.0f * styleGuess.familyConfidence)) + " %";
+    const auto bpm = styleGuess.tempoFound ? juce::String (juce::roundToInt (styleGuess.bpm)) + " BPM" : juce::String();
+    const bool fits = usingPreset && all[(size_t) current].family == best.family;
+    const auto family = juce::String (best.family);
+    const auto name = juce::String (best.name);
+
+    if (fits)
+    {
+        styleButton.setButtonText ((bpm.isNotEmpty() ? bpm + juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) : juce::String())
+                                   + tr (lang, "sounds like ", "kuulostaa tyyliltä ") + family + " (" + percent + ")");
+        styleButton.setEnabled (false);
+        styleButton.setTooltip (tr (lang, "WWMA's guess from the tempo, tonal balance and dynamics agrees with your preset.",
+                                          "WWMA:n arvaus tempon, taajuustasapainon ja dynamiikan perusteella vastaa valitsemaasi presettiä."));
+    }
+    else
+    {
+        styleButton.setButtonText (tr (lang, "Sounds like ", "Kuulostaa tyyliltä ") + family + " (" + percent + ")"
+                                   + (bpm.isNotEmpty() ? juce::String (juce::CharPointer_UTF8 (" \xc2\xb7 ")) + bpm : juce::String())
+                                   + tr (lang, "  - use it?", "  - vaihdetaanko?"));
+        styleButton.setEnabled (true);
+        styleButton.setTooltip (tr (lang, "A guess from the tempo, tonal balance and dynamics, not a fact. Click to switch to the closest preset, ",
+                                          "Arvaus tempon, taajuustasapainon ja dynamiikan perusteella, ei fakta. Klikkaa vaihtaaksesi lähimpään presettiin, ")
+                                + name + tr (lang, ". Nothing changes unless you click. Styles with the same tempo are easy to mix up; your ears and your own choice win.",
+                                                   ". Mikään ei muutu, ellet klikkaa. Samantempoiset tyylit menevät helposti sekaisin; korvasi ja oma valintasi ratkaisevat."));
+    }
 }
 
 // =====================================================================================

@@ -370,7 +370,7 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
     }
 
     // ---- small speakers: does the bass have harmonics?
-    add.add ("phonebass", { -m.phoneBass - 4.0f, 4.0f }, 1.0f, tagPhone,
+    add.add ("phonebass", { -m.phoneBass - 3.0f, 3.0f }, 1.0f, tagPhone,
              tr (lang, "Bass will disappear on phones", "Basso katoaa puhelimessa"),
              tr (lang, "90-280 Hz vs sub: ", "90–280 Hz suhteessa subiin: ") + dB (m.phoneBass) + tr (lang, " vs target", " tavoitteesta"),
              tr (lang, "Phone and laptop speakers can't play below ~150 Hz. If the kick and the bass live only in the sub, nothing is left on small speakers.",
@@ -432,7 +432,7 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
     m.clipEvents = s.clipEvents;
     m.samplePeak = s.samplePeakMax;
     if (song)
-        add.add ("dcoffset", { s.dcOffset + 50.0f, 10.0f }, 0.3f, tagClub,
+        add.add ("dcoffset", { s.dcOffset + 42.0f, 8.0f }, 0.3f, tagClub,
                  tr (lang, "DC offset", "DC-siirtymä"),
                  "DC " + num (lang, s.dcOffset) + " dBFS",
                  tr (lang, "The waveform sits off centre. It wastes headroom, makes the limiter react unevenly and can click at cuts and edits. Usually it comes from one sample, a distortion plugin or an analog-modelled processor.",
@@ -440,7 +440,7 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
                  tr (lang, "1. Find the track that causes it (watch its waveform: it is not centred on the zero line).\n2. Put a high-pass filter at 10-20 Hz or a DC filter on that track.",
                            "1. Etsi raita, joka aiheuttaa sen (sen aaltomuoto ei ole nollaviivan keskellä).\n2. Laita sille raidalle ylipäästösuodin 10–20 Hz:iin tai DC-suodin."));
 
-    add.add ("clipping", { (float) s.clipEvents - 2.0f, 10.0f }, 0.8f, tagPhone | tagCar | tagStreaming | tagHeadphones,
+    add.add ("clipping", { (float) std::log2 (1.0 + s.clipEvents) - 1.5f, 2.0f }, 0.8f, tagPhone | tagCar | tagStreaming | tagHeadphones,
              tr (lang, "Clipped, flat-topped peaks", "Klipatut, latistuneet huiput"),
              juce::String (s.clipEvents) + tr (lang, " clipped runs since reset", " klippausta nollauksen jälkeen"),
              tr (lang, "Samples are stuck at full scale: the peaks are cut flat, which adds harsh distortion. Lossy encoding (Spotify, YouTube, Bluetooth) makes clipped audio sound even worse. A soft clipper on purpose is fine if you can't hear it, but hard clipping at the output is almost always an accident.",
@@ -477,7 +477,9 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
                  tr (lang, "1. Turn the bass down 1-3 dB, or cut it 2-3 dB where the kick's fundamental is (often 50-70 Hz) so the kick gets its own spot.\n2. Sidechain ducking: a compressor on the bass with the kick as sidechain input. Ratio 4:1, attack 0-5 ms, release 100-200 ms (to the tempo), 3-6 dB gain reduction. A volume-shaper / ducking plugin does the same. The meter sees the level gap; the clarity that ducking gives is best judged by ear.\n3. Shorter bass notes that leave space for the kick also help.\nTrap: a long 808 or kick tail and a long bass note on the same beat always mask each other, whatever the EQ. Pick one to carry the low note.",
                            "1. Laske bassoa 1–3 dB tai leikkaa siitä 2–3 dB kickin perustaajuudelta (usein 50–70 Hz), jotta kick saa oman paikkansa.\n2. Sidechain-duckaus: kompressori bassoon ja kick sivuketjusisääntuloon. Suhde 4:1, attack 0–5 ms, release 100–200 ms (tempon mukaan), 3–6 dB vaimennus. Volume shaper- / ducking-plugin tekee saman. Mittari näkee tasoeron; duckauksen tuoman selkeyden arvioi parhaiten korvalla.\n3. Myös lyhyemmät bassonuotit, jotka jättävät tilaa kickille, auttavat.\nSudenkuoppa: pitkä 808- tai kick-häntä ja pitkä bassonuotti samalla iskulla peittävät aina toisensa, EQ:sta riippumatta. Valitse kumpi kantaa matalan nuotin."));
 
-    if (m.contrastValid)
+    // drum advice only when there are drums: regular kicks, or a clear beat
+    const bool drumsPresent = m.kickValid || s.tempoConfidence >= 0.5f;
+    if (m.contrastValid && drumsPresent)
     {
         add.add ("flatdrums", { p.highContrastMin - m.highContrast, 3.0f }, 0.7f, tagPhone,
                  tr (lang, "Drums lack snap", "Rummuista puuttuu terävyys"),
@@ -523,7 +525,7 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
         const float highBump = peakIn (20, 23, highBand);
         const auto f1 = freq (lang, Bands::centre (lowBand)), f2 = freq (lang, Bands::centre (highBand));
 
-        add.add ("boomnote", { lowBump - 4.0f, 3.0f }, 0.6f, tagCar,
+        add.add ("boomnote", { lowBump - 7.0f, 3.0f }, 0.6f, tagCar,
                  tr (lang, "Booming note around ", "Jumittava nuotti noin ") + f1,
                  "+" + num (lang, lowBump) + tr (lang, " dB above its neighbours", " dB naapureita korkeammalla"),
                  tr (lang, "One frequency sticks out of the low end, so single bass notes will jump out. A car cabin makes it worse.",

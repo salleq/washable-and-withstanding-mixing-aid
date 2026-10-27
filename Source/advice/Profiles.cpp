@@ -44,30 +44,57 @@ namespace
         float lufsMin, lufsMax, tp, plrMin, plrMax, lraMax;
         float tilt, lowShelf, subCorner, highCorner;
         float lowWidthMax, widthMax, lowContrastMin;
+        float bpmMin, bpmMax;
     };
 
-    // name                               elec  LUFS min/max   TP    PLR min/max  LRA   tilt  shelf sub  top     lowW   width  kick
+    // name                               elec  LUFS min/max   TP    PLR min/max  LRA   tilt  shelf sub  top     lowW   width  kick   BPM
     const Spec specs[] = {
-        { "House",                        true,  -9.0f, -7.0f, -0.5f, 7.0f, 10.0f,  7.0f, -3.0f, 1.0f, 32, 12000, -20.0f, -6.0f, 5.0f },
-        { "Deep House",                   true, -10.0f, -8.0f, -0.5f, 8.0f, 11.0f,  7.0f, -3.1f, 1.5f, 32, 10000, -20.0f, -6.0f, 5.0f },
-        { "Tech House",                   true,  -8.5f, -6.5f, -0.5f, 6.5f,  9.5f,  6.0f, -3.0f, 1.5f, 30, 12000, -20.0f, -6.0f, 5.0f },
-        { "Techno",                       true,  -8.5f, -6.0f, -0.5f, 6.0f,  9.0f,  6.0f, -2.8f, 1.5f, 30, 11000, -20.0f, -6.0f, 5.0f },
-        { "Melodic Techno / Progressive", true,  -9.5f, -7.5f, -0.5f, 7.0f, 10.0f,  7.0f, -3.0f, 1.0f, 32, 11000, -20.0f, -5.0f, 4.5f },
-        { "Trance",                       true,  -8.5f, -6.5f, -0.5f, 6.5f,  9.0f,  7.0f, -2.6f, 0.5f, 32, 14000, -20.0f, -5.0f, 4.5f },
-        { "EDM / Big Room",               true,  -7.0f, -5.0f, -0.3f, 5.5f,  8.0f,  7.0f, -2.6f, 1.0f, 32, 14000, -20.0f, -5.0f, 4.5f },
-        { "Drum & Bass",                  true,  -8.0f, -6.0f, -0.3f, 6.0f,  9.0f,  6.0f, -2.8f, 2.0f, 28, 13000, -20.0f, -5.0f, 4.0f },
-        { "Dubstep / Bass Music",         true,  -7.0f, -5.0f, -0.3f, 5.0f,  8.0f,  7.0f, -2.7f, 2.5f, 28, 13000, -20.0f, -5.0f, 3.0f },
-        { "Hardstyle / Hard Dance",       true,  -6.5f, -4.5f, -0.3f, 5.0f,  7.5f,  6.0f, -2.6f, 2.0f, 32, 13000, -20.0f, -5.0f, 4.0f },
-        { "Synthwave / Retrowave",        true, -11.0f, -8.0f, -1.0f, 8.0f, 12.0f,  8.0f, -3.2f, 0.0f, 35, 10000, -18.0f, -4.0f, 4.0f },
-        { "Ambient / Downtempo",          true, -16.0f,-11.0f, -1.0f,10.0f, 16.0f, 12.0f, -3.3f, 0.0f, 30, 10000, -16.0f, -3.0f, 0.0f },
-        { "Lo-fi / Chillhop",             true, -14.0f,-10.0f, -1.0f, 9.0f, 13.0f,  8.0f, -3.6f, 0.5f, 40,  8000, -18.0f, -5.0f, 3.0f },
-        { "Electronic (streaming)",       true, -14.0f,-10.0f, -1.0f, 8.0f, 12.0f,  9.0f, -3.0f, 1.0f, 32, 12000, -20.0f, -5.0f, 4.5f },
-        { "Hip Hop / Trap",               false, -9.0f, -7.0f, -0.5f, 6.0f, 10.0f,  7.0f, -3.1f, 3.0f, 28, 12000, -20.0f, -6.0f, 3.0f },
-        { "Pop",                          false,-10.0f, -7.5f, -1.0f, 7.0f, 10.0f,  7.0f, -2.6f, 0.5f, 35, 14000, -18.0f, -6.0f, 3.0f },
-        { "Rock / Band",                  false,-10.0f, -8.0f, -1.0f, 7.0f, 10.0f,  8.0f, -2.4f,-1.0f, 40, 13000, -16.0f, -6.0f, 3.0f },
-        { "Acoustic / Singer-Songwriter", false,-16.0f,-12.0f, -1.0f,10.0f, 15.0f, 10.0f, -2.4f,-2.0f, 50, 12000, -16.0f, -6.0f, 0.0f },
-        { "Streaming safe (any style)",   false,-15.0f,-13.0f, -1.0f, 9.0f, 14.0f, 10.0f, -2.8f, 0.5f, 35, 12000, -18.0f, -5.0f, 3.0f },
+        { "House",                        true,  -9.0f, -7.0f, -0.5f, 7.0f, 10.0f,  7.0f, -3.0f, 1.0f, 32, 12000, -20.0f, -6.0f, 5.0f, 120, 128 },
+        { "Deep House",                   true, -10.0f, -8.0f, -0.5f, 8.0f, 11.0f,  7.0f, -3.1f, 1.5f, 32, 10000, -20.0f, -6.0f, 5.0f, 115, 124 },
+        { "Tech House",                   true,  -8.5f, -6.5f, -0.5f, 6.5f,  9.5f,  6.0f, -3.0f, 1.5f, 30, 12000, -20.0f, -6.0f, 5.0f, 123, 130 },
+        { "Afro House",                   true,  -9.5f, -7.5f, -0.5f, 7.5f, 10.5f,  7.0f, -3.0f, 1.0f, 32, 12000, -20.0f, -5.0f, 4.5f, 117, 124 },
+        { "Minimal / Microhouse",         true, -10.0f, -8.0f, -0.5f, 8.0f, 11.0f,  7.0f, -3.2f, 1.0f, 32, 11000, -20.0f, -6.0f, 5.0f, 120, 128 },
+        { "Techno",                       true,  -8.5f, -6.0f, -0.5f, 6.0f,  9.0f,  6.0f, -2.8f, 1.5f, 30, 11000, -20.0f, -6.0f, 5.0f, 126, 138 },
+        { "Hard Techno",                  true,  -7.0f, -5.0f, -0.3f, 5.0f,  8.0f,  6.0f, -2.6f, 1.5f, 30, 12000, -20.0f, -6.0f, 5.0f, 140, 160 },
+        { "Melodic Techno / Progressive", true,  -9.5f, -7.5f, -0.5f, 7.0f, 10.0f,  7.0f, -3.0f, 1.0f, 32, 11000, -20.0f, -5.0f, 4.5f, 118, 126 },
+        { "Trance",                       true,  -8.5f, -6.5f, -0.5f, 6.5f,  9.0f,  7.0f, -2.6f, 0.5f, 32, 14000, -20.0f, -5.0f, 4.5f, 130, 140 },
+        { "Psytrance",                    true,  -7.5f, -5.5f, -0.3f, 5.5f,  8.5f,  6.0f, -2.6f, 1.5f, 30, 14000, -20.0f, -5.0f, 5.0f, 138, 148 },
+        { "EDM / Big Room",               true,  -7.0f, -5.0f, -0.3f, 5.5f,  8.0f,  7.0f, -2.6f, 1.0f, 32, 14000, -20.0f, -5.0f, 4.5f, 126, 132 },
+        { "UK Garage / Speed Garage",     true,  -9.0f, -7.0f, -0.5f, 7.0f, 10.0f,  7.0f, -2.9f, 2.0f, 30, 13000, -20.0f, -6.0f, 4.0f, 128, 138 },
+        { "Breaks",                       true,  -8.5f, -6.5f, -0.5f, 6.5f,  9.5f,  7.0f, -2.8f, 1.5f, 30, 13000, -20.0f, -5.0f, 4.0f, 125, 140 },
+        { "Drum & Bass",                  true,  -8.0f, -6.0f, -0.3f, 6.0f,  9.0f,  6.0f, -2.8f, 2.0f, 28, 13000, -20.0f, -5.0f, 4.0f, 165, 178 },
+        { "Dubstep / Bass Music",         true,  -7.0f, -5.0f, -0.3f, 5.0f,  8.0f,  7.0f, -2.7f, 2.5f, 28, 13000, -20.0f, -5.0f, 3.0f, 138, 150 },
+        { "Future Bass",                  true,  -7.5f, -5.5f, -0.3f, 5.5f,  8.5f,  7.0f, -2.6f, 1.5f, 30, 14000, -20.0f, -4.0f, 3.5f, 140, 160 },
+        { "Hardstyle / Hard Dance",       true,  -6.5f, -4.5f, -0.3f, 5.0f,  7.5f,  6.0f, -2.6f, 2.0f, 32, 13000, -20.0f, -5.0f, 4.0f, 145, 160 },
+        { "Synthwave / Retrowave",        true, -11.0f, -8.0f, -1.0f, 8.0f, 12.0f,  8.0f, -3.2f, 0.0f, 35, 10000, -18.0f, -4.0f, 4.0f,  80, 118 },
+        { "Ambient / Downtempo",          true, -16.0f,-11.0f, -1.0f,10.0f, 16.0f, 12.0f, -3.3f, 0.0f, 30, 10000, -16.0f, -3.0f, 0.0f,  60, 110 },
+        { "Lo-fi / Chillhop",             true, -14.0f,-10.0f, -1.0f, 9.0f, 13.0f,  8.0f, -3.6f, 0.5f, 40,  8000, -18.0f, -5.0f, 3.0f,  70,  92 },
+        { "Electronic (streaming)",       true, -14.0f,-10.0f, -1.0f, 8.0f, 12.0f,  9.0f, -3.0f, 1.0f, 32, 12000, -20.0f, -5.0f, 4.5f,   0,   0 },
+        { "Hip Hop / Trap",               false, -9.0f, -7.0f, -0.5f, 6.0f, 10.0f,  7.0f, -3.1f, 3.0f, 28, 12000, -20.0f, -6.0f, 3.0f,  70, 100 },
+        { "Pop",                          false,-10.0f, -7.5f, -1.0f, 7.0f, 10.0f,  7.0f, -2.6f, 0.5f, 35, 14000, -18.0f, -6.0f, 3.0f,  95, 128 },
+        { "Rock / Band",                  false,-10.0f, -8.0f, -1.0f, 7.0f, 10.0f,  8.0f, -2.4f,-1.0f, 40, 13000, -16.0f, -6.0f, 3.0f,  95, 150 },
+        { "Acoustic / Singer-Songwriter", false,-16.0f,-12.0f, -1.0f,10.0f, 15.0f, 10.0f, -2.4f,-2.0f, 50, 12000, -16.0f, -6.0f, 0.0f,  65, 130 },
+        { "Streaming safe (any style)",   false,-15.0f,-13.0f, -1.0f, 9.0f, 14.0f, 10.0f, -2.8f, 0.5f, 35, 12000, -18.0f, -5.0f, 3.0f,   0,   0 },
     };
+
+    std::string familyOf (const std::string& name)
+    {
+        static const std::pair<const char*, const char*> families[] = {
+            { "House", "House" }, { "Deep House", "House" }, { "Tech House", "House" }, { "Afro House", "House" },
+            { "Minimal / Microhouse", "House" },
+            { "Techno", "Techno" }, { "Hard Techno", "Techno" }, { "Melodic Techno / Progressive", "Techno" },
+            { "Trance", "Trance" }, { "Psytrance", "Trance" }, { "EDM / Big Room", "Trance" },
+            { "UK Garage / Speed Garage", "Garage & Breaks" }, { "Breaks", "Garage & Breaks" },
+            { "Drum & Bass", "Drum & Bass" },
+            { "Dubstep / Bass Music", "Bass Music" }, { "Future Bass", "Bass Music" },
+            { "Hardstyle / Hard Dance", "Hard" },
+            { "Synthwave / Retrowave", "Chill" }, { "Ambient / Downtempo", "Chill" }, { "Lo-fi / Chillhop", "Chill" },
+        };
+        for (auto& f : families)
+            if (name == f.first)
+                return f.second;
+        return name;
+    }
 }
 
 const std::vector<Profile>& builtInProfiles()
@@ -88,6 +115,8 @@ const std::vector<Profile>& builtInProfiles()
             p.subCorner = s.subCorner; p.highCorner = s.highCorner;
             p.lowWidthMax = s.lowWidthMax; p.widthMax = s.widthMax;
             p.lowContrastMin = s.lowContrastMin;
+            p.bpmMin = s.bpmMin; p.bpmMax = s.bpmMax;
+            p.family = familyOf (s.name);
             if (s.lraMax >= 10.0f)  // dynamic styles: softer drum expectations
                 p.highContrastMin = 5.0f;
             p.computeTarget();

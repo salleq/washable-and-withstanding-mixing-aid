@@ -35,6 +35,7 @@ struct ViewState
     Window window = Window::song;
     Stage stage = Stage::mastering;
 
+    bool styleChipShown = false;         // the style suggestion sits in the tonal panel's header
     float displayScore = 0.0f;           // smoothed for the meter
     std::vector<float> scoreHistory;     // one score every 0.5 s, last 60 s
     float trend = 0.0f;                  // score change over the last ~15 s
