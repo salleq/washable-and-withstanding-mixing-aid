@@ -16,6 +16,8 @@ WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia itse. Se k
 4. Valitse **Target** eli äänekkyystavoite. Tyylin oma on hyvä alku. Jos kappale menee vain suoratoistoon, −14 LUFS riittää.
 5. Soita koko kappale **BIISI**-tilassa tai looppaa työstettävää kohtaa **NYT**-tilassa. Kielen vaihdat oikean yläkulman FI/EN-napista.
 
+**Standalone-sovellus:** WWMA toimii myös ilman DAW:ia. Sen löydät nimellä **WWMA Mixing Aid** macOS:n Ohjelmat-kansiosta, Windowsin Käynnistä-valikosta tai Linux-zipistä. Sillä on kätevä kokeilla referenssibiisejä nopeasti: raahaa kappaleet ikkunaan, vertaa lukemia ja soita ▶-napilla tai **B · REF** -kytkimellä. Koska DAW:in transporttia ei ole, B soittaa referenssiä heti. **Options**-valikosta voit valita äänikortin, jolloin WWMA mittaa sen sisääntuloon tulevaa ääntä.
+
 ## 2. Näytön osat
 
 - **Integroitu äänekkyys** (vasen ylhäällä): kappaleen keskimääräinen äänekkyys LUFS-yksikössä sekä short-term, momentary, true peak, LRA, PLR ja korrelaatio.

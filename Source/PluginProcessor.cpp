@@ -139,7 +139,10 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     int64_t hostSample = -1;
     bool hostPlaying = false;
-    if (auto* ph = getPlayHead())
+    // The standalone app has no transport (its play head reports a sample count but never
+    // "playing"), so there a reference simply plays on its own, as with no play head at all.
+    auto* ph = wrapperType == wrapperType_Standalone ? nullptr : getPlayHead();
+    if (ph != nullptr)
     {
         if (auto pos = ph->getPosition())
         {
