@@ -9,6 +9,7 @@
         <line choice="vst3"/>
         <line choice="au"/>
         <line choice="clap"/>
+        <line choice="app"/>
     </choices-outline>
     <choice id="vst3" title="VST3 plugin" description="For Ableton Live, Cubase, Reaper, Studio One, Bitwig and most other DAWs.">
         <pkg-ref id="com.salleq.wwma.vst3"/>
@@ -19,7 +20,11 @@
     <choice id="clap" title="CLAP plugin" description="For Bitwig Studio, Reaper, FL Studio and other CLAP hosts.">
         <pkg-ref id="com.salleq.wwma.clap"/>
     </choice>
+    <choice id="app" title="Standalone app" description="WWMA on its own, without a DAW: try reference tracks quickly, or measure what plays through your audio interface. Installed in Applications.">
+        <pkg-ref id="com.salleq.wwma.app"/>
+    </choice>
     <pkg-ref id="com.salleq.wwma.vst3" version="@VERSION@">vst3.pkg</pkg-ref>
     <pkg-ref id="com.salleq.wwma.au" version="@VERSION@">au.pkg</pkg-ref>
     <pkg-ref id="com.salleq.wwma.clap" version="@VERSION@">clap.pkg</pkg-ref>
+    <pkg-ref id="com.salleq.wwma.app" version="@VERSION@">app.pkg</pkg-ref>
 </installer-gui-script>
