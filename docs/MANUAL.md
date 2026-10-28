@@ -23,6 +23,10 @@ WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teach
    - **NOW** looks at the last 3 seconds. Loop a part and tweak while you watch.
 6. Turn on **Reset on play** to start a new measurement every time the DAW starts playing.
 
+### The standalone app
+
+WWMA also runs on its own, without a DAW: **WWMA Mixing Aid** in Applications (macOS), in the Start menu (Windows), or the `WWMA Mixing Aid` program in the Linux zip. It is handy for trying out reference tracks quickly: drag them onto the window, compare their numbers and play them with ▶ or **B · REF** (there is no DAW transport, so B plays the reference right away). Under **Options** you can pick your audio interface, and WWMA then measures whatever comes in through its input.
+
 ## 2. The screen
 
 | Panel | What it shows |

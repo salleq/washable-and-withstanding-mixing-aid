@@ -52,6 +52,17 @@ INSTALL ON LINUX (x64 or ARM64)
    For CLAP hosts, copy "WWMA Mixing Aid.clap" to ~/.clap (or /usr/lib/clap).
 3. Rescan plugins in your DAW (Reaper, Bitwig, Ardour...).
 
+STANDALONE APP (no DAW needed)
+  Windows: the installer adds "WWMA Mixing Aid" to the Start menu. From the zip,
+           run "WWMA Mixing Aid.exe" from anywhere.
+  macOS:   the installer puts "WWMA Mixing Aid.app" in Applications. From the zip,
+           drag it there and run once:
+           xattr -dr com.apple.quarantine "/Applications/WWMA Mixing Aid.app"
+  Linux:   run "WWMA Mixing Aid" from the zip (chmod +x if needed).
+  Drag reference tracks onto the window and play them with the play button or
+  B - REF. Under Options you can choose your audio interface; WWMA then measures
+  what comes in through its input.
+
 HOW TO USE
 1. Put WWMA as the LAST plugin on your master bus (after your limiter).
 2. Pick a preset for your style, MIX or MASTER, and a loudness target.

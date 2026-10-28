@@ -59,7 +59,7 @@ jobs:
       - name: Build
         shell: bash
         run: |
-          targets="WWMA_VST3 WWMA_CLAP"
+          targets="WWMA_VST3 WWMA_CLAP WWMA_Standalone"
           if [ "$RUNNER_OS" = "macOS" ]; then targets="$targets WWMA_AU"; fi
           if [ "$RUNNER_OS" = "Linux" ]; then targets="$targets WWMA_LV2"; fi
           if [ "${{ matrix.selftest }}" = "true" ]; then targets="$targets wwma_selftest"; fi
@@ -78,6 +78,10 @@ jobs:
           echo "lv2=$lv2" >> "$GITHUB_OUTPUT"
           clap=$(find build -name "WWMA Mixing Aid.clap" -path "*Release*" | head -1)
           echo "clap=$clap" >> "$GITHUB_OUTPUT"
+          # the standalone app: .app on macOS, .exe on Windows, a plain program on Linux
+          app=$(find build \( -name "WWMA Mixing Aid.app" -o -name "WWMA Mixing Aid.exe" -o \( -type f -name "WWMA Mixing Aid" \) \) -path "*Release/Standalone*" | head -1)
+          echo "Standalone: $app"
+          echo "app=$app" >> "$GITHUB_OUTPUT"
 
       - name: Ad-hoc sign (macOS)
         if: runner.os == 'macOS'
@@ -85,6 +89,7 @@ jobs:
           codesign --force --deep --sign - "${{ steps.plugin.outputs.path }}"
           codesign --force --deep --sign - "${{ steps.plugin.outputs.au }}"
           codesign --force --deep --sign - "${{ steps.plugin.outputs.clap }}"
+          codesign --force --deep --sign - "${{ steps.plugin.outputs.app }}"
 
       - name: Self test (measurement accuracy, advice, pass-through, reference tracks)
         if: matrix.selftest
@@ -99,7 +104,8 @@ jobs:
           version=$(grep -m1 -o 'project(WWMA VERSION [0-9.]*' CMakeLists.txt | awk '{print $3}')
           mkdir -p installers
           installer/macos/build_pkg.sh "${{ steps.plugin.outputs.path }}" "${{ steps.plugin.outputs.au }}" \
-            "$version" "installers/WWMA-$version-macOS-Installer.pkg" "${{ steps.plugin.outputs.clap }}"
+            "$version" "installers/WWMA-$version-macOS-Installer.pkg" "${{ steps.plugin.outputs.clap }}" \
+            "${{ steps.plugin.outputs.app }}"
 
       - name: Validate with pluginval
         if: matrix.pluginval_url
@@ -121,6 +127,8 @@ jobs:
           if [ -n "${{ steps.plugin.outputs.au }}" ]; then cp -R "${{ steps.plugin.outputs.au }}" dist/; fi
           if [ -n "${{ steps.plugin.outputs.lv2 }}" ]; then cp -R "${{ steps.plugin.outputs.lv2 }}" dist/; fi
           cp -R "${{ steps.plugin.outputs.clap }}" dist/
+          test -n "${{ steps.plugin.outputs.app }}"
+          cp -R "${{ steps.plugin.outputs.app }}" dist/
           cp docs/INSTALL.txt dist/
           cd dist
           if [ "$RUNNER_OS" != "Windows" ]; then
