@@ -60,8 +60,8 @@ STANDALONE APP (no DAW needed)
            xattr -dr com.apple.quarantine "/Applications/WWMA Mixing Aid.app"
   Linux:   run "WWMA Mixing Aid" from the zip (chmod +x if needed).
   Drag reference tracks onto the window and play them with the play button or
-  B - REF. Under Options you can choose your audio interface; WWMA then measures
-  what comes in through its input.
+  B - REF. The audio interface input is not used: load your own song with the
+  button at the bottom right and play it with the play button.
 
 HOW TO USE
 1. Put WWMA as the LAST plugin on your master bus (after your limiter).

@@ -25,7 +25,9 @@ WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teach
 
 ### The standalone app
 
-WWMA also runs on its own, without a DAW: **WWMA Mixing Aid** in Applications (macOS), in the Start menu (Windows), or the `WWMA Mixing Aid` program in the Linux zip. It is handy for trying out reference tracks quickly: drag them onto the window, compare their numbers and play them with ▶ or **B · REF** (there is no DAW transport, so B plays the reference right away). Under **Options** you can pick your audio interface, and WWMA then measures whatever comes in through its input.
+WWMA also runs on its own, without a DAW: **WWMA Mixing Aid** in Applications (macOS), in the Start menu (Windows), or the `WWMA Mixing Aid` program in the Linux zip. It is handy for trying out reference tracks quickly: drag them onto the window, compare their numbers and play them with ▶ or **B · REF** (there is no DAW transport, so B plays the reference right away). The audio interface input is not used. Your own song is a file: load it with **LOAD YOUR MIX** at the bottom right (or drop it on that button), play it with ▶ and jump around with the thin bar under the buttons. Reference tracks go in the boxes at the top. Each reference remembers where you left it when you switch between them, and a loop starts from its marked point.
+
+While **B · REF** plays, the loudness, tonal balance, findings, score and translation panels show the reference's numbers, and your mix becomes the dashed comparison line and marker. Switch back to **A · MIX** to see your own again.
 
 ## 2. The screen
 

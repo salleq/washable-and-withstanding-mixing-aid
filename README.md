@@ -75,7 +75,7 @@ The loudness target can follow the style, or be set to -14 LUFS (streaming), -8 
 
 Get the installer for your system from the [Releases](../../releases) page. See [docs/INSTALL.txt](docs/INSTALL.txt) for installing by hand (including macOS quarantine and Linux paths).
 
-There is also a **standalone app** (WWMA Mixing Aid in Applications on macOS, in the Start menu on Windows, and in the Linux zip). Use it to try out reference tracks quickly without opening a DAW: drag tracks onto the window, compare their numbers, and play them with ▶ or B · REF. It can also measure whatever comes in through your audio interface (choose it under Options).
+There is also a **standalone app** (WWMA Mixing Aid in Applications on macOS, in the Start menu on Windows, and in the Linux zip). Use it to try out reference tracks quickly without opening a DAW: drag tracks onto the window, compare their numbers, and play them with ▶ or B · REF. Your own song is a file too: load it with the button at the bottom right (or drop it there), play it with ▶ and compare it with the references. The audio interface input is not used.
 
 The [manual](docs/MANUAL.md) explains every check and what to try first. There is also a beginner's guide to mixing with WWMA in Finnish: [docs/OPAS.md](docs/OPAS.md).
 

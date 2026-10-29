@@ -118,13 +118,14 @@ float ViewState::changeSinceBaseline (const Finding& f) const
 void LoudnessBox::paint (juce::Graphics& g)
 {
     const auto lang = state.lang;
-    const auto& s = state.snap;
+    const auto& s = state.shownSnap();
     const auto& p = state.profile;
     drawBox (g, getLocalBounds().toFloat());
     auto r = content (*this);
 
     auto head = r.removeFromTop (16);
-    drawLabel (g, t (lang, "Integrated", "Integroitu"), head);
+    drawLabel (g, t (lang, "Integrated", "Integroitu") + (state.viewingRef() ? " | " + state.refLabel() : juce::String()), head,
+               state.viewingRef() ? colours::ref : colours::dim);
     const int secs = (int) s.secondsAnalysed;
     drawLabel (g, juce::String (secs / 60) + ":" + juce::String (secs % 60).paddedLeft ('0', 2) + t (lang, " analysed", " analysoitu"),
                head, colours::faint, juce::Justification::centredRight);
@@ -325,7 +326,7 @@ void TonalView::mouseMove (const juce::MouseEvent& e)
 void TonalView::paint (juce::Graphics& g)
 {
     const auto lang = state.lang;
-    const auto& m = state.assessment.measures;
+    const auto& m = state.shownAssessment().measures;
     const auto& target = state.profile.target;
     drawBox (g, getLocalBounds().toFloat());
     auto r = content (*this);
@@ -337,7 +338,9 @@ void TonalView::paint (juce::Graphics& g)
                                      ? &state.snapshots.back() : nullptr;
     const auto ghostColour = colours::accent.withAlpha (0.45f);
     const auto diffColour = colours::info;
-    if (refView != nullptr)
+    if (state.viewingRef())
+        drawLabel (g, t (lang, "showing ", "näytetään ") + state.refLabel() + t (lang, " (reference playing)", " (referenssi soi)"), head, colours::ref, juce::Justification::centredRight);
+    else if (refView != nullptr)
         drawLabel (g, t (lang, "ref level-matched ", "ref tasattu ") + fmt (lang, state.refGainDb, 1, true) + " dB", head, colours::ref, juce::Justification::centredRight);
     else if (! state.styleChipShown)
         drawLabel (g, t (lang, "green band = the style's normal range", "vihreä kaista = tyylin normaali alue"), head, colours::faint, juce::Justification::centredRight);
@@ -419,9 +422,9 @@ void TonalView::paint (juce::Graphics& g)
     // legend
     {
         auto lg = juce::Rectangle<float> (plot.getRight() - 150.0f, plot.getY() + 4.0f, 150.0f, 80.0f);
-        g.setColour (colours::text);
+        g.setColour (state.viewingRef() ? colours::ref : colours::text);
         g.fillRect (lg.getX(), lg.getY() + 5.0f, 18.0f, 2.0f);
-        drawLabel (g, t (lang, "Your mix", "Sinun miksi"), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), colours::dim, juce::Justification::centredLeft, 10.5f);
+        drawLabel (g, state.viewingRef() ? state.refLabel() : t (lang, "Your mix", "Sinun miksi"), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), colours::dim, juce::Justification::centredLeft, 10.5f);
         lg.removeFromTop (4.0f);
         if (ghost != nullptr)
         {
@@ -446,13 +449,14 @@ void TonalView::paint (juce::Graphics& g)
             differenceToggle = {};
         if (refView != nullptr)
         {
+            const auto dashColour = state.viewingRef() ? colours::text : colours::ref;
             for (float x = 0.0f; x < 18.0f; x += 7.0f)
             {
-                g.setColour (colours::ref);
+                g.setColour (dashColour);
                 g.fillRect (lg.getX() + x, lg.getY() + 5.0f, 4.5f, 2.0f);
             }
-            drawLabel (g, state.refLabel() + t (lang, " (level-matched)", " (tasattu)"), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(),
-                       colours::ref, juce::Justification::centredLeft, 10.5f);
+            drawLabel (g, state.viewingRef() ? t (lang, "Your mix", "Sinun miksi") : state.refLabel() + t (lang, " (level-matched)", " (tasattu)"),
+                       lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), dashColour, juce::Justification::centredLeft, 10.5f);
             lg.removeFromTop (4.0f);
         }
         g.setColour (colours::good.withAlpha (0.3f));
@@ -535,11 +539,11 @@ void TonalView::paint (juce::Graphics& g)
         {
             juce::Path refDashed;
             const float refDashes[] = { 5.0f, 3.0f };
-            juce::PathStrokeType (1.8f).createDashedStroke (refDashed, strokeOf (pointsOf (refView->assessment.measures.spectrum, 0.0f)), refDashes, 2);
-            g.setColour (colours::ref);
+            juce::PathStrokeType (1.8f).createDashedStroke (refDashed, strokeOf (pointsOf (state.otherAssessment().measures.spectrum, 0.0f)), refDashes, 2);
+            g.setColour (state.viewingRef() ? colours::text : colours::ref);
             g.fillPath (refDashed);
         }
-        g.setColour (colours::text);
+        g.setColour (state.viewingRef() ? colours::ref : colours::text);
         g.strokePath (strokeOf (mix), juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 
@@ -592,11 +596,12 @@ void FindingsPanel::paint (juce::Graphics& g)
     auto head = getLocalBounds().removeFromTop (18);
     drawLabel (g, t (lang, "Findings", "Havainnot") + dot + t (lang, "most important first", "tärkein ensin"), head);
     int toFix = 0;
-    for (const auto& f : state.assessment.findings)
+    const auto& shown = state.shownAssessment();
+    for (const auto& f : shown.findings)
         if (f.severity == Severity::fix || f.severity == Severity::watch)
             ++toFix;
-    if (state.assessment.enoughData)
-        drawLabel (g, juce::String (toFix) + t (lang, " to fix", " korjattavaa") + dot + juce::String ((int) state.assessment.passed.size())
+    if (shown.enoughData)
+        drawLabel (g, juce::String (toFix) + t (lang, " to fix", " korjattavaa") + dot + juce::String ((int) shown.passed.size())
                        + t (lang, " fine", " kunnossa"), head, colours::faint, juce::Justification::centredRight);
 }
 
@@ -608,7 +613,7 @@ void FindingsPanel::resized()
 
 void FindingsPanel::refresh()
 {
-    const auto& f = state.assessment.findings;
+    const auto& f = state.shownAssessment().findings;
     const bool exists = std::any_of (f.begin(), f.end(), [this] (const Finding& x) { return x.id == expanded; });
     if (! exists || ! userPicked)
     {
@@ -672,14 +677,15 @@ namespace
     /** How this finding compares with the active reference track, e.g. "+3.9 dB vs ref". */
     juce::String refNoteFor (const Finding& f, const ViewState& st)
     {
-        const auto* ref = st.activeRefView();
-        if (ref == nullptr || ! st.assessment.measures.valid)
+        if (st.activeRefView() == nullptr || ! st.shownAssessment().measures.valid)
             return {};
         const auto lang = st.lang;
-        const auto& m = st.assessment.measures;
-        const auto& rm = ref->assessment.measures;
+        const auto& m = st.shownAssessment().measures;
+        const auto& rm = st.otherAssessment().measures;
         const auto& id = f.id;
-        const juce::String vsRef = t (lang, " vs ref", " vs ref");
+        const juce::String who = st.viewingRef() ? juce::String ("mix") : juce::String ("ref");
+        const juce::String vsRef = " vs " + who;
+        const auto otherIntegrated = st.otherSnap().integrated;
         if (id.rfind ("range", 0) == 0 && id.size() >= 6)
         {
             const int i = id[5] - '0';
@@ -687,14 +693,14 @@ namespace
                 return fmt (lang, m.rangeDeviation[(size_t) i] - rm.rangeDeviation[(size_t) i], 1, true) + " dB" + vsRef;
         }
         if (id == "phonebass") return fmt (lang, m.phoneBass - rm.phoneBass, 1, true) + " dB" + vsRef;
-        if (id == "loud" || id == "quiet") return "ref " + fmt (lang, ref->snap.integrated) + " LUFS";
-        if (id == "peak") return "ref " + fmt (lang, rm.truePeak) + " dBTP";
-        if (id == "squashed" || id == "dynamic") return "ref PLR " + fmt (lang, rm.plr);
-        if (id == "lra") return "ref LRA " + fmt (lang, rm.lra);
-        if (id == "kickbass" && rm.kickValid) return "ref " + fmt (lang, rm.lowContrast) + " dB";
-        if ((id == "flatdrums" || id == "spikydrums") && rm.contrastValid) return "ref " + fmt (lang, rm.highContrast) + " dB";
-        if (id == "lowwidth") return "ref " + fmt (lang, rm.lowWidth) + " dB";
-        if (id == "wide" || id == "narrow") return "ref " + fmt (lang, rm.width) + " dB";
+        if (id == "loud" || id == "quiet") return who + " " + fmt (lang, otherIntegrated) + " LUFS";
+        if (id == "peak") return who + " " + fmt (lang, rm.truePeak) + " dBTP";
+        if (id == "squashed" || id == "dynamic") return who + " PLR " + fmt (lang, rm.plr);
+        if (id == "lra") return who + " LRA " + fmt (lang, rm.lra);
+        if (id == "kickbass" && rm.kickValid) return who + " " + fmt (lang, rm.lowContrast) + " dB";
+        if ((id == "flatdrums" || id == "spikydrums") && rm.contrastValid) return who + " " + fmt (lang, rm.highContrast) + " dB";
+        if (id == "lowwidth") return who + " " + fmt (lang, rm.lowWidth) + " dB";
+        if (id == "wide" || id == "narrow") return who + " " + fmt (lang, rm.width) + " dB";
         return {};
     }
 
@@ -749,15 +755,15 @@ int FindingsPanel::List::layout (int width)
 
     // at most four things to fix at a time, so the screen doesn't shout; then some that are fine
     int problems = 0;
-    for (const auto& f : st.assessment.findings)
+    for (const auto& f : st.shownAssessment().findings)
     {
         const bool problem = f.severity == Severity::fix || f.severity == Severity::watch;
         if (problem && ++problems > 4)
             continue;
         shown.push_back (f);
     }
-    for (size_t i = 0; i < st.assessment.passed.size() && i < 3; ++i)
-        shown.push_back (st.assessment.passed[i]);
+    for (size_t i = 0; i < st.shownAssessment().passed.size() && i < 3; ++i)
+        shown.push_back (st.shownAssessment().passed[i]);
 
     int y = st.hasBaseline && ! st.fixedSinceBaseline.isEmpty() ? 22 : 0;
     const float inner = (float) width - 6.0f - 6.0f - 2.0f * cardPad;
@@ -867,8 +873,8 @@ void ScoreBox::paint (juce::Graphics& g)
     auto r = content (*this);
     drawLabel (g, t (lang, "How close to a good mix", "Kuinka lähellä hyvää miksiä"), r.removeFromTop (16));
 
-    const bool valid = state.assessment.enoughData;
-    const float score = state.displayScore;
+    const bool valid = state.shownAssessment().enoughData;
+    const float score = state.viewingRef() ? state.shownAssessment().score : state.displayScore;
     const auto col = valid ? scoreColour (score) : colours::faint;
 
     auto row = r.removeFromTop (52);
@@ -889,18 +895,18 @@ void ScoreBox::paint (juce::Graphics& g)
         g.setColour (colours::background.withAlpha (0.7f));
         for (float z : { 40.0f, 70.0f, 90.0f })
             g.fillRect (bar.getX() + bar.getWidth() * z / 100.0f - 1.0f, bar.getY(), 2.0f, bar.getHeight());
-        if (state.hasBaseline && valid)
+        if (state.hasBaseline && valid && ! state.viewingRef())
         {
             const float bx = bar.getX() + bar.getWidth() * juce::jlimit (0.0f, 1.0f, state.baselineScore / 100.0f);
             g.setColour (colours::background);
             g.fillRect (bx - 1.0f, bar.getY() - 3.0f, 2.0f, bar.getHeight() + 6.0f);
         }
-        if (const auto* ref = state.activeRefView())
+        if (state.activeRefView() != nullptr)
         {
-            const float rx = bar.getX() + bar.getWidth() * juce::jlimit (0.0f, 1.0f, ref->assessment.score / 100.0f);
+            const float rx = bar.getX() + bar.getWidth() * juce::jlimit (0.0f, 1.0f, state.otherAssessment().score / 100.0f);
             g.setColour (colours::background);
             g.fillEllipse (rx - 6.5f, bar.getCentreY() - 6.5f, 13.0f, 13.0f);
-            g.setColour (colours::ref);
+            g.setColour (state.viewingRef() ? colours::text : colours::ref);
             g.fillEllipse (rx - 5.0f, bar.getCentreY() - 5.0f, 10.0f, 10.0f);
         }
         if (valid)
@@ -944,13 +950,16 @@ void ScoreBox::paint (juce::Graphics& g)
 
     juce::AttributedString a;
     a.setWordWrap (juce::AttributedString::byWord);
-    a.append (state.assessment.nextStep, fonts::body (12.5f), colours::soft);
-    if (valid && state.scoreHistory.size() > 36 && std::abs (state.trend) >= 3.0f)
+    a.append (state.shownAssessment().nextStep, fonts::body (12.5f), colours::soft);
+    if (valid && ! state.viewingRef() && state.scoreHistory.size() > 36 && std::abs (state.trend) >= 3.0f)
         a.append (state.trend > 0.0f ? t (lang, "  Getting better.", "  Paranee.") : t (lang, "  Getting worse.", "  Huononee."),
                   fonts::bodyBold (12.5f), state.trend > 0.0f ? colours::good : colours::bad);
-    if (const auto* ref = state.activeRefView())
-        a.append (" " + state.refLabel() + t (lang, " scores ", " saa ") + juce::String (juce::roundToInt (ref->assessment.score))
+    if (state.activeRefView() != nullptr)
+    {
+        const auto who = state.viewingRef() ? t (lang, " Your mix", " Miksisi") : " " + state.refLabel();
+        a.append (who + t (lang, " scores ", " saa ") + juce::String (juce::roundToInt (state.otherAssessment().score))
                       + t (lang, ".", " pistettä."), fonts::body (12.5f), colours::ref);
+    }
     layoutText (a, (float) r.getWidth()).draw (g, r.withTrimmedTop (4).toFloat());
 }
 
@@ -1000,16 +1009,16 @@ void TranslationBox::paint (juce::Graphics& g)
     auto head = r.removeFromTop (16);
     drawLabel (g, t (lang, "Translation", "Käännettävyys"), head);
     const auto* ref = state.activeRefView();
-    drawLabel (g, t (lang, "estimated", "arvio") + (ref != nullptr ? juce::String (" | ref") : juce::String()), head,
+    drawLabel (g, t (lang, "estimated", "arvio") + (ref != nullptr ? juce::String (state.viewingRef() ? " | mix" : " | ref") : juce::String()), head,
                ref != nullptr ? colours::ref : colours::faint, juce::Justification::centredRight);
     r.removeFromTop (8);
 
-    const bool valid = state.assessment.enoughData;
+    const bool valid = state.shownAssessment().enoughData;
     const int rowH = r.getHeight() / (int) Playback::count;
     for (int i = 0; i < (int) Playback::count; ++i)
     {
         auto row = r.removeFromTop (rowH);
-        const auto& tr = state.assessment.translation[(size_t) i];
+        const auto& tr = state.shownAssessment().translation[(size_t) i];
         auto line = row.removeFromTop (20);
         playbackIcon (g, (Playback) i, line.removeFromLeft (20).toFloat().withSizeKeepingCentre (18.0f, 18.0f));
         line.removeFromLeft (8);
@@ -1030,7 +1039,7 @@ void TranslationBox::paint (juce::Graphics& g)
             g.fillRoundedRectangle (track.withWidth (track.getWidth() * juce::jlimit (0.02f, 1.0f, tr.score / 100.0f)), 3.5f);
             if (ref != nullptr)
             {
-                const float rx = track.getX() + track.getWidth() * juce::jlimit (0.0f, 1.0f, ref->assessment.translation[(size_t) i].score / 100.0f);
+                const float rx = track.getX() + track.getWidth() * juce::jlimit (0.0f, 1.0f, state.otherAssessment().translation[(size_t) i].score / 100.0f);
                 g.setColour (colours::ref);
                 g.fillRoundedRectangle (rx - 1.0f, track.getY() - 3.0f, 2.0f, track.getHeight() + 6.0f, 1.0f);
             }
@@ -1329,6 +1338,13 @@ juce::Rectangle<int> ReferenceBox::infoBounds (int i) const
     return slotBounds (i).reduced (10, 7).removeFromTop (33).withTrimmedRight (22);
 }
 
+juce::Rectangle<int> ReferenceBox::loopBounds (int i) const
+{
+    auto c = slotBounds (i).reduced (10, 7);
+    c.removeFromTop (18);
+    return c.removeFromTop (15).removeFromRight (48);
+}
+
 juce::Rectangle<int> ReferenceBox::closeBounds (int i) const
 {
     auto s = slotBounds (i);
@@ -1407,7 +1423,17 @@ void ReferenceBox::paint (juce::Graphics& g)
 
         g.setColour (colours::dim);
         g.drawText (fmt (lang, ref.snap.integrated) + " LUFS" + dot + duration (ref.seconds) + dot + t (lang, "analysed", "analysoitu"),
-                    line2, juce::Justification::centredLeft);
+                    line2.withTrimmedRight (54), juce::Justification::centredLeft);
+
+        // opens the big view where a loop is chosen (it covers the tonal chart, so it is not automatic)
+        {
+            const auto lb = loopBounds (i).toFloat();
+            g.setColour (ref.hasLoop() ? colours::ref.withAlpha (0.25f) : colours::panel);
+            g.fillRoundedRectangle (lb, 4.0f);
+            g.setColour (act ? colours::ref : colours::line);
+            g.drawRoundedRectangle (lb.reduced (0.5f), 4.0f, 1.0f);
+            drawLabel (g, upper (t (lang, "Loop", "Loop")), lb.toNearestInt(), act ? colours::text : colours::dim, juce::Justification::centred, 10.5f);
+        }
 
         // waveform, loop and play / pause
         const bool playingHere = act && state.listening && state.refPlaying;
@@ -1476,7 +1502,7 @@ void ReferenceBox::mouseMove (const juce::MouseEvent& e)
     for (int i = 0; i < (int) state.refs.size(); ++i)
         if (state.refs[(size_t) i].ready())
             hand = hand || waveBounds (i).expanded (0, 4).contains (e.getPosition()) || playBounds (i).contains (e.getPosition())
-                   || infoBounds (i).contains (e.getPosition());
+                   || infoBounds (i).contains (e.getPosition()) || loopBounds (i).contains (e.getPosition());
     setMouseCursor (hand ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
@@ -1513,7 +1539,7 @@ void ReferenceBox::mouseUp (const juce::MouseEvent& e)
             {
                 if (onPlayPause) onPlayPause (i);
             }
-            else if (infoBounds (i).contains (p))
+            else if (loopBounds (i).contains (p))
             {
                 if (onOpenDetail) onOpenDetail (i);
             }

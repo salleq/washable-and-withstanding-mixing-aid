@@ -127,6 +127,23 @@ private:
     juce::ComboBox profileBox, targetBox;
     juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, langButton, mixAButton, refBButton;
     juce::ToggleButton autoResetToggle;
+    juce::TextButton mixLoadButton, mixPlayButton; // standalone app only: your own song
+
+    /** Thin progress bar under the mix buttons: shows where the song is, click or drag to jump. */
+    struct MixSeekBar : public juce::Component
+    {
+        explicit MixSeekBar (WwmaAudioProcessor& p) : proc (p) {}
+        void paint (juce::Graphics& g) override;
+        void mouseDown (const juce::MouseEvent& e) override { jump (e); }
+        void mouseDrag (const juce::MouseEvent& e) override { jump (e); }
+        WwmaAudioProcessor& proc;
+        double shown = 0.0;
+    private:
+        void jump (const juce::MouseEvent& e);
+    } mixSeek { proc };
+    int mixStatusShown = -1;
+    void browseMix();
+    void loadMix (const juce::File& file);
 
     // style guess: only ever a suggestion, the preset changes when the user clicks it
     juce::TextButton styleButton;

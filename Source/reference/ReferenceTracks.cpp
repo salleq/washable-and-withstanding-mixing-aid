@@ -150,6 +150,7 @@ void ReferenceTracks::install (int slot, int job, Result r, bool keepInfo)
         {
             s.info = r.info;
             s.loopStart = s.loopEnd = 0.0; // a new file: the old loop doesn't apply
+            s.resume = 0.0;
         }
         s.playback = r.playback;
         s.status = Status::ready;
@@ -297,9 +298,18 @@ void ReferenceTracks::updateAudioSide()
         const juce::SpinLock::ScopedLockType lock (audioLock);
         if (next != current)
         {
+            // each track keeps its place: switching back continues where it was left. A rebuilt
+            // copy of the same track (new sample rate) also continues from the same spot.
+            const double here = playPosition.load();
+            if (juce::isPositiveAndBelow (currentSlot, numSlots) && currentSlot != a)
+                slots[(size_t) currentSlot].resume = here;
+            const double from = currentSlot == a ? here : (juce::isPositiveAndBelow (a, numSlots) ? slots[(size_t) a].resume : 0.0);
             old = std::exchange (current, next);
+            currentSlot = next != nullptr ? a : -1;
             cueSamples = 0;
             freePosition = 0;
+            pendingCue.store (next != nullptr ? from : -1.0);
+            playPosition.store (from);
         }
     }
     // old is released here, outside the lock
@@ -341,10 +351,15 @@ bool ReferenceTracks::render (float* l, float* r, int n, int64_t hostSample, boo
     int64_t pos = synced ? hostSample + cueSamples : freePosition;
     if (pos < loopA || pos >= loopB)
     {
-        pos = (pos - loopA) % loopLen;
-        if (pos < 0)
-            pos += loopLen;
-        pos += loopA;
+        if (synced)
+        {
+            pos = (pos - loopA) % loopLen;
+            if (pos < 0)
+                pos += loopLen;
+            pos += loopA;
+        }
+        else
+            pos = loopA; // outside the loop on its own transport: start at the marked point
     }
 
     const float target = juce::Decibels::decibelsToGain (juce::jlimit (-30.0f, 30.0f, gainDb));

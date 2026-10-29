@@ -102,6 +102,14 @@ public:
         with both stages off the input is the output, and the main analyser already has it. */
     wwma::Analyzer inputAnalyzer;
     std::atomic<bool> inputAnalysisWanted { false };
+
+    /** Standalone app only: nobody plays through a microphone there, so the audio interface input
+        is ignored and "your mix" is a file loaded into the app (slot 0, with its own play button).
+        Plugins in a DAW never use it. */
+    wwma::ReferenceTracks mixTrack;
+    juce::File getMixFile() const;
+    void loadMixFile (const juce::File& file);
+
     /** The knobs as the user set them. */
     wwma::ChainSettings getChainSettings() const;
     /** Largest limiter gain reduction since the last call, dB. */

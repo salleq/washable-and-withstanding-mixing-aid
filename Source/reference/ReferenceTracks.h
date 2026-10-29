@@ -97,6 +97,7 @@ private:
         std::shared_ptr<Playback> playback;
         int job = 0;   // newest load request, older results are dropped
         double loopStart = 0.0, loopEnd = 0.0;
+        double resume = 0.0;   // 0..1, where this track was when another one took over
     };
 
     struct Result
@@ -121,6 +122,7 @@ private:
     // audio side: the active playback, swapped under the lock
     juce::SpinLock audioLock;
     std::shared_ptr<Playback> current;
+    int currentSlot = -1;   // the slot `current` belongs to
     int64_t cueSamples = 0, freePosition = 0;
     std::atomic<double> pendingCue { -1.0 };
     std::atomic<double> playPosition { 0.0 };

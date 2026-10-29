@@ -112,6 +112,22 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
         updateTexts();
         reassess();
     };
+    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    {
+        content.addAndMakeVisible (mixLoadButton);
+        content.addAndMakeVisible (mixPlayButton);
+        content.addAndMakeVisible (mixSeek);
+        autoResetToggle.setVisible (false);
+        mixLoadButton.onClick = [this] { browseMix(); };
+        mixPlayButton.setClickingTogglesState (true);
+        mixPlayButton.onClick = [this]
+        {
+            proc.mixTrack.setPlaying (mixPlayButton.getToggleState() && proc.mixTrack.getStatus (0) == ReferenceTracks::Status::ready);
+            updateTexts();
+        };
+        if (const auto file = proc.getMixFile(); file.existsAsFile() && proc.mixTrack.getStatus (0) == ReferenceTracks::Status::empty)
+            proc.mixTrack.load (0, file);
+    }
     autoResetToggle.setToggleState (proc.getAutoReset(), juce::dontSendNotification);
     autoResetToggle.onClick = [this] { proc.setAutoReset (autoResetToggle.getToggleState()); };
 
@@ -299,7 +315,15 @@ void WwmaAudioProcessorEditor::Content::resized()
     int x = baseWidth - margin;
     auto place = [&x, fy] (juce::Component& c, int w, int space = 8) { x -= w; c.setBounds (x, fy, w, 30); x -= space; };
     place (e.resetButton, 130, 12);
-    place (e.autoResetToggle, 124, 10);
+    if (e.proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    {
+        // no DAW transport here, so "reset on play" has no use: your own song's controls take its place
+        e.mixSeek.setBounds (x - 124, fy + 32, 124, 6);
+        place (e.mixLoadButton, 90, 4);
+        place (e.mixPlayButton, 30, 10);
+    }
+    else
+        place (e.autoResetToggle, 124, 10);
     place (e.songButton, 66, 0);
     place (e.nowButton, 58, 14);
     place (e.reportButton, 84, 8);
@@ -393,6 +417,19 @@ void WwmaAudioProcessorEditor::updateTexts()
     refBButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("B \xc2\xb7 ")) + "REF");
     refBButton.setTooltip (tr (lang, "Hear the active reference track instead of your mix, at the same loudness, so the louder one does not win just by being louder. Follows the song position; click its waveform to jump.",
                                      "Kuuntele aktiivista referenssiraitaa miksin sijaan samalla äänekkyydellä, jottei kovempi voita vain siksi, että se on kovempi. Seuraa kappaleen kohtaa; klikkaa aaltomuotoa hypätäksesi."));
+    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    {
+        const auto status = proc.mixTrack.getStatus (0);
+        const auto name = proc.mixTrack.getInfo (0) != nullptr ? proc.mixTrack.getInfo (0)->name : juce::String();
+        mixLoadButton.setButtonText (status == ReferenceTracks::Status::loading ? tr (lang, "Loading...", "Ladataan...")
+                                     : name.isNotEmpty() ? name : ui::upper (tr (lang, "Load your mix", "Lataa miksisi")));
+        mixLoadButton.setTooltip ((name.isNotEmpty() ? name + "\n" : juce::String()) + tr (lang, "Your own song: click to choose a file, or drop it here. The audio interface input is not used in the standalone app. Reference tracks go in the boxes below.",
+                                            "Oma biisisi: klikkaa ja valitse tiedosto tai pudota se tähän. Äänikortin sisääntuloa ei käytetä standalone-sovelluksessa. Referenssiraidat menevät alla oleviin laatikoihin."));
+        mixPlayButton.setButtonText (mixPlayButton.getToggleState() ? juce::String (juce::CharPointer_UTF8 ("\xe2\x8f\xb8")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb6")));
+        mixPlayButton.setEnabled (status == ReferenceTracks::Status::ready);
+        mixPlayButton.setTooltip (tr (lang, "Play / pause your mix (when B · REF is on you hear the reference instead).",
+                                            "Soita / pysäytä miksisi (kun B · REF on päällä, kuulet referenssin)."));
+    }
     langButton.setButtonText (lang == Lang::finnish ? "EN" : "FI");
     langButton.setTooltip (lang == Lang::finnish ? juce::String ("In English") : juce::String (juce::CharPointer_UTF8 ("Suomeksi")));
     progress.updateTexts();
@@ -460,6 +497,19 @@ void WwmaAudioProcessorEditor::pushHistory()
 
 void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
 {
+    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    {
+        const auto status = proc.mixTrack.getStatus (0);
+        if (status == ReferenceTracks::Status::ready && proc.mixTrack.getActive() != 0)
+            proc.mixTrack.setActive (0);
+        mixSeek.repaint();
+        if ((int) status != mixStatusShown)
+        {
+            mixStatusShown = (int) status;
+            updateTexts();
+        }
+    }
+
     proc.analyzer.readSnapshot (state.snap);
 
     // mastering EQ and limiter: what the user set, the limiter's meter, and the bypass level
@@ -935,6 +985,10 @@ void WwmaAudioProcessorEditor::setListening (bool b)
     proc.listenToReference.store (b);
     mixAButton.setToggleState (! b, juce::dontSendNotification);
     refBButton.setToggleState (b, juce::dontSendNotification);
+    // the panels show the reference's numbers while B plays, the mix's otherwise
+    findings.refresh();
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &loudness, &tonal, &score, &translation })
+        c->repaint();
     content.repaint();
     refBox.repaint();
 }
@@ -968,6 +1022,51 @@ void WwmaAudioProcessorEditor::loadReference (int slot, const juce::File& file)
     readReferences();
 }
 
+void WwmaAudioProcessorEditor::MixSeekBar::paint (juce::Graphics& g)
+{
+    const bool ready = proc.mixTrack.getStatus (0) == ReferenceTracks::Status::ready;
+    if (proc.mixTrack.isPlaying())
+        shown = proc.mixTrack.getPlayPosition();
+    auto r = getLocalBounds().toFloat().reduced (0.0f, 1.0f);
+    g.setColour (colours::raised);
+    g.fillRoundedRectangle (r, 2.0f);
+    if (ready)
+    {
+        g.setColour (colours::accent);
+        g.fillRoundedRectangle (r.withWidth (juce::jmax (3.0f, r.getWidth() * (float) juce::jlimit (0.0, 1.0, shown))), 2.0f);
+    }
+}
+
+void WwmaAudioProcessorEditor::MixSeekBar::jump (const juce::MouseEvent& e)
+{
+    if (proc.mixTrack.getStatus (0) != ReferenceTracks::Status::ready)
+        return;
+    shown = juce::jlimit (0.0, 1.0, (double) e.position.x / (double) juce::jmax (1, getWidth()));
+    proc.mixTrack.setCue (shown);
+    repaint();
+}
+
+void WwmaAudioProcessorEditor::browseMix()
+{
+    chooser = std::make_unique<juce::FileChooser> (tr (state.lang, "Choose your mix", "Valitse miksisi"), juce::File(), proc.refs.wildcard());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [this] (const juce::FileChooser& fc)
+                          {
+                              if (const auto file = fc.getResult(); file.existsAsFile())
+                                  loadMix (file);
+                          });
+}
+
+void WwmaAudioProcessorEditor::loadMix (const juce::File& file)
+{
+    proc.loadMixFile (file);
+    mixPlayButton.setToggleState (false, juce::dontSendNotification);
+    mixSeek.shown = 0.0;
+    state.scoreHistory.clear();
+    state.shortTermHistory.clear();
+    updateTexts();
+}
+
 bool WwmaAudioProcessorEditor::isInterestedInFileDrag (const juce::StringArray& files)
 {
     for (const auto& f : files)
@@ -991,6 +1090,16 @@ void WwmaAudioProcessorEditor::fileDragExit (const juce::StringArray&)
 void WwmaAudioProcessorEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
     state.dragOver = false;
+    // standalone: a file dropped on the top bar is your own mix, anywhere else a reference
+    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone && mixLoadButton.getBounds().expanded (40, 20).contains (content.getLocalPoint (this, juce::Point<int> (x, y))))
+    {
+        for (const auto& f : files)
+            if (proc.refs.canRead (juce::File (f)))
+            {
+                loadMix (juce::File (f));
+                return;
+            }
+    }
     int slot = refBox.slotAt (refBox.getLocalPoint (this, juce::Point<int> (x, y)));
     for (const auto& f : files)
     {

@@ -88,6 +88,17 @@ struct ViewState
     }
     juce::String refLabel() const { return "Ref " + juce::String (activeRef + 1); }
 
+    /** B is playing: the panels show the reference's numbers, and the mix becomes the comparison. */
+    bool viewingRef() const { return listening && activeRefView() != nullptr; }
+    const Snapshot& shownSnap() const { return viewingRef() ? activeRefView()->snap : snap; }
+    const Assessment& shownAssessment() const { return viewingRef() ? activeRefView()->assessment : assessment; }
+    /** What the shown numbers are compared with: the reference normally, the mix while B plays. */
+    const Snapshot& otherSnap() const { return viewingRef() || activeRefView() == nullptr ? snap : activeRefView()->snap; }
+    const Assessment& otherAssessment() const { return viewingRef() || activeRefView() == nullptr ? assessment : activeRefView()->assessment; }
+    /** Name of the shown side and of the other one. */
+    juce::String shownName (Lang l) const { return viewingRef() ? refLabel() : juce::String (l == Lang::finnish ? "Sinun miksi" : "Your mix"); }
+    juce::String otherName() const { return viewingRef() ? juce::String ("mix") : refLabel(); }
+
     /** For a finding: positive = better than at the baseline. NaN when unknown. */
     float changeSinceBaseline (const Finding& f) const;
 };
@@ -142,7 +153,8 @@ public:
 
     juce::Rectangle<int> playBounds (int i) const;
     juce::Rectangle<int> waveBounds (int i) const;
-    juce::Rectangle<int> infoBounds (int i) const;   // name and numbers: click for the big view
+    juce::Rectangle<int> infoBounds (int i) const;   // name and numbers: click to pick this track
+    juce::Rectangle<int> loopBounds (int i) const;   // small LOOP button: opens the big view
 
 private:
     juce::Rectangle<int> slotBounds (int i) const;

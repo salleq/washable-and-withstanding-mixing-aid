@@ -115,6 +115,7 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     analyzer.prepare (sampleRate);
     inputAnalyzer.prepare (sampleRate);
     refs.setPlaybackRate (sampleRate);
+    mixTrack.setPlaybackRate (sampleRate);
     refScratch.setSize (2, juce::jmax (512, samplesPerBlock), false, false, true);
     chainBlock = juce::jmax (512, samplesPerBlock);
     chain.prepare (sampleRate, chainBlock);
@@ -136,6 +137,18 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     const int numCh = juce::jmin (buffer.getNumChannels(), getTotalNumInputChannels());
     if (n == 0 || numCh == 0)
         return;
+
+    if (wrapperType == wrapperType_Standalone)
+    {
+        // the interface input is not used: your mix is the file loaded into the app, while it plays
+        for (int c = 0; c < numCh; ++c)
+            buffer.clear (c, 0, n);
+        if (mixTrack.isPlaying())
+        {
+            float* l = buffer.getWritePointer (0);
+            mixTrack.render (l, numCh > 1 ? buffer.getWritePointer (1) : l, n, -1, false, 0.0f);
+        }
+    }
 
     int64_t hostSample = -1;
     bool hostPlaying = false;
@@ -393,6 +406,21 @@ bool WwmaAudioProcessor::latestSnapshotNeedsConfirmation() const
 {
     const auto list = apvts.state.getChildWithName (snapshotsId);
     return list.isValid() && list.getNumChildren() > 0 && ! (bool) list.getChild (list.getNumChildren() - 1).getProperty ("saved", false);
+}
+
+juce::File WwmaAudioProcessor::getMixFile() const
+{
+    const auto path = apvts.state.getProperty ("mixFile", {}).toString();
+    return path.isEmpty() ? juce::File() : juce::File (path);
+}
+
+void WwmaAudioProcessor::loadMixFile (const juce::File& file)
+{
+    mixTrack.setPlaying (false);
+    mixTrack.load (0, file);
+    apvts.state.setProperty ("mixFile", file.getFullPathName(), nullptr);
+    analyzer.requestReset();
+    inputAnalyzer.requestReset();
 }
 
 bool WwmaAudioProcessor::getShowDifference() const { return (bool) apvts.state.getProperty ("ghostDiff", true); }
