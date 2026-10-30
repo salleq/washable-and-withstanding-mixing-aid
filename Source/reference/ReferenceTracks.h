@@ -74,6 +74,11 @@ public:
     std::pair<double, double> getLoop (int slot) const;
     bool hasLoop (int slot) const { const auto l = getLoop (slot); return l.second > l.first; }
 
+    /** The user marks a slot as their own earlier version of the song (not a real reference).
+        WWMA then shows how the current mix moved against the reference, compared with that version. */
+    void setEarlier (int slot, bool isEarlier);
+    bool isEarlier (int slot) const { return juce::isPositiveAndBelow (slot, numSlots) && slots[(size_t) slot].earlier; }
+
     /** Host sample rate changes: playback copies are rebuilt for the new rate. */
     void setPlaybackRate (double hostRate);
 
@@ -98,6 +103,7 @@ private:
         int job = 0;   // newest load request, older results are dropped
         double loopStart = 0.0, loopEnd = 0.0;
         double resume = 0.0;   // 0..1, where this track was when another one took over
+        bool earlier = false;  // the user's own earlier version
     };
 
     struct Result

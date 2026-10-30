@@ -24,6 +24,7 @@ namespace colours
     const juce::Colour info       { 0xff6f8fb3 };
     const juce::Colour ref        { 0xffb79cf0 }; // everything about the reference track
     const juce::Colour suggest    { 0xfff2c94c }; // WWMA's suggested knob values
+    const juce::Colour earlier    { 0xffe0a07a }; // the user's own earlier version of the song
 }
 
 inline juce::Colour severityColour (Severity s)

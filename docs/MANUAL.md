@@ -191,6 +191,21 @@ Playing the reference inside WWMA:
 
 ![Choosing a loop in the big reference view](images/wwma-reference-loop.png)
 
+### Your earlier version against a real reference
+
+Comparing your mix only with an older bounce of your own song tells you what changed, not whether it got better. So load both: a record you like in one slot and your earlier bounce in the other, then press the small **EARLIER** chip on the earlier bounce (or **My earlier version** in the big view). The slot then reads "my earlier version" and the mark is saved with your project.
+
+With one earlier version and one real reference loaded, the table becomes **Now vs earlier**:
+
+- three columns side by side: **Now** (your mix), **Earlier** and **Ref**, for loudness, true peak, PLR, LRA and width;
+- the three tonal ranges that differ most, level-matched, as the difference to the reference, now and in the earlier version;
+- **To ref** on every row: *closer* (green) when your mix is now nearer the reference than the earlier version was, *further* (orange) when it moved away, *same* otherwise;
+- a summary line, for example "Closer in 6 of 8, further in 1".
+
+The tonal chart draws the earlier version as an orange dotted line next to the reference's dashed one, so you can see which one your curve sits nearer. The reference is still the target: findings, the score and **B · REF** use the selected reference as before. Select the earlier version (click its name) to listen to it with B; the table then warns that it is not a target.
+
+![Now, earlier version and reference side by side](images/wwma-earlier-version.png)
+
 ## 9. Mastering EQ and limiter
 
 Press **EQ + Limiter** at the bottom to open the panel. It has a four-band EQ and a true peak limiter, enough to finish a master without another plugin. **WWMA suggests values, you turn the knobs.** Nothing here moves by itself.

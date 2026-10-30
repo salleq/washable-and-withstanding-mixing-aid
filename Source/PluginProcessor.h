@@ -174,6 +174,7 @@ private:
     float abMix = 0.0f, abStep = 0.0f;
     int wantedActiveRef = -1, savedRefGeneration = -1;
     std::array<std::pair<double, double>, wwma::ReferenceTracks::numSlots> wantedLoops {}; // loops saved with the project, set once the file is loaded
+    std::array<bool, wwma::ReferenceTracks::numSlots> wantedEarlier {};                     // "my earlier version" marks, the same way
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WwmaAudioProcessor)
 };

@@ -151,6 +151,7 @@ void ReferenceTracks::install (int slot, int job, Result r, bool keepInfo)
             s.info = r.info;
             s.loopStart = s.loopEnd = 0.0; // a new file: the old loop doesn't apply
             s.resume = 0.0;
+            s.earlier = false;
         }
         s.playback = r.playback;
         s.status = Status::ready;
@@ -232,6 +233,14 @@ void ReferenceTracks::setLoop (int slot, double start, double end)
         loopStartNow.store (start);
         loopEndNow.store (end);
     }
+    ++generation;
+}
+
+void ReferenceTracks::setEarlier (int slot, bool isEarlier)
+{
+    if (! juce::isPositiveAndBelow (slot, numSlots) || slots[(size_t) slot].earlier == isEarlier)
+        return;
+    slots[(size_t) slot].earlier = isEarlier;
     ++generation;
 }
 
