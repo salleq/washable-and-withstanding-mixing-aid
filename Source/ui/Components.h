@@ -23,6 +23,7 @@ struct RefView
     Assessment assessment;          // the track measured against the current profile
     std::vector<float> wave;
     double loopStart = 0.0, loopEnd = 0.0;   // 0..1, end <= start: no loop
+    bool earlier = false;           // marked "my earlier version" (not a real reference)
     bool hasLoop() const { return loopEnd > loopStart; }
     bool ready() const { return status == Status::ready; }
 };
@@ -88,6 +89,28 @@ struct ViewState
     }
     juce::String refLabel() const { return "Ref " + juce::String (activeRef + 1); }
 
+    /** The slot marked as the user's earlier version, analysed, or nullptr. */
+    const RefView* earlierRefView() const
+    {
+        for (const auto& r : refs)
+            if (r.ready() && r.earlier && r.assessment.measures.valid)
+                return &r;
+        return nullptr;
+    }
+    /** A real reference (not the earlier version): the active one when it is one, otherwise another. */
+    const RefView* targetRefView() const
+    {
+        if (const auto* a = activeRefView(); a != nullptr && ! a->earlier)
+            return a;
+        for (const auto& r : refs)
+            if (r.ready() && ! r.earlier && r.assessment.measures.valid)
+                return &r;
+        return nullptr;
+    }
+    /** Both are loaded: now, the earlier version and the reference can be compared three ways. */
+    bool threeWay() const { return earlierRefView() != nullptr && targetRefView() != nullptr; }
+    int slotOf (const RefView* v) const { return v == nullptr ? -1 : (int) (v - refs.data()); }
+
     /** B is playing: the panels show the reference's numbers, and the mix becomes the comparison. */
     bool viewingRef() const { return listening && activeRefView() != nullptr; }
     const Snapshot& shownSnap() const { return viewingRef() ? activeRefView()->snap : snap; }
@@ -149,12 +172,13 @@ public:
     std::function<void (int slot)> onBrowse;   // slot -1: the first free one
     std::function<void (int slot)> onSelect, onRemove;
     std::function<void (int slot, double fraction)> onCue;
-    std::function<void (int slot)> onPlayPause, onOpenDetail;
+    std::function<void (int slot)> onPlayPause, onOpenDetail, onToggleEarlier;
 
     juce::Rectangle<int> playBounds (int i) const;
     juce::Rectangle<int> waveBounds (int i) const;
     juce::Rectangle<int> infoBounds (int i) const;   // name and numbers: click to pick this track
     juce::Rectangle<int> loopBounds (int i) const;   // small LOOP button: opens the big view
+    juce::Rectangle<int> roleBounds (int i) const;   // small EARLIER chip: marks the track as my earlier version
 
 private:
     juce::Rectangle<int> slotBounds (int i) const;
@@ -182,7 +206,7 @@ public:
     int getSlot() const noexcept { return slot; }
     juce::Rectangle<int> waveArea() const;
 
-    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop;
+    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop, onToggleEarlier;
     std::function<void (double fraction)> onCue;
     std::function<void (double start, double end)> onLoop;
 
@@ -191,18 +215,25 @@ private:
     double fractionAt (float x) const;
     const ViewState& state;
     int slot = 0;
-    juce::TextButton closeButton, playButton, loopButton, clearButton;
+    juce::TextButton closeButton, playButton, loopButton, clearButton, earlierButton;
     enum class Drag { none, pending, select, startEdge, endEdge } drag = Drag::none;
     double dragFrom = 0.0, selA = 0.0, selB = 0.0;
 };
 
-/** Mix against the active reference: loudness, peaks, dynamics, width and the biggest tonal differences. */
+/** Mix against the active reference: loudness, peaks, dynamics, width and the biggest tonal differences.
+    With one track marked as "my earlier version" and a real reference loaded: now, earlier and the reference
+    side by side, and per row whether the mix moved closer to the reference. */
 class CompareBox : public juce::Component
 {
 public:
     explicit CompareBox (const ViewState& s) : state (s) {}
     void paint (juce::Graphics&) override;
+
+    enum class Verdict { closer, same, further };
+    /** Is "now" closer to the reference than "earlier" was? Differences under `same` count as the same. */
+    static Verdict verdict (float now, float earlier, float ref, float same);
 private:
+    void paintThreeWay (juce::Graphics&, juce::Rectangle<int> r, juce::Rectangle<int> head);
     const ViewState& state;
 };
 

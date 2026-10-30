@@ -45,6 +45,18 @@ WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia itse. Se k
   - **Klikkaa raidan nimeä tai lukemia**, niin aukeaa iso näkymä. Siinä voit hypätä klikkaamalla, **raahata aaltomuodon yli valitaksesi loopin**, säätää loopin reunoja raahaamalla sekä käyttää **Soita looppi**- ja **Poista looppi** -nappeja.
   - Kun suljet ison näkymän, looppi jää voimaan: se näkyy pienessä aaltomuodossa, ja ▶ soittaa vain sitä kohtaa yhä uudelleen. Looppi tallentuu projektin mukana.
 
+  **Oma aiempi versio vs oikea referenssi.** Jos vertaat miksiäsi vain oman biisisi vanhempaan versioon, näet mikä muuttui, mutta et sitä, parantuiko se. Lataa siksi molemmat: yhteen paikkaan kappale, josta pidät, ja toiseen aiempi bouncesi. Paina aiemman version pientä **AIEMPI**-nappia (tai isossa näkymässä **Oma aiempi versio**). Merkintä tallentuu projektin mukana.
+
+  Kun ladattuna on aiempi versio ja oikea referenssi, taulukko näyttää **Nyt vs aiempi**:
+  - sarakkeet **Nyt**, **Aiempi** ja **Ref** rinnakkain: äänekkyys, true peak, PLR, LRA ja leveys
+  - kolme eniten eroavaa taajuusaluetta tasot tasattuina, erona referenssiin nyt ja aiemmassa versiossa
+  - jokaisella rivillä **Refiin**: *lähempänä* (vihreä), kun miksisi on nyt lähempänä referenssiä kuin aiempi versio oli, *kauempana* (oranssi), kun se on loitonnut, muuten *sama*
+  - yhteenveto, esimerkiksi "Lähempänä 6/8, kauempana 1".
+
+  Taajuustasapainossa aiempi versio näkyy oranssina pisteviivana referenssin katkoviivan vieressä. Tavoite on edelleen referenssi: havainnot, pisteet ja **B · REF** käyttävät valittua referenssiä. Jos valitset aiemman version (klikkaa nimeä) kuunnellaksesi sitä B:llä, taulukko muistuttaa, ettei se ole tavoite.
+
+  ![Nyt, aiempi versio ja referenssi rinnakkain](images/wwma-earlier-version-fi.png)
+
 ## 3. Tyyliehdotus
 
 Noin 15 sekunnin jälkeen WWMA arvaa, mitä presettiä kappale muistuttaa eniten, ja näyttää sen taajuustasapainon yläreunassa, esimerkiksi "Kuulostaa tyyliltä Drum & Bass (40 %) · 174 BPM – vaihdetaanko?". Klikkaa, niin preset vaihtuu. **Mikään ei muutu, ellet klikkaa.**

@@ -67,6 +67,8 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     refBox.onCue = [this] (int, double fraction) { proc.refs.setCue (fraction); };
     refBox.onPlayPause = [this] (int slot) { toggleReferencePlay (slot); };
     refBox.onOpenDetail = [this] (int slot) { openReferenceDetail (slot); };
+    refBox.onToggleEarlier = [this] (int slot) { proc.refs.setEarlier (slot, ! proc.refs.isEarlier (slot)); readReferences(); compare.repaint(); };
+    refDetail.onToggleEarlier = [this] { refBox.onToggleEarlier (refDetail.getSlot()); };
     refDetail.onClose = [this] { closeReferenceDetail(); };
     refDetail.onPlayPause = [this] { toggleReferencePlay (refDetail.getSlot()); };
     refDetail.onCue = [this] (double f)
@@ -908,12 +910,14 @@ void WwmaAudioProcessorEditor::readReferences()
                 v.snap = info->snap;
                 v.wave = info->wave;
                 std::tie (v.loopStart, v.loopEnd) = refs.getLoop (i);
+                v.earlier = refs.isEarlier (i);
                 v.assessment = assess (v.snap, state.profile, Window::song, state.lang, state.stage);
             }
             else if (v.status != ui::RefView::Status::loading)
             {
                 v.name = {};
                 v.wave.clear();
+                v.earlier = false;
             }
         }
         state.activeRef = refs.getActive();

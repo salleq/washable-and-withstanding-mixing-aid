@@ -579,6 +579,29 @@ int main (int argc, char* argv[])
         const auto loop = q.refs.getLoop (0);
         check (near (loop.first, 0.5, 1.0e-4) && near (loop.second, 0.6, 1.0e-4), "the loop is saved with the project",
                juce::String (loop.first, 3) + " - " + juce::String (loop.second, 3));
+
+        // "my earlier version": a reference slot marked as an older bounce of the user's own song
+        p.refs.loadNow (1, refFile);
+        p.refs.setEarlier (1, true);
+        editor->referencesChanged();
+        check (p.refs.isEarlier (1) && ! p.refs.isEarlier (0), "a reference can be marked as my earlier version");
+        p.updateReferenceState();
+        juce::MemoryBlock mb2;
+        p.getStateInformation (mb2);
+        WwmaAudioProcessor q2;
+        q2.setStateInformation (mb2.getData(), (int) mb2.getSize());
+        q2.refs.loadNow (0, refFile);
+        q2.refs.loadNow (1, refFile);
+        q2.updateReferenceState();
+        check (q2.refs.isEarlier (1) && ! q2.refs.isEarlier (0), "  the mark is saved with the project");
+        q2.refs.loadNow (1, refFile);
+        check (! q2.refs.isEarlier (1), "  a new file in the slot starts as a normal reference");
+        using V = wwma::ui::CompareBox::Verdict;
+        check (wwma::ui::CompareBox::verdict (-9.0f, -6.0f, -9.5f, 0.5f) == V::closer
+                   && wwma::ui::CompareBox::verdict (-4.0f, -6.0f, -9.5f, 0.5f) == V::further
+                   && wwma::ui::CompareBox::verdict (-8.0f, -8.2f, -9.0f, 0.5f) == V::same
+                   && wwma::ui::CompareBox::verdict (-11.0f, -6.0f, -9.5f, 0.5f) == V::closer,
+               "now vs earlier: closer / further / same against the reference (either side of it)");
         p.setPlayHead (nullptr);
     }
 
@@ -1155,7 +1178,7 @@ int main (int argc, char* argv[])
         dir.createDirectory();
         std::cout << "Screenshots -> " << dir.getFullPathName() << std::endl;
 
-        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson, 4 reference loop, 5 EQ + limiter
+        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson, 4 reference loop, 5 EQ + limiter, 6 earlier version
         const auto refA = writeWav (refAudio, 44100.0, "Favourite club track.wav");
         const auto refB = writeWav (profileMix (house, 48000.0, [] (double f) { return f < 90.0 ? 2.0 : 0.0; }, -14.0, monoBass, -10.0, 33),
                                     48000.0, "Night drive loop.wav");
@@ -1176,7 +1199,10 @@ int main (int argc, char* argv[])
             { "wwma-reference-loop-en.png", {}, Lang::english, false, true, true, 4 },
             { "wwma-eq-limiter-en.png", {}, Lang::english, false, false, false, 5 },
             { "wwma-eq-limiter-fi.png", {}, Lang::finnish, false, false, false, 5 },
+            { "wwma-earlier-version-en.png", {}, Lang::english, false, true, false, 6 },
+            { "wwma-earlier-version-fi.png", {}, Lang::finnish, false, true, false, 6 },
         };
+        const auto earlierBounce = writeWav (messy, sr, "My track v3.wav");
         {
             synth::SongParams sp;
             sp.bpm = 174.0;
@@ -1200,6 +1226,12 @@ int main (int argc, char* argv[])
             const auto m = synth::renderSong (raw);
             const_cast<Shot&> (shots[11]).audio = Stereo { m.l, m.r };
             const_cast<Shot&> (shots[12]).audio = Stereo { m.l, m.r };
+            // now: a mix that moved most of the way from the earlier bounce towards the reference
+            auto better = profileMix (house, sr, [] (double f) { return (f < 56.0 ? 2.0 : 0.0) + (f > 445.0 && f < 2245.0 ? -1.5 : 0.0) + (f > 2245.0 && f < 5600.0 ? 1.5 : 0.0); },
+                                      -10.0, [] (double f) { return f < 140.0 ? 1.0 : 0.0; }, -10.5, 11);
+            append (better, kickAndBass (sr, 6.0, 4.0));
+            const_cast<Shot&> (shots[13]).audio = better;
+            const_cast<Shot&> (shots[14]).audio = better;
         }
 
         for (const auto& shot : shots)
@@ -1212,7 +1244,9 @@ int main (int argc, char* argv[])
             if (shot.withRef)
             {
                 p.refs.loadNow (0, refA);
-                p.refs.loadNow (1, refB);
+                p.refs.loadNow (1, shot.view == 6 ? earlierBounce : refB);
+                if (shot.view == 6)
+                    p.refs.setEarlier (1, true);
                 p.refs.setActive (0);
             }
             std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());

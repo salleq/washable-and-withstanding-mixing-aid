@@ -337,6 +337,10 @@ void TonalView::paint (juce::Graphics& g)
     const SavedSnapshot* ghost = ! state.snapshots.empty() && state.snapshots.back().spectrum.size() == (size_t) Bands::count
                                      ? &state.snapshots.back() : nullptr;
     const auto ghostColour = colours::accent.withAlpha (0.45f);
+    // my own earlier version: drawn next to the reference, so I can see which one my mix is closer to
+    const bool activeIsOld = refView != nullptr && refView->earlier;
+    const auto* oldView = state.viewingRef() || activeIsOld ? nullptr : state.earlierRefView();
+    const auto refLineColour = state.viewingRef() ? colours::text : (activeIsOld ? colours::earlier : colours::ref);
     const auto diffColour = colours::info;
     if (state.viewingRef())
         drawLabel (g, t (lang, "showing ", "näytetään ") + state.refLabel() + t (lang, " (reference playing)", " (referenssi soi)"), head, colours::ref, juce::Justification::centredRight);
@@ -449,14 +453,26 @@ void TonalView::paint (juce::Graphics& g)
             differenceToggle = {};
         if (refView != nullptr)
         {
-            const auto dashColour = state.viewingRef() ? colours::text : colours::ref;
+            const auto dashColour = refLineColour;
             for (float x = 0.0f; x < 18.0f; x += 7.0f)
             {
                 g.setColour (dashColour);
                 g.fillRect (lg.getX() + x, lg.getY() + 5.0f, 4.5f, 2.0f);
             }
-            drawLabel (g, state.viewingRef() ? t (lang, "Your mix", "Sinun miksi") : state.refLabel() + t (lang, " (level-matched)", " (tasattu)"),
+            drawLabel (g, state.viewingRef() ? t (lang, "Your mix", "Sinun miksi")
+                                             : (activeIsOld ? t (lang, "Earlier version", "Aiempi versio") : state.refLabel()) + t (lang, " (level-matched)", " (tasattu)"),
                        lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), dashColour, juce::Justification::centredLeft, 10.5f);
+            lg.removeFromTop (4.0f);
+        }
+        if (oldView != nullptr)
+        {
+            for (float x = 0.0f; x < 18.0f; x += 4.0f)
+            {
+                g.setColour (colours::earlier);
+                g.fillRect (lg.getX() + x, lg.getY() + 5.0f, 2.0f, 2.0f);
+            }
+            drawLabel (g, t (lang, "Earlier version", "Aiempi versio"), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(),
+                       colours::earlier, juce::Justification::centredLeft, 10.5f);
             lg.removeFromTop (4.0f);
         }
         g.setColour (colours::good.withAlpha (0.3f));
@@ -540,8 +556,16 @@ void TonalView::paint (juce::Graphics& g)
             juce::Path refDashed;
             const float refDashes[] = { 5.0f, 3.0f };
             juce::PathStrokeType (1.8f).createDashedStroke (refDashed, strokeOf (pointsOf (state.otherAssessment().measures.spectrum, 0.0f)), refDashes, 2);
-            g.setColour (state.viewingRef() ? colours::text : colours::ref);
+            g.setColour (refLineColour);
             g.fillPath (refDashed);
+        }
+        if (oldView != nullptr)
+        {
+            juce::Path oldDotted;
+            const float dots[] = { 1.6f, 2.6f };
+            juce::PathStrokeType (1.8f).createDashedStroke (oldDotted, strokeOf (pointsOf (oldView->assessment.measures.spectrum, 0.0f)), dots, 2);
+            g.setColour (colours::earlier);
+            g.fillPath (oldDotted);
         }
         g.setColour (state.viewingRef() ? colours::ref : colours::text);
         g.strokePath (strokeOf (mix), juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
@@ -1345,6 +1369,12 @@ juce::Rectangle<int> ReferenceBox::loopBounds (int i) const
     return c.removeFromTop (15).removeFromRight (48);
 }
 
+juce::Rectangle<int> ReferenceBox::roleBounds (int i) const
+{
+    const auto l = loopBounds (i);
+    return { l.getX() - 6 - 58, l.getY(), 58, l.getHeight() };
+}
+
 juce::Rectangle<int> ReferenceBox::closeBounds (int i) const
 {
     auto s = slotBounds (i);
@@ -1395,6 +1425,8 @@ void ReferenceBox::paint (juce::Graphics& g)
         }
 
         juce::String title = juce::String (juce::CharPointer_UTF8 (act ? "\xe2\x97\x8f " : "\xe2\x97\x8b ")) + slotName;
+        if (ref.earlier)
+            title << dot << t (lang, "my earlier version", "oma aiempi versio");
         if (ref.name.isNotEmpty())
             title << dot << ref.name;
         g.setColour (act ? colours::text : colours::soft);
@@ -1423,7 +1455,17 @@ void ReferenceBox::paint (juce::Graphics& g)
 
         g.setColour (colours::dim);
         g.drawText (fmt (lang, ref.snap.integrated) + " LUFS" + dot + duration (ref.seconds) + dot + t (lang, "analysed", "analysoitu"),
-                    line2.withTrimmedRight (54), juce::Justification::centredLeft);
+                    line2.withTrimmedRight (54 + 64), juce::Justification::centredLeft);
+
+        // marks the track as my own earlier version (then WWMA compares now, earlier and the reference)
+        {
+            const auto rb = roleBounds (i).toFloat();
+            g.setColour (ref.earlier ? colours::earlier.withAlpha (0.25f) : colours::panel);
+            g.fillRoundedRectangle (rb, 4.0f);
+            g.setColour (ref.earlier ? colours::earlier : colours::line);
+            g.drawRoundedRectangle (rb.reduced (0.5f), 4.0f, 1.0f);
+            drawLabel (g, upper (t (lang, "Earlier", "Aiempi")), rb.toNearestInt(), ref.earlier ? colours::text : colours::dim, juce::Justification::centred, 10.5f);
+        }
 
         // opens the big view where a loop is chosen (it covers the tonal chart, so it is not automatic)
         {
@@ -1502,7 +1544,7 @@ void ReferenceBox::mouseMove (const juce::MouseEvent& e)
     for (int i = 0; i < (int) state.refs.size(); ++i)
         if (state.refs[(size_t) i].ready())
             hand = hand || waveBounds (i).expanded (0, 4).contains (e.getPosition()) || playBounds (i).contains (e.getPosition())
-                   || infoBounds (i).contains (e.getPosition()) || loopBounds (i).contains (e.getPosition());
+                   || infoBounds (i).contains (e.getPosition()) || loopBounds (i).contains (e.getPosition()) || roleBounds (i).contains (e.getPosition());
     setMouseCursor (hand ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
 }
 
@@ -1532,6 +1574,10 @@ void ReferenceBox::mouseUp (const juce::MouseEvent& e)
         {
             if (onRemove) onRemove (i);
         }
+        else if (ref.ready() && roleBounds (i).contains (p))
+        {
+            if (onToggleEarlier) onToggleEarlier (i);
+        }
         else if (ref.ready())
         {
             if (onSelect && i != state.activeRef) onSelect (i);
@@ -1559,12 +1605,19 @@ void CompareBox::paint (juce::Graphics& g)
     drawBox (g, getLocalBounds().toFloat());
     auto r = content (*this);
     auto head = r.removeFromTop (16);
-    drawLabel (g, t (lang, "Mix vs reference", "Miksi vs referenssi"), head);
+    const auto& m = state.assessment.measures;
+    if (state.threeWay() && m.valid)
+    {
+        paintThreeWay (g, r, head);
+        return;
+    }
+
+    const auto* ref = state.activeRefView();
+    const bool againstEarlier = ref != nullptr && ref->earlier;
+    drawLabel (g, againstEarlier ? t (lang, "Mix vs your earlier version", "Miksi vs aiempi versio") : t (lang, "Mix vs reference", "Miksi vs referenssi"), head);
     drawLabel (g, t (lang, "live", "livenä"), head, colours::faint, juce::Justification::centredRight);
     r.removeFromTop (4);
 
-    const auto* ref = state.activeRefView();
-    const auto& m = state.assessment.measures;
     if (ref == nullptr || ! m.valid)
     {
         g.setColour (colours::dim);
@@ -1575,6 +1628,18 @@ void CompareBox::paint (juce::Graphics& g)
         return;
     }
     const auto& rm = ref->assessment.measures;
+    const auto refColour = againstEarlier ? colours::earlier : colours::ref;
+
+    // only your own earlier version: it is not a target, so say so
+    if (againstEarlier)
+    {
+        auto note = r.removeFromBottom (30);
+        g.setColour (colours::warn);
+        g.setFont (fonts::body (11.5f));
+        g.drawFittedText (t (lang, "Your earlier version is not a target. Load a real reference too: then WWMA shows if you got closer to it.",
+                                   "Aiempi versiosi ei ole tavoite. Lataa myös oikea referenssi: silloin näet, pääsitkö lähemmäs sitä."),
+                          note, juce::Justification::centredLeft, 2, 0.9f);
+    }
 
     const int c1 = r.getX() + (int) (r.getWidth() * 0.47f), c2 = r.getX() + (int) (r.getWidth() * 0.66f), c3 = r.getX() + (int) (r.getWidth() * 0.84f);
     auto header = r.removeFromTop (16);
@@ -1587,7 +1652,7 @@ void CompareBox::paint (juce::Graphics& g)
     g.setColour (colours::dim);
     g.drawText (upper (t (lang, "Metric", "Mittari")), header, juce::Justification::centredLeft);
     cell (header, c1 - 40, c1, upper (t (lang, "Mix", "Miksi")), colours::dim);
-    cell (header, c2 - 40, c2, "REF", colours::ref);
+    cell (header, c2 - 60, c2, againstEarlier ? upper (t (lang, "Earlier", "Aiempi")) : juce::String ("REF"), refColour);
     cell (header, c3 - 40, r.getRight(), juce::String (juce::CharPointer_UTF8 ("\xce\x94")), colours::dim);
 
     struct Row { juce::String name, mix, ref, delta; juce::Colour deltaColour; bool matched; };
@@ -1609,12 +1674,12 @@ void CompareBox::paint (juce::Graphics& g)
     add ("LRA", m.lra, rm.lra, 2.0f, 4.0f);
     add (t (lang, "Width S/M", "Leveys S/M"), m.width, rm.width, 3.0f, 6.0f);
 
-    // the three ranges that differ most, level-matched
+    // the ranges that differ most, level-matched
     std::array<int, numRanges> order {};
     for (int i = 0; i < numRanges; ++i) order[(size_t) i] = i;
     auto diff = [&] (int i) { return m.rangeDeviation[(size_t) i] - rm.rangeDeviation[(size_t) i]; };
     std::sort (order.begin(), order.end(), [&] (int a, int b) { return std::abs (diff (a)) > std::abs (diff (b)); });
-    for (int k = 0; k < 3; ++k)
+    for (int k = 0; k < (againstEarlier ? 2 : 3); ++k)
     {
         const int i = order[(size_t) k];
         const float d = diff (i), tl = tolFor (state.profile, i);
@@ -1642,10 +1707,112 @@ void CompareBox::paint (juce::Graphics& g)
         else
         {
             cell (rr, c1 - 50, c1, row.mix, colours::text);
-            cell (rr, c2 - 50, c2, row.ref, colours::ref);
+            cell (rr, c2 - 50, c2, row.ref, refColour);
         }
         cell (rr, c3 - 40, r.getRight(), row.delta, row.deltaColour);
     }
+}
+
+CompareBox::Verdict CompareBox::verdict (float now, float earlier, float ref, float same)
+{
+    const float dn = std::abs (now - ref), de = std::abs (earlier - ref);
+    if (dn < de - same) return Verdict::closer;
+    if (dn > de + same) return Verdict::further;
+    return Verdict::same;
+}
+
+void CompareBox::paintThreeWay (juce::Graphics& g, juce::Rectangle<int> r, juce::Rectangle<int> head)
+{
+    // now, my earlier version and the reference side by side: did the mix move towards the reference?
+    const auto lang = state.lang;
+    const auto* old = state.earlierRefView();
+    const auto* ref = state.targetRefView();
+    const auto& m = state.assessment.measures;
+    const auto& em = old->assessment.measures;
+    const auto& rm = ref->assessment.measures;
+
+    drawLabel (g, t (lang, "Now vs earlier, against ", "Nyt vs aiempi, vertailu: ") + "Ref " + juce::String (state.slotOf (ref) + 1), head);
+    drawLabel (g, t (lang, "live", "livenä"), head, colours::faint, juce::Justification::centredRight);
+    r.removeFromTop (4);
+    auto summary = r.removeFromBottom (18);
+
+    const int c1 = r.getX() + (int) (r.getWidth() * 0.43f), c2 = r.getX() + (int) (r.getWidth() * 0.58f),
+              c3 = r.getX() + (int) (r.getWidth() * 0.73f);
+    auto cell = [&] (juce::Rectangle<int> row, int from, int to, const juce::String& txt, juce::Colour c)
+    {
+        g.setColour (c);
+        g.drawText (txt, juce::Rectangle<int> (from, row.getY(), to - from, row.getHeight()), juce::Justification::centredRight);
+    };
+    auto header = r.removeFromTop (16);
+    g.setFont (fonts::label (10.5f));
+    g.setColour (colours::dim);
+    g.drawText (upper (t (lang, "Metric", "Mittari")), header, juce::Justification::centredLeft);
+    cell (header, c1 - 50, c1, upper (t (lang, "Now", "Nyt")), colours::text);
+    cell (header, c2 - 60, c2, upper (t (lang, "Earlier", "Aiempi")), colours::earlier);
+    cell (header, c3 - 50, c3, "REF", colours::ref);
+    cell (header, c3, r.getRight(), upper (t (lang, "To ref", "Refiin")), colours::dim);
+
+    struct Row { juce::String name, now, old, ref; Verdict v; };
+    std::vector<Row> rows;
+    auto add = [&] (const juce::String& name, float now, float earlier, float refV, float same)
+    {
+        rows.push_back ({ name, fmt (lang, now), fmt (lang, earlier), fmt (lang, refV), verdict (now, earlier, refV, same) });
+    };
+    add (t (lang, "Integrated", "Integroitu"), m.loudness, old->snap.integrated, ref->snap.integrated, 0.5f);
+    add ("True peak", m.truePeak, em.truePeak, rm.truePeak, 0.3f);
+    add ("PLR", m.plr, em.plr, rm.plr, 0.5f);
+    add ("LRA", m.lra, em.lra, rm.lra, 0.7f);
+    add (t (lang, "Width S/M", "Leveys S/M"), m.width, em.width, rm.width, 1.0f);
+
+    // tonal ranges, level-matched: the difference to the reference, now and in the earlier version
+    std::array<int, numRanges> order {};
+    for (int i = 0; i < numRanges; ++i) order[(size_t) i] = i;
+    auto dNow = [&] (int i) { return m.rangeDeviation[(size_t) i] - rm.rangeDeviation[(size_t) i]; };
+    auto dOld = [&] (int i) { return em.rangeDeviation[(size_t) i] - rm.rangeDeviation[(size_t) i]; };
+    auto weight = [&] (int i) { return juce::jmax (std::abs (dNow (i)), std::abs (dOld (i))); };
+    std::sort (order.begin(), order.end(), [&] (int a, int b) { return weight (a) > weight (b); });
+    for (int k = 0; k < 3; ++k)
+    {
+        const int i = order[(size_t) k];
+        rows.push_back ({ rangeNickname ((Range) i, lang), fmt (lang, dNow (i), 1, true), fmt (lang, dOld (i), 1, true), juce::String ("0"),
+                          verdict (dNow (i), dOld (i), 0.0f, 0.5f) });
+    }
+
+    int closer = 0, further = 0;
+    const int rowH = juce::jmin (19, r.getHeight() / (int) rows.size());
+    for (size_t k = 0; k < rows.size(); ++k)
+    {
+        const auto& row = rows[k];
+        auto rr = r.removeFromTop (rowH);
+        g.setColour (colours::line);
+        g.drawHorizontalLine (rr.getY(), (float) rr.getX(), (float) rr.getRight());
+        g.setColour (colours::soft);
+        g.setFont (fonts::body (12.5f));
+        g.drawText (row.name + (k >= 5 ? juce::String (" *") : juce::String()), rr, juce::Justification::centredLeft);
+        g.setFont (fonts::num (11.5f));
+        cell (rr, c1 - 50, c1, row.now, colours::text);
+        cell (rr, c2 - 50, c2, row.old, colours::earlier);
+        cell (rr, c3 - 50, c3, row.ref, colours::ref);
+        juce::String word;
+        juce::Colour col;
+        switch (row.v)
+        {
+            case Verdict::closer:  word = t (lang, "closer", "lähempänä"); col = colours::good; ++closer; break;
+            case Verdict::further: word = t (lang, "further", "kauempana"); col = colours::warn; ++further; break;
+            case Verdict::same:    word = t (lang, "same", "sama"); col = colours::dim; break;
+        }
+        g.setFont (fonts::body (11.5f));
+        cell (rr, c3, r.getRight(), word, col);
+    }
+
+    g.setFont (fonts::body (11.5f));
+    g.setColour (closer > further ? colours::good : (further > closer ? colours::warn : colours::dim));
+    const juce::String n = juce::String ((int) rows.size());
+    const auto text = lang == Lang::finnish
+                          ? juce::String (juce::CharPointer_UTF8 ("Lähempänä ")) + juce::String (closer) + "/" + n + ", kauempana " + juce::String (further) + ". * tasattu"
+                          : "Closer in " + juce::String (closer) + " of " + n + ", further in " + juce::String (further) + ". * level-matched";
+    g.drawFittedText (text,
+                      summary, juce::Justification::centredLeft, 1, 0.85f);
 }
 
 // =====================================================================================
@@ -1897,7 +2064,10 @@ RefDetailBox::RefDetailBox (const ViewState& s) : state (s)
     playButton.onClick = [this] { if (onPlayPause) onPlayPause(); };
     loopButton.onClick = [this] { if (onPlayLoop) onPlayLoop(); };
     clearButton.onClick = [this] { if (onClearLoop) onClearLoop(); };
-    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton })
+    earlierButton.onClick = [this] { if (onToggleEarlier) onToggleEarlier(); };
+    earlierButton.setClickingTogglesState (false);
+    earlierButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
+    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton, &earlierButton })
         addAndMakeVisible (b);
     updateTexts();
 }
@@ -1919,6 +2089,11 @@ void RefDetailBox::updateTexts()
     const bool loop = v != nullptr && v->hasLoop();
     loopButton.setEnabled (loop);
     clearButton.setEnabled (loop);
+    earlierButton.setButtonText (upper (t (lang, "My earlier version", "Oma aiempi versio")));
+    earlierButton.setToggleState (v != nullptr && v->earlier, juce::dontSendNotification);
+    earlierButton.setEnabled (v != nullptr);
+    earlierButton.setTooltip (t (lang, "Mark this track as an earlier version of your own song. WWMA then shows whether your mix now is closer to the reference than that version was.",
+                                       "Merkitse tämä raita oman biisisi aiemmaksi versioksi. WWMA näyttää silloin, onko miksisi nyt lähempänä referenssiä kuin tuo versio oli."));
 }
 
 void RefDetailBox::resized()
@@ -1931,6 +2106,7 @@ void RefDetailBox::resized()
     loopButton.setBounds (row.removeFromLeft (130));
     row.removeFromLeft (8);
     clearButton.setBounds (row.removeFromLeft (130));
+    earlierButton.setBounds (row.removeFromRight (170));
 }
 
 juce::Rectangle<int> RefDetailBox::waveArea() const
@@ -1960,7 +2136,8 @@ void RefDetailBox::paint (juce::Graphics& g)
         drawLabel (g, t (lang, "Reference track", "Referenssiraita"), head);
         return;
     }
-    drawLabel (g, "Ref " + juce::String (slot + 1) + dot + v->name, head.withTrimmedRight (80), colours::ref);
+    drawLabel (g, "Ref " + juce::String (slot + 1) + (v->earlier ? dot + t (lang, "my earlier version", "oma aiempi versio") : juce::String()) + dot + v->name,
+               head.withTrimmedRight (80), v->earlier ? colours::earlier : colours::ref);
 
     auto info = r.removeFromTop (22);
     juce::String text = fmt (lang, v->snap.integrated) + " LUFS" + dot + duration (v->seconds);
