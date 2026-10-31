@@ -82,6 +82,7 @@ set(WWMA_CORE_SOURCES
     Source/advice/Advisor.cpp
     Source/advice/StyleGuess.cpp
     Source/advice/MixReport.cpp
+    Source/advice/ListeningReport.cpp
     Source/advice/Lessons.cpp
     Source/advice/ChainAdvice.cpp
     Source/advice/TrackAdvice.cpp
@@ -94,7 +95,8 @@ set(WWMA_UI_SOURCES
     Source/PluginEditor.cpp
     Source/ui/Theme.cpp
     Source/ui/Components.cpp
-    Source/ui/ChainPanel.cpp)
+    Source/ui/ChainPanel.cpp
+    Source/ui/TimelineImage.cpp)
 
 # Fonts (SIL Open Font License), compiled into the plugin
 juce_add_binary_data(WWMAAssets SOURCES

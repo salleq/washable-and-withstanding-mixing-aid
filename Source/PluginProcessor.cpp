@@ -201,6 +201,8 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         }
         else
             chain.process (l, r, len, settings);
+        // the timeline remembers where in the project each moment was (the chain delays the audio)
+        analyzer.setSongPosition (hostSample >= 0 && hostPlaying ? (double) (hostSample + start - chain.latency()) / getSampleRate() : -1.0);
         analyzer.process (l, r, len);
 
         // level-matched bypass, only when the user asked for it

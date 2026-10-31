@@ -118,6 +118,17 @@ Valmiit tehtävät saavat täytetyn pallon, ja edistys tallentuu projektin mukan
 
 **Raportti**-napista tallennat raportin Markdown-tiedostona (aukeaa missä tahansa tekstieditorissa). Siinä on pisteet, käännettävyys, korjattavat asiat ohjeineen, kaikki lukemat, referenssin lukemat ja snapshotit. Viereen tallentuu JSON-kopio. Kun samassa kansiossa on aiempi raportti, uusi raportti kertoo **mikä parani tai huononi edellisen jälkeen**. Pidä siis yhden biisin raportit samassa kansiossa (oletus: Documents/WWMA Reports).
 
+### Kuunteludata tekoälyavustajalle
+
+Tekoälyavustaja ei kuule kappalettasi, mutta se osaa lukea lukuja ja kuvia. Siksi **Raportti** tallentaa raportin viereen kaksi tiedostoa lisää:
+
+- **`... AI.md`**: kappale osa kerrallaan. WWMA pitää soiton aikana aikajanaa (äänekkyys, huiput, kuusi sävyaluetta ja leveys sekunti sekunnilta), jakaa kappaleen osiin kohdista, joissa ne muuttuvat, ja arvaa mikä kukin osa on (intro, nousu, drop, breakdown, outro). Tiedostossa on valmis kysymys liitettäväksi, osien taulukko, mitä osien välillä muuttuu (esim. "drop on vain 1 LU nousua kovempi"), aikajana ja lukujen tulkinta. Kun referenssi on ladattu, mukana ovat myös referenssin osat ja kummankin kovin drop rinnakkain.
+- **`... AI.png`**: spektrogrammi kappaleesta (aika vasemmalta oikealle, matalat äänet alhaalla), sen alla äänekkyys, huiput ja leveys, ja osat merkittyinä. Referenssistä tallentuu vastaava `... AI reference.png`.
+
+Aloita keskustelu tekoälyavustajan kanssa, liitä tiedostot ja liitä kysymys. Kysy sitten lisää, esim. "entä basso toisessa dropissa?". WWMA ei lähetä mitään minnekään: nämä ovat tavallisia tiedostoja koneellasi, ja sinä päätät mihin ne menevät.
+
+Jotta mukana on koko kappale, soita se alusta loppuun ennen kuin painat **Raportti** (kun **Nollaa playssa** on päällä, jokainen soitto aloittaa uuden aikajanan). Hiljaisuus jätetään pois. DAW:ssa taulukko näyttää myös, missä kohtaa projektia kukin osa on.
+
 ## 7. Masterointi-EQ ja limitteri
 
 Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ ja true peak -limitteri. Niillä saat masterin valmiiksi ilman muita plugineja. **WWMA ehdottaa lukuja, sinä käännät nupit.** Mikään ei liiku itsestään.

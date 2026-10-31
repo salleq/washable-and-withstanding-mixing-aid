@@ -3,6 +3,7 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_events/juce_events.h>
 #include "analysis/Snapshot.h"
+#include "analysis/Timeline.h"
 #include <array>
 #include <atomic>
 #include <memory>
@@ -17,6 +18,7 @@ struct ReferenceInfo
     juce::String name;          // file name without the folder
     double seconds = 0.0;
     Snapshot snap;              // the whole track, measured like a mix
+    Timeline timeline;          // second by second, for the sections and the listening report
     std::vector<float> wave;    // peak per column, 0..1, for the little waveform
 };
 

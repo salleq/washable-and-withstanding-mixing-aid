@@ -1,4 +1,6 @@
 #include "PluginEditor.h"
+#include "advice/ListeningReport.h"
+#include "ui/TimelineImage.h"
 
 using namespace wwma;
 namespace ui = wwma::ui;
@@ -490,8 +492,10 @@ void WwmaAudioProcessorEditor::updateTexts()
     learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
                                       "Oppimistila: lyhyitä käytännön tehtäviä (esim. basson duckaus kickin alle). WWMA seuraa viimeisiä 3 sekuntia ja kertoo, kun onnistuit."));
     reportButton.setButtonText (ui::upper (tr (lang, "Report", "Raportti")));
-    reportButton.setTooltip (tr (lang, "Save a report of this mix (Markdown + JSON). If an earlier report is in the same folder, the new one shows what changed since.",
-                                       "Tallenna raportti tästä miksistä (Markdown + JSON). Jos samassa kansiossa on aiempi raportti, uusi näyttää, mikä muuttui sen jälkeen."));
+    reportButton.setTooltip (tr (lang, "Save a report of this mix (Markdown + JSON). If an earlier report is in the same folder, the new one shows what changed since. "
+                                       "Also saves \"... AI.md\" and a spectrogram picture: the song part by part, with a ready question, to give to an AI assistant.",
+                                       "Tallenna raportti tästä miksistä (Markdown + JSON). Jos samassa kansiossa on aiempi raportti, uusi näyttää, mikä muuttui sen jälkeen. "
+                                       "Tallentaa myös \"... AI.md\" -tiedoston ja spektrogrammikuvan: kappale osa kerrallaan ja valmis kysymys tekoälyavustajalle annettavaksi."));
 
     const bool now = proc.getWindow() == Window::now;
     nowButton.setToggleState (now, juce::dontSendNotification);
@@ -1042,8 +1046,43 @@ juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
     const auto prevJson = previous.existsAsFile() ? juce::JSON::parse (previous) : juce::var();
     markdownFile.replaceWithText (reportMarkdown (in, state.lang, prevJson, previous.getFileNameWithoutExtension()));
     jsonFile.replaceWithText (juce::JSON::toString (reportJson (in)));
+    saveListeningData (markdownFile, in);
     proc.setReportFolder (folder);
     return previous == juce::File() ? previous : previous.withFileExtension ("md");
+}
+
+void WwmaAudioProcessorEditor::saveListeningData (const juce::File& markdownFile, const ReportInput& report)
+{
+    // The song part by part, for an AI assistant (or for reading yourself): a text file and a
+    // spectrogram picture next to the report. Nothing is sent anywhere.
+    ListeningInput li;
+    li.report = report;
+    proc.analyzer.readTimeline (li.timeline);
+    li.report.referenceName = {};
+    for (size_t slot = 0; slot < state.refs.size(); ++slot)
+        if (&state.refs[slot] == state.targetRefView())
+        {
+            li.report.referenceName = state.refs[slot].name;
+            li.report.referenceAssessment = state.refs[slot].assessment;
+            if (auto info = proc.refs.getInfo ((int) slot))
+                li.referenceTimeline = info->timeline;
+        }
+
+    const auto folder = markdownFile.getParentDirectory();
+    const auto base = markdownFile.getFileNameWithoutExtension();
+    const auto lang = state.lang;
+    const auto image = folder.getChildFile (base + " AI.png");
+    const auto when = report.time.formatted ("%Y-%m-%d %H:%M");
+    if (ui::saveTimelineImage (image, li.timeline, findSections (li.timeline), state.profileName + "  " + when, lang))
+        li.imageName = image.getFileName();
+    if (! li.referenceTimeline.empty())
+    {
+        const auto refImage = folder.getChildFile (base + " AI reference.png");
+        if (ui::saveTimelineImage (refImage, li.referenceTimeline, findSections (li.referenceTimeline),
+                                   tr (lang, "Reference: ", "Referenssi: ") + li.report.referenceName, lang))
+            li.referenceImageName = refImage.getFileName();
+    }
+    folder.getChildFile (base + " AI.md").replaceWithText (listeningMarkdown (li, lang));
 }
 
 void WwmaAudioProcessorEditor::updateBaselineDiff()

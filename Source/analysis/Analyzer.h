@@ -4,6 +4,7 @@
 #include "Filters.h"
 #include "LoudnessHistogram.h"
 #include "Snapshot.h"
+#include "Timeline.h"
 #include "TruePeak.h"
 #include <atomic>
 #include <memory>
@@ -37,6 +38,18 @@ public:
 
     /** Any thread but the audio thread (one reader). */
     bool readSnapshot (Snapshot& s) noexcept { return published.read (s); }
+
+    /** Audio thread, before process(): where the first sample of the next process() call
+        is in the song (DAW project or file), in seconds. -1 when unknown. */
+    void setSongPosition (double seconds) noexcept { songPos = seconds; }
+
+    /** Any thread but the audio thread: copies the timeline since the last reset
+        (one point per second of music, longer steps once a session gets very long).
+        Returns false if the audio thread kept changing it while it was copied. */
+    bool readTimeline (Timeline& out) const;
+
+    /** Points kept before the step doubles (about 17 minutes of music at one second). */
+    static constexpr int timelineCapacity = 1024;
 
     double getSampleRate() const noexcept { return sr; }
 
@@ -160,6 +173,18 @@ private:
 
     double secondsAnalysed = 0.0;
     uint32_t sequence = 0;
+
+    // timeline: written on the audio thread into preallocated memory, read with a version check
+    std::vector<TimelinePoint> timeline;
+    std::atomic<int> timelineCount { 0 }, timelineStepBlocks { 20 };
+    std::atomic<uint32_t> timelineVersion { 0 };
+    int tlBlocks = 0, tlMidFrames = 0, tlSideFrames = 0;
+    double tlPower = 0.0, tlLR = 0.0, tlLL = 0.0, tlRR = 0.0, tlStart = 0.0, tlSong = -1.0, audibleSeconds = 0.0;
+    float tlPeak = 0.0f;
+    std::array<double, Bands::count> tlMid {}, tlSide {};
+    double songPos = -1.0, subStartSong = -1.0;
+    void addTimelinePoint() noexcept;
+    void clearTimeline() noexcept;
 
     TripleBuffer<Snapshot> published;
 };
