@@ -10,6 +10,7 @@
 #include "advice/StyleGuess.h"
 #include "advice/Lessons.h"
 #include "advice/ChainAdvice.h"
+#include "advice/ListeningReport.h"
 #include <complex>
 #include <functional>
 #include <iostream>
@@ -455,6 +456,8 @@ int main (int argc, char* argv[])
                    juce::String (info->snap.integrated, 2) + " vs " + juce::String (direct.integrated, 2));
             check (near (info->seconds, (double) refAudio.l.size() / 44100.0, 0.01) && info->wave.size() == (size_t) ReferenceTracks::waveColumns,
                    "length and waveform overview");
+            check (! info->timeline.empty() && near (info->timeline.length(), info->seconds, 2.0) && near (info->timeline.points[5].songSeconds, 5.4, 0.3),
+                   "  and a timeline with positions in the file, for the AI file", juce::String (info->timeline.length(), 1) + " s");
             const auto a = assess (analyse (refAudio, 44100.0), profileFromSnapshot (info->snap, "ref"), Window::song, Lang::english);
             check (a.score >= 90.0f, "the reference profile fits the reference itself", juce::String (a.score, 0) + " " + ids (a));
         }
@@ -1181,6 +1184,162 @@ int main (int argc, char* argv[])
             if (argc > 1)
                 second.copyFileTo (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]).getChildFile ("wwma-report-example.md"));
             dir.deleteRecursively();
+        }
+
+        // ------------------------------------------------------------------ listening data for an AI assistant
+        std::cout << "Timeline, song parts and the AI listening file" << std::endl;
+        {
+            auto timelineOf = [] (const Stereo& x, double rate, double songStart = -1.0)
+            {
+                Analyzer a;
+                a.prepare (rate);
+                const int n = (int) x.l.size();
+                for (int i = 0; i < n; i += 512)
+                {
+                    if (songStart >= 0.0)
+                        a.setSongPosition (songStart + i / rate);
+                    a.process (x.l.data() + i, x.r.data() + i, juce::jmin (512, n - i));
+                }
+                Timeline t;
+                a.readTimeline (t);
+                return t;
+            };
+
+            {
+                const auto t = timelineOf (sine (48000.0, 20.0, 997.0, -20.0), 48000.0, 100.0);
+                check (t.points.size() >= 18 && t.points.size() <= 20 && near (t.step, 1.0, 0.01), "a 20 s tone gives about one timeline point per second",
+                       juce::String ((int) t.points.size()) + " points, step " + juce::String (t.step, 2));
+                const auto& mid = t.points[t.points.size() / 2];
+                check (near (mid.loudness, -20.0, 0.2), "  each point has the loudness of its second", juce::String (mid.loudness, 2));
+                check (near (t.points.front().songSeconds, 100.4, 0.2), "  and where it is in the project", juce::String (t.points.front().songSeconds, 2));
+                const int loudest = (int) (std::max_element (mid.mid.begin(), mid.mid.end()) - mid.mid.begin());
+                check (loudest == Bands::nearest (997.0), "  and its spectrum", juce::String (Bands::centre (loudest), 0) + " Hz");
+            }
+            {
+                auto x = sine (48000.0, 6.0, 997.0, -20.0);
+                append (x, sine (48000.0, 6.0, 997.0, -200.0));
+                append (x, sine (48000.0, 6.0, 997.0, -20.0));
+                const auto t = timelineOf (x, 48000.0);
+                check (t.points.size() >= 10 && t.points.size() <= 12, "silence is left out of the timeline", juce::String ((int) t.points.size()) + " points");
+            }
+            {
+                // a session longer than the timeline holds: the step doubles, nothing is lost
+                const double rate = 8000.0;
+                const auto x = sine (rate, Analyzer::timelineCapacity + 100.0, 300.0, -18.0);
+                const auto t = timelineOf (x, rate);
+                check (near (t.step, 2.0, 0.01) && near (t.length(), Analyzer::timelineCapacity + 100.0, 4.0), "a very long session keeps all of it at a coarser step",
+                       juce::String ((int) t.points.size()) + " points, step " + juce::String (t.step, 1));
+            }
+
+            // breakdown, drop, breakdown, drop: 16 s each
+            auto part = [] (bool drop, int seed)
+            {
+                synth::SongParams sp;
+                sp.seconds = 16.0;
+                if (! drop)
+                {
+                    sp.drums = false;
+                    sp.bassDb = -100.0;
+                    sp.driveDb = 0.0;
+                }
+                const auto s = synth::renderSong (sp, seed);
+                return Stereo { s.l, s.r };
+            };
+            auto song = part (false, 1);
+            append (song, part (true, 2));
+            append (song, part (false, 3));
+            append (song, part (true, 4));
+            const auto t = timelineOf (song, 48000.0, 0.0);
+            const auto sections = findSections (t);
+            juce::String found;
+            for (const auto& s : sections)
+                found << s.letter << " " << sectionKindId (s.kind) << " @" << s.at << "  ";
+            bool cutsRight = sections.size() == 4;
+            for (size_t i = 1; cutsRight && i < sections.size(); ++i)
+                cutsRight = near (t.points[(size_t) sections[i].first].songSeconds, 16.0 * (double) i, 3.0);
+            check (cutsRight, "a song with four 16 s parts is split into four parts where they change", found);
+            check (sections.size() == 4 && sections[1].kind == SectionKind::drop && sections[3].kind == SectionKind::drop
+                       && sections[2].kind == SectionKind::breakdown,
+                   "  the parts with kick and bass are drops, the one without is a breakdown", found);
+            check (sections.size() == 4 && sections[1].tone[(size_t) Range::sub] > -1.5f && sections[2].tone[(size_t) Range::sub] < -10.0f,
+                   "  the breakdown has far less sub than the song as a whole, the drop about the same",
+                   sections.size() == 4 ? juce::String (sections[1].tone[0], 1) + " / " + juce::String (sections[2].tone[0], 1) : juce::String());
+
+            {
+                // a build that rises nearly to the drop's level, with the same low end: the drop won't feel like a release
+                Timeline tt;
+                for (int i = 0; i < 32; ++i)
+                {
+                    const bool build = i < 16;
+                    TimelinePoint p;
+                    p.seconds = p.songSeconds = (float) i;
+                    p.loudness = build ? -12.0f + 0.2f * (float) i : -9.0f;
+                    p.peak = p.loudness + 8.0f;
+                    p.correlation = 0.8f;
+                    for (int b = 0; b < Bands::count; ++b)
+                    {
+                        p.mid[(size_t) b] = p.loudness - 20.0f + (build && b >= 25 ? 8.0f : 0.0f);
+                        p.side[(size_t) b] = p.mid[(size_t) b] - 15.0f;
+                    }
+                    tt.points.push_back (p);
+                }
+                const auto secs = findSections (tt);
+                const auto notes = sectionNotes (secs, {}, Stage::mixing, Lang::english);
+                juce::String all;
+                for (const auto& n : notes)
+                    all << n << " | ";
+                check (secs.size() == 2 && secs[0].kind == SectionKind::build && secs[1].kind == SectionKind::drop,
+                       "a rising part before the loudest one is a build-up", juce::String ((int) secs.size()) + " parts");
+                check (all.contains ("is only"), "  a drop barely louder than its build-up is pointed out", all);
+            }
+
+            ListeningInput li;
+            li.timeline = t;
+            li.referenceTimeline = t;
+            li.report.presetName = "House";
+            li.report.referenceName = "Favourite club track.wav";
+            li.imageName = "WWMA report AI.png";
+            for (auto lang : { Lang::english, Lang::finnish })
+            {
+                const auto md = listeningMarkdown (li, lang);
+                const bool fi = lang == Lang::finnish;
+                check (md.contains (fi ? "Liitettävä kysymys" : "Question to paste") && md.contains (fi ? "Kappaleen osat" : "Parts of the song")
+                           && md.contains (fi ? "Aikajana" : "Timeline") && md.contains ("WWMA report AI.png") && (! fi || md.contains ("Vastaa suomeksi")),
+                       juce::String (fi ? "  the Finnish" : "  the English") + " AI file has the question, the parts, the timeline and the picture's name");
+            }
+
+            {
+                Session s;
+                const auto dir = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-ai-test");
+                dir.deleteRecursively();
+                dir.createDirectory();
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                for (size_t i = 0; i + 512 <= song.l.size(); i += 512)
+                {
+                    buf.copyFrom (0, 0, song.l.data() + i, 512);
+                    buf.copyFrom (1, 0, song.r.data() + i, 512);
+                    s.p.processBlock (buf, midi);
+                    if (i % 24064 == 0)
+                        s.editor->refresh (true);
+                }
+                s.editor->refresh (true);
+                const auto report = dir.getChildFile ("WWMA report 2026-01-01 1200.md");
+                s.editor->saveReport (report);
+                const auto ai = dir.getChildFile ("WWMA report 2026-01-01 1200 AI.md");
+                const auto png = dir.getChildFile ("WWMA report 2026-01-01 1200 AI.png");
+                const auto img = juce::ImageFileFormat::loadFrom (png);
+                check (ai.existsAsFile() && ai.loadFileAsString().contains ("Parts of the song") && img.getWidth() == 1600,
+                       "saving a report also saves the AI file and the spectrogram picture");
+                if (argc > 1)
+                {
+                    const auto out = juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]);
+                    out.createDirectory();
+                    png.copyFileTo (out.getChildFile ("wwma-ai-timeline.png"));
+                    ai.copyFileTo (out.getChildFile ("wwma-ai-example.md"));
+                }
+                dir.deleteRecursively();
+            }
         }
     }
 
