@@ -172,6 +172,7 @@ private:
     std::optional<wwma::Profile> reference;
     std::atomic<bool> autoReset { true };
     bool wasPlaying = false;
+    int64_t expectedSample = -1; // where the play head should be at the next block
 
     wwma::MasterChain chain;
     int chainBlock = 512;

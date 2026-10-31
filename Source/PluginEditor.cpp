@@ -455,8 +455,8 @@ void WwmaAudioProcessorEditor::updateTexts()
     resetButton.setButtonText (tr (lang, "Reset analysis", "Nollaa mittaus"));
     resetButton.setTooltip (tr (lang, "Start measuring again.", "Aloita mittaus alusta."));
     autoResetToggle.setButtonText (tr (lang, "Reset on play", "Nollaa playssa"));
-    autoResetToggle.setTooltip (tr (lang, "Start a new measurement every time the DAW starts playing.",
-                                          "Aloita uusi mittaus aina, kun DAW alkaa soittaa."));
+    autoResetToggle.setTooltip (tr (lang, "Start a new measurement every time the DAW starts playing, a loop starts over, or you jump to another spot while playing.",
+                                          "Aloita uusi mittaus aina, kun DAW alkaa soittaa, looppi alkaa alusta tai hyppäät soiton aikana toiseen kohtaan."));
     mixAButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("A \xc2\xb7 ")) + ui::upper (tr (lang, "Mix", "Miksi")));
     mixAButton.setTooltip (tr (lang, "Hear your mix. The sound passes through untouched, unless you turned on the EQ or limiter.",
                                      "Kuuntele omaa miksiä. Ääni menee läpi koskemattomana, ellet ole kytkenyt EQ:ta tai limitteriä päälle."));

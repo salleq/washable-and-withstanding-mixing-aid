@@ -123,6 +123,7 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     withoutMix = 0.0f;
     abStep = (float) (1.0 / (0.03 * sampleRate)); // 30 ms crossfade between mix and reference
     wasPlaying = false;
+    expectedSample = -1;
 }
 
 void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -162,9 +163,14 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             hostPlaying = pos->getIsPlaying();
             if (auto t = pos->getTimeInSamples())
                 hostSample = *t;
-            if (hostPlaying && ! wasPlaying)
+            // A new pass starts when play starts, and also when the play head jumps while playing:
+            // a loop going back to its start, or a click elsewhere in the song.
+            const bool jumped = hostPlaying && wasPlaying && hostSample >= 0 && expectedSample >= 0
+                                && std::abs (hostSample - expectedSample) > (int64_t) (0.05 * getSampleRate()) + 64;
+            if ((hostPlaying && ! wasPlaying) || jumped)
                 beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : -1.0);
             wasPlaying = hostPlaying;
+            expectedSample = hostPlaying && hostSample >= 0 ? hostSample + n : -1;
         }
     }
 

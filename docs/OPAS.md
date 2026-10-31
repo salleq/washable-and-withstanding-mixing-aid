@@ -81,7 +81,7 @@ Prosentti jaetaan lähisukulaisten kesken: "House 72 %" tarkoittaa koko house-pe
 
 Vinkeistä on hyötyä vain, jos niiden noudattaminen oikeasti parantaa biisiä. WWMA tarkistaa sen puolestasi.
 
-**Jokaista soittoa verrataan edelliseen.** Kun **Nollaa playssa** on päällä (oletus), WWMA aloittaa mittauksen alusta aina, kun painat play. Kun soitat saman kohdan kuin äsken (aloitus enintään 2 sekunnin päässä samasta kohdasta), edistymispaneelin banneri kertoo muutaman sekunnin päästä **▲ Parempi kuin edellinen soitto (+6)**, **▼ Huonompi** tai **= Suunnilleen sama**, ja mitkä luvut liikkuivat: *Parempi: Sävy: Muta. Huonompi: Stereoleveys.* Kaava on siis yksinkertainen: muuta yhtä asiaa, soita sama kohta uudelleen, lue banneri. Eri kohtaa biisistä ei verrata, koska breakdownia ja droppia ei voi verrata reilusti.
+**Jokaista soittoa verrataan edelliseen.** Kun **Nollaa playssa** on päällä (oletus), WWMA aloittaa mittauksen alusta aina, kun painat play, ja samoin kun looppi palaa alkuunsa tai klikkaat soiton aikana toiseen kohtaan. Helpointa on siis loopata kohta, jota työstät: jokainen loopin kierros on uusi soitto. Kun soitat saman kohdan kuin äsken (aloitus enintään 2 sekunnin päässä samasta kohdasta), edistymispaneelin banneri kertoo muutaman sekunnin päästä **▲ Parempi kuin edellinen soitto (+6)**, **▼ Huonompi** tai **= Suunnilleen sama**, ja mitkä luvut liikkuivat: *Parempi: Sävy: Muta. Huonompi: Stereoleveys.* Kaava on siis yksinkertainen: muuta yhtä asiaa, soita sama kohta uudelleen, lue banneri. Eri kohtaa biisistä ei verrata, koska breakdownia ja droppia ei voi verrata reilusti.
 
 **Kokeile ylintä vinkkiä** (nappi edistymispaneelissa) tekee tästä askel askeleelta etenevän oppitunnin omalla biisilläsi:
 

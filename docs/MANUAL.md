@@ -21,7 +21,7 @@ WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teach
 5. Choose a time window:
    - **SONG** looks at everything since the last reset. Play the whole song.
    - **NOW** looks at the last 3 seconds. Loop a part and tweak while you watch.
-6. Turn on **Reset on play** to start a new measurement every time the DAW starts playing.
+6. Turn on **Reset on play** to start a new measurement every time the DAW starts playing, a loop starts over, or you jump to another spot while playing.
 
 ### The standalone app
 
@@ -145,7 +145,7 @@ Snapshots are saved with your DAW project.
 
 Advice is only useful if following it makes the song better. WWMA checks that for you.
 
-**Every pass is compared with the previous one.** With **Reset on play** on (the default), every time you press play WWMA starts measuring again. When you play the same part as before (starting within 2 seconds of the same spot), the banner in the progress panel says, after a few seconds, **▲ Better than the last pass (+6)**, **▼ Worse** or **= About the same**, and which numbers moved: *Better: Tone: Mud. Worse: Stereo width.* So the loop is simple: change one thing, play the same part again, read the banner. A different part of the song isn't compared, because a breakdown and a drop can't be compared fairly.
+**Every pass is compared with the previous one.** With **Reset on play** on (the default), every time you press play WWMA starts measuring again, and so it does when a loop goes back to its start or you click elsewhere while playing. So the easiest way is to loop the part you work on: every round of the loop is a new pass. When you play the same part as before (starting within 2 seconds of the same spot), the banner in the progress panel says, after a few seconds, **▲ Better than the last pass (+6)**, **▼ Worse** or **= About the same**, and which numbers moved: *Better: Tone: Mud. Worse: Stereo width.* So the loop is simple: change one thing, play the same part again, read the banner. A different part of the song isn't compared, because a breakdown and a drop can't be compared fairly.
 
 **Try the top fix** (button in the progress panel) turns this into a step-by-step lesson on your own song:
 

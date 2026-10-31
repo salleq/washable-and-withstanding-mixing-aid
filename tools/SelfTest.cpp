@@ -1076,6 +1076,58 @@ int main (int argc, char* argv[])
                "now vs earlier: closer / further / same against the reference (either side of it)");
         p.setPlayHead (nullptr);
     }
+    {
+        // "reset on play" also restarts when a loop goes back to its start, or the play head jumps
+        struct MovingHost : juce::AudioPlayHead
+        {
+            bool playing = true;
+            int64_t pos = 0;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo info;
+                info.setIsPlaying (playing);
+                info.setTimeInSamples (pos);
+                return info;
+            }
+        } host;
+        WwmaAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, sr, 512);
+        p.prepareToPlay (sr, 512);
+        p.setPlayHead (&host);
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> buf (2, 512);
+        auto play = [&] (int blocks)
+        {
+            for (int k = 0; k < blocks; ++k)
+            {
+                buf.clear();
+                p.processBlock (buf, midi);
+                host.pos += 512;
+            }
+        };
+        host.pos = (int64_t) (4.0 * sr);
+        play (100);
+        const int afterStart = p.passCount.load();
+        check (afterStart == 1 && near (p.passStart.load(), 4.0, 1.0e-6), "pressing play starts a pass at the play head");
+        play (200);
+        check (p.passCount.load() == afterStart, "  steady playing does not start new passes");
+        host.pos = (int64_t) (4.0 * sr); // the loop goes back to its start
+        play (50);
+        check (p.passCount.load() == afterStart + 1 && near (p.passStart.load(), 4.0, 1.0e-6),
+               "a loop starting over starts a new pass at the loop start", juce::String (p.passCount.load()));
+        host.pos = (int64_t) (30.0 * sr); // a click further on while playing
+        play (50);
+        check (p.passCount.load() == afterStart + 2 && near (p.passStart.load(), 30.0, 1.0e-6), "  and so does a jump elsewhere while playing");
+        host.pos += 100; // a host that is a few samples off is not a jump
+        play (50);
+        check (p.passCount.load() == afterStart + 2, "  a tiny position wobble is not a jump");
+        host.playing = false;
+        play (10);
+        host.playing = true;
+        play (10);
+        check (p.passCount.load() == afterStart + 3, "  pressing play again after stop still starts a pass");
+        p.setPlayHead (nullptr);
+    }
 
     // ------------------------------------------------------------------ synthetic songs
     std::cout << "Synthetic songs (kick, bass, snare, hats, pad, lead, limiter)" << std::endl;
