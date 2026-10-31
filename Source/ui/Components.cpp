@@ -980,9 +980,22 @@ void ScoreBox::paint (juce::Graphics& g)
                   fonts::bodyBold (12.5f), state.trend > 0.0f ? colours::good : colours::bad);
     if (state.activeRefView() != nullptr)
     {
-        const auto who = state.viewingRef() ? t (lang, " Your mix", " Miksisi") : " " + state.refLabel();
+        const auto* act = state.activeRefView();
+        const auto who = state.viewingRef() ? t (lang, " Your mix", " Miksisi")
+                                            : (act->earlier ? t (lang, " Your earlier version", " Aiempi versiosi") : " " + state.refLabel());
         a.append (who + t (lang, " scores ", " saa ") + juce::String (juce::roundToInt (state.otherAssessment().score))
-                      + t (lang, ".", " pistettä."), fonts::body (12.5f), colours::ref);
+                      + t (lang, " against the ", " pistettä tyylille ") + state.profileName
+                      + t (lang, " preset.", " -presetille."),
+                  fonts::body (12.5f), act->earlier ? colours::earlier : colours::ref);
+        // what holds a reference's score down: the reference's own biggest findings
+        const auto& other = state.otherAssessment();
+        if (other.score < 95.0f && ! other.findings.empty())
+        {
+            juce::String why;
+            for (size_t i = 0; i < other.findings.size() && i < 1; ++i)
+                why << (i > 0 ? "; " : "") << other.findings[i].title;
+            a.append (t (lang, " Held down by ", " Pisteitä vie: ") + why + ".", fonts::body (12.5f), colours::dim);
+        }
     }
     layoutText (a, (float) r.getWidth()).draw (g, r.withTrimmedTop (4).toFloat());
 }
