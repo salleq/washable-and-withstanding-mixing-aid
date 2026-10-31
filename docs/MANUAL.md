@@ -172,6 +172,19 @@ Press **Report** to save a report as a Markdown file (it opens in any text edito
 
 A JSON copy is saved next to it so that later reports can compare. Keep the reports in one folder per song (the default is Documents/WWMA Reports). See an [example report](example-report.md).
 
+### Listening data for an AI assistant
+
+An AI assistant can't hear your song, but it can read numbers and pictures. So **Report** also saves two more files next to the report:
+
+- **`... AI.md`**: the song part by part. WWMA keeps a timeline while you play (loudness, peaks, the six tone ranges and the width, second by second), splits the song where those change, and guesses what each part is (intro, build-up, drop, breakdown, outro). The file has a ready question to paste, a table of the parts, what changes between them (for example "the drop is only 1 LU louder than the build-up"), the timeline, and how to read the numbers. With a reference track loaded, the reference's parts and the two loudest drops side by side are in it too.
+- **`... AI.png`**: a spectrogram of the song (time left to right, low notes at the bottom) with the loudness, peaks and width under it, and the parts marked. With a reference loaded, `... AI reference.png` is the same for the reference.
+
+Start a chat with an AI assistant, attach the files and paste the question. Then ask more, like "what about the bass in the second drop?". Nothing is sent anywhere by WWMA: these are plain files on your computer, and you decide where they go.
+
+To get the whole song, play it from start to end before you press **Report** (with **Reset on play** on, every play starts a fresh timeline). Silence is left out. In a DAW the table also shows where each part is in your project. See an [example](example-ai-report.md):
+
+![The spectrogram picture](images/wwma-ai-timeline.png)
+
 ## 8. Reference tracks
 
 Drag a track you like (WAV, AIFF, FLAC, MP3 or OGG; also M4A on macOS and Windows) onto the window, or click a slot to browse. It is analysed once in the background. Then:

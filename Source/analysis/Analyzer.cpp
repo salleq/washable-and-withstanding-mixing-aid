@@ -62,6 +62,7 @@ void Analyzer::prepare (double sampleRate)
     }
     bandStart[Bands::count] = (int) binWeights.size();
 
+    timeline.assign ((size_t) timelineCapacity, TimelinePoint {});
     reset();
 }
 
@@ -120,6 +121,102 @@ void Analyzer::reset() noexcept
     lastHit = -1000;
 
     secondsAnalysed = 0.0;
+    clearTimeline();
+}
+
+void Analyzer::clearTimeline() noexcept
+{
+    const auto v = timelineVersion.load (std::memory_order_relaxed);
+    timelineVersion.store (v + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_release);
+    timelineCount.store (0, std::memory_order_relaxed);
+    timelineStepBlocks.store (20, std::memory_order_relaxed);
+    timelineVersion.store (v + 2, std::memory_order_release);
+
+    tlBlocks = tlMidFrames = tlSideFrames = 0;
+    tlPower = tlLR = tlLL = tlRR = tlStart = audibleSeconds = 0.0;
+    tlSong = -1.0;
+    tlPeak = 0.0f;
+    tlMid.fill (0.0);
+    tlSide.fill (0.0);
+}
+
+void Analyzer::addTimelinePoint() noexcept
+{
+    TimelinePoint p;
+    p.seconds = (float) tlStart;
+    p.songSeconds = (float) tlSong;
+    p.loudness = (float) (-0.691 + powerToDb (tlPower / juce::jmax (1, tlBlocks)));
+    p.peak = (float) gainToDb (tlPeak);
+    const double d = std::sqrt (tlLL * tlRR);
+    p.correlation = d > 1.0e-12 ? (float) juce::jlimit (-1.0, 1.0, tlLR / d) : 1.0f;
+    for (int b = 0; b < Bands::count; ++b)
+    {
+        p.mid[(size_t) b] = (float) powerToDb (tlMid[(size_t) b] / juce::jmax (1, tlMidFrames));
+        p.side[(size_t) b] = (float) powerToDb (tlSide[(size_t) b] / juce::jmax (1, tlSideFrames));
+    }
+    tlBlocks = tlMidFrames = tlSideFrames = 0;
+    tlPower = tlLR = tlLL = tlRR = 0.0;
+    tlPeak = 0.0f;
+    tlMid.fill (0.0);
+    tlSide.fill (0.0);
+
+    if (timeline.empty())
+        return;
+    const auto v = timelineVersion.load (std::memory_order_relaxed);
+    timelineVersion.store (v + 1, std::memory_order_relaxed);
+    std::atomic_thread_fence (std::memory_order_release);
+
+    int count = timelineCount.load (std::memory_order_relaxed);
+    timeline[(size_t) count++] = p;
+    if (count == timelineCapacity)
+    {
+        // full: merge neighbours, so the whole session still fits at half the time resolution
+        auto addDb = [] (float a, float b) { return (float) powerToDb (0.5 * (std::pow (10.0, a / 10.0) + std::pow (10.0, b / 10.0))); };
+        for (int i = 0; i < count / 2; ++i)
+        {
+            const auto& x = timeline[(size_t) (2 * i)];
+            const auto& y = timeline[(size_t) (2 * i + 1)];
+            TimelinePoint m = x;
+            m.loudness = addDb (x.loudness, y.loudness);
+            m.peak = juce::jmax (x.peak, y.peak);
+            m.correlation = 0.5f * (x.correlation + y.correlation);
+            for (size_t b = 0; b < (size_t) Bands::count; ++b)
+            {
+                m.mid[b] = addDb (x.mid[b], y.mid[b]);
+                m.side[b] = addDb (x.side[b], y.side[b]);
+            }
+            timeline[(size_t) i] = m;
+        }
+        count /= 2;
+        timelineStepBlocks.store (timelineStepBlocks.load (std::memory_order_relaxed) * 2, std::memory_order_relaxed);
+    }
+    timelineCount.store (count, std::memory_order_relaxed);
+    timelineVersion.store (v + 2, std::memory_order_release);
+}
+
+bool Analyzer::readTimeline (Timeline& out) const
+{
+    for (int attempt = 0; attempt < 20; ++attempt)
+    {
+        const auto v1 = timelineVersion.load (std::memory_order_acquire);
+        if ((v1 & 1u) != 0)
+        {
+            juce::Thread::yield();
+            continue;
+        }
+        const int count = juce::jlimit (0, (int) timeline.size(), timelineCount.load (std::memory_order_relaxed));
+        const int stepBlocks = timelineStepBlocks.load (std::memory_order_relaxed);
+        out.points.assign (timeline.begin(), timeline.begin() + count);
+        std::atomic_thread_fence (std::memory_order_acquire);
+        if (timelineVersion.load (std::memory_order_relaxed) == v1)
+        {
+            out.step = (float) (stepBlocks * subLen / sr);
+            return true;
+        }
+    }
+    out.points.clear();
+    return false;
 }
 
 bool Analyzer::gateOpen() const noexcept
@@ -139,6 +236,8 @@ void Analyzer::process (const float* left, const float* right, int numSamples) n
     while (done < numSamples)
     {
         const int n = juce::jmin (numSamples - done, subLen - subPos);
+        if (subPos == 0)
+            subStartSong = songPos >= 0.0 ? songPos + done / sr : -1.0;
         processChunk (left + done, right + done, n);
         done += n;
         subPos += n;
@@ -417,7 +516,9 @@ void Analyzer::detectKicks (float lowDb, float harmDb) noexcept
 void Analyzer::endSubBlock() noexcept
 {
     // --- loudness
-    ring[(size_t) ringPos] = subSum / subLen;
+    const double blockPower = subSum / subLen;
+    const float blockPeak = subPeak;
+    ring[(size_t) ringPos] = blockPower;
     ringPos = (ringPos + 1) % ringSize;
     ringFilled = juce::jmin (ringFilled + 1, ringSize);
     subSum = 0.0;
@@ -464,6 +565,22 @@ void Analyzer::endSubBlock() noexcept
     {
         songLR += cLR; songLL += cLL; songRR += cRR;
         secondsAnalysed += (double) subLen / sr;
+    }
+
+    // --- timeline: every sub-block that isn't silence
+    if (momentary > -60.0)
+    {
+        if (tlBlocks == 0)
+        {
+            tlStart = audibleSeconds;
+            tlSong = subStartSong;
+        }
+        tlPower += blockPower;
+        tlPeak = juce::jmax (tlPeak, blockPeak);
+        tlLR += cLR; tlLL += cLL; tlRR += cRR;
+        audibleSeconds += (double) subLen / sr;
+        if (++tlBlocks >= timelineStepBlocks.load (std::memory_order_relaxed))
+            addTimelinePoint();
     }
     cLR = cLL = cRR = 0.0;
 
@@ -537,6 +654,13 @@ void Analyzer::runFft (int pass) noexcept
         for (int b = 0; b < Bands::count; ++b)
             songP[(size_t) b] += power[(size_t) b];
         ++songCount;
+    }
+    if (audible)
+    {
+        auto& tl = pass == 0 ? tlMid : tlSide;
+        for (int b = 0; b < Bands::count; ++b)
+            tl[(size_t) b] += power[(size_t) b];
+        ++(pass == 0 ? tlMidFrames : tlSideFrames);
     }
 }
 

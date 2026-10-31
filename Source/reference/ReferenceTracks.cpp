@@ -60,8 +60,12 @@ ReferenceTracks::Result ReferenceTracks::readAndMeasure (const juce::File& file,
         const float* l = audio.getReadPointer (0);
         const float* r = audio.getReadPointer (1);
         for (int i = 0; i < len; i += 4096)
+        {
+            analyzer->setSongPosition (i / fileRate);
             analyzer->process (l + i, r + i, juce::jmin (4096, len - i));
+        }
         analyzer->readSnapshot (info->snap);
+        analyzer->readTimeline (info->timeline);
 
         info->wave.assign (waveColumns, 0.0f);
         float top = 1.0e-6f;
