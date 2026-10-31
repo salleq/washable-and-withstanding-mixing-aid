@@ -1137,8 +1137,9 @@ ProgressBox::ProgressBox (const ViewState& s) : state (s)
     clearButton.onClick = [this] { if (onClear) onClear(); };
     compareButton.onClick = [this] { if (onCompare) onCompare(); };
     confirmButton.onClick = [this] { if (onConfirm) onConfirm(); };
+    tryButton.onClick = [this] { if (onTry) onTry(); };
     compareButton.setClickingTogglesState (false);
-    for (auto* b : { &saveButton, &compareButton, &clearButton })
+    for (auto* b : { &saveButton, &compareButton, &clearButton, &tryButton })
         addAndMakeVisible (b);
     addChildComponent (confirmButton);
     updateTexts();
@@ -1149,6 +1150,15 @@ void ProgressBox::syncButtons()
     confirmButton.setVisible (state.awaitingSaveConfirm);
     compareButton.setEnabled (! state.snapshots.empty());
     compareButton.setToggleState (state.compareOpen, juce::dontSendNotification);
+    const auto lang = state.lang;
+    const bool done = state.trial.active && state.trialResult.kind != TrialResult::Kind::waiting;
+    tryButton.setButtonText (upper (! state.trial.active ? t (lang, "Try the top fix", "Kokeile ylintä vinkkiä")
+                                    : done ? t (lang, "Next fix", "Seuraava vinkki") : t (lang, "Stop trying", "Lopeta kokeilu")));
+    tryButton.setTooltip (t (lang, "One fix at a time: WWMA picks the most important finding and gives you one concrete step. Make the change, play the same part again, and WWMA tells you whether it really helped, compared with the pass before the change.",
+                                   "Yksi korjaus kerrallaan: WWMA valitsee tärkeimmän havainnon ja antaa yhden konkreettisen askeleen. Tee muutos, soita sama kohta uudelleen, ja WWMA kertoo, auttoiko se oikeasti verrattuna muutosta edeltävään soittoon."));
+    tryButton.getProperties().set ("primary", ! state.trial.active || done);
+    tryButton.setEnabled (state.trial.active || state.assessment.enoughData);
+    tryButton.setVisible (! state.awaitingSaveConfirm);
 }
 
 juce::Rectangle<int> ProgressBox::plotArea() const
@@ -1156,6 +1166,7 @@ juce::Rectangle<int> ProgressBox::plotArea() const
     auto r = content (*this);
     r.removeFromTop (16);
     r.removeFromBottom (32);
+    r.removeFromTop (bannerHeight + 26);
     return r;
 }
 
@@ -1185,8 +1196,84 @@ void ProgressBox::resized()
     compareButton.setBounds (buttons.removeFromLeft (98));
     buttons.removeFromLeft (6);
     clearButton.setBounds (buttons);
+    r.removeFromTop (16);
+    tryButton.setBounds (r.removeFromTop (22));
     const auto plot = plotArea();
     confirmButton.setBounds (plot.getCentreX() - 60, plot.getBottom() - 30, 120, 26);
+}
+
+void ProgressBox::paintBanner (juce::Graphics& g, juce::Rectangle<float> r)
+{
+    const auto lang = state.lang;
+    juce::Colour col = colours::dim;
+    juce::String headline, detail;
+    if (state.trial.active)
+    {
+        const auto& res = state.trialResult;
+        switch (res.kind)
+        {
+            case TrialResult::Kind::helped:   col = colours::good; break;
+            case TrialResult::Kind::worse:    col = colours::bad; break;
+            case TrialResult::Kind::noChange: col = colours::warn; break;
+            case TrialResult::Kind::waiting:  col = colours::accent; break;
+        }
+        if (res.kind == TrialResult::Kind::waiting && res.detail == state.trial.step)
+        {
+            headline = t (lang, "Try: ", "Kokeile: ") + state.trial.title;
+            detail = state.trial.step + t (lang, " Then play the same part again.", " Soita sitten sama kohta uudelleen.");
+        }
+        else
+        {
+            headline = res.headline;
+            detail = res.detail;
+        }
+    }
+    else if (! state.passesOn)
+    {
+        headline = t (lang, "Turn on Reset on play", "Kytke Nollaa playssa päälle");
+        detail = t (lang, "Then every pass is measured on its own and compared with the previous one.",
+                          "Silloin jokainen soitto mitataan erikseen ja sitä verrataan edelliseen.");
+    }
+    else if (state.passComparable && state.passVerdict.ready)
+    {
+        const auto& v = state.passVerdict;
+        const auto pts = " (" + fmt (lang, v.scoreDelta, 0, true) + ")";
+        col = v.verdict > 0 ? colours::good : (v.verdict < 0 ? colours::bad : colours::dim);
+        headline = (v.verdict > 0 ? juce::String (juce::CharPointer_UTF8 ("â² ")) + t (lang, "Better than the last pass", "Parempi kuin edellinen soitto")
+                  : v.verdict < 0 ? juce::String (juce::CharPointer_UTF8 ("â¼ ")) + t (lang, "Worse than the last pass", "Huonompi kuin edellinen soitto")
+                                  : "= " + t (lang, "About the same as the last pass", "Suunnilleen sama kuin edellinen soitto")) + pts;
+        if (! v.betterNames.isEmpty())
+            detail << t (lang, "Better: ", "Parempi: ") << v.betterNames.joinIntoString (", ", 0, 3) << ". ";
+        if (! v.worseNames.isEmpty())
+            detail << t (lang, "Worse: ", "Huonompi: ") << v.worseNames.joinIntoString (", ", 0, 3) << ".";
+        if (detail.isEmpty())
+            detail = t (lang, "No number moved clearly. Trust your ears, or make a bigger change.", "Mikään luku ei liikkunut selvästi. Luota korviin tai tee isompi muutos.");
+    }
+    else if (state.passComparable)
+    {
+        headline = t (lang, "Comparing with the last pass... ", "Vertaan edelliseen soittoon... ") + juce::String ((int) std::ceil (state.passVerdict.waitSeconds)) + " s";
+        detail = t (lang, "Same part as last time: after a few seconds you'll see if your change helped.",
+                          "Sama kohta kuin viimeksi: muutaman sekunnin päästä näet, auttoiko muutoksesi.");
+    }
+    else
+    {
+        headline = t (lang, "Change one thing, play the same part again", "Muuta yhtä asiaa, soita sama kohta uudelleen");
+        detail = t (lang, "WWMA compares every pass with the previous pass of the same part and tells you if it got better.",
+                          "WWMA vertaa jokaista soittoa saman kohdan edelliseen soittoon ja kertoo, parantuiko se.");
+    }
+
+    auto box = r.reduced (0.0f, 2.0f);
+    g.setColour (col.withAlpha (0.12f));
+    g.fillRoundedRectangle (box, 6.0f);
+    g.setColour (col.withAlpha (0.8f));
+    g.drawRoundedRectangle (box, 6.0f, 1.2f);
+    auto text = box.reduced (8.0f, 5.0f).toNearestInt();
+    g.setColour (col == colours::dim ? colours::text : col);
+    g.setFont (fonts::bodyBold (12.5f));
+    g.drawFittedText (headline, text.removeFromTop (17), juce::Justification::centredLeft, 1, 0.8f);
+    g.setColour (colours::soft);
+    g.setFont (fonts::body (11.5f));
+    g.drawFittedText (detail, text, juce::Justification::topLeft, 3, 0.85f);
 }
 
 void ProgressBox::paint (juce::Graphics& g)
@@ -1208,6 +1295,11 @@ void ProgressBox::paint (juce::Graphics& g)
     }
 
     r.removeFromBottom (32);
+    if (! state.awaitingSaveConfirm)
+    {
+        r.removeFromTop (26); // the try button
+        paintBanner (g, r.removeFromTop (bannerHeight).toFloat());
+    }
     if (state.awaitingSaveConfirm)
     {
         // until the user confirms: save the DAW project as a new version, so this point can be found again

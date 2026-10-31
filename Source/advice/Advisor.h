@@ -88,7 +88,9 @@ struct Assessment
     bool enoughData = false;
 };
 
-Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Stage stage = Stage::mastering);
+/** reference = true: the track is a finished, mastered reference. Loudness, peaks, clipping and
+    limiting are part of mastering, so they are neither reported nor cost points; only the mix is judged. */
+Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Stage stage = Stage::mastering, bool reference = false);
 
 /** "Needs improvement" (0-40), "Not quite there yet" (40-70), "Close enough" (70-90), "Looks perfect" (90-100). */
 juce::String verdictFor (float score, Lang lang);

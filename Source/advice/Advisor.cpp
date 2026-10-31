@@ -216,9 +216,9 @@ juce::String rangeNickname (Range r, Lang lang)
     return {};
 }
 
-Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Stage stage)
+Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Stage stage, bool reference)
 {
-    const bool mastering = stage == Stage::mastering;
+    const bool mastering = stage == Stage::mastering && ! reference;
     Assessment a;
     auto& m = a.measures;
     const bool song = w == Window::song;
@@ -648,6 +648,23 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
                      true);
     }
 
+    // a mastered reference: loudness, peaks, clipping and limiting were the mastering engineer's choice
+    if (reference)
+    {
+        static const char* masteringIds[] = { "loud", "quiet", "peak", "headroom", "hotmix", "clipping", "squashed", "dynamic", "lra" };
+        a.findings.erase (std::remove_if (a.findings.begin(), a.findings.end(), [&penalty] (const Finding& f)
+        {
+            for (auto* id : masteringIds)
+                if (f.id == id)
+                {
+                    penalty -= f.penalty;
+                    return true;
+                }
+            return false;
+        }), a.findings.end());
+        penalty = std::max (0.0f, penalty);
+    }
+
     std::stable_sort (a.findings.begin(), a.findings.end(), [] (const Finding& x, const Finding& y)
     {
         if (x.severity != y.severity)
@@ -693,7 +710,7 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
                   num (lang, m.truePeak) + " dBTP · " + tr (lang, "no distortion after MP3/AAC", "ei säröä MP3/AAC-muunnoksessa"));
         if (mastering && ! present ({ "loud", "quiet" }))
             pass ("ok-loud", tr (lang, "Loudness fits the style", "Äänekkyys sopii tyyliin"), num (lang, m.loudness) + " LUFS");
-        if (! present ({ "squashed", "dynamic" }))
+        if (! reference && ! present ({ "squashed", "dynamic" }))
             pass ("ok-dyn", tr (lang, "Dynamics fit the style", "Dynamiikka sopii tyyliin"), "PLR " + num (lang, m.plr) + " LU");
         if (! present ({ "phonebass" }))
             pass ("ok-phone", tr (lang, "Bass carries on small speakers", "Basso kantaa pienistä kaiuttimista"),

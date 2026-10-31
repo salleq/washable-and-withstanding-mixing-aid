@@ -163,6 +163,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     progress.onClear = [this] { clearSnapshots(); };
     progress.onCompare = [this] { setCompareOpen (! state.compareOpen); };
     progress.onConfirm = [this] { confirmSnapshotSaved(); };
+    progress.onTry = [this] { toggleTrial(); };
     beforeAfter.onClose = [this] { setCompareOpen (false); };
     lessonBox.onPrev = [this] { showLesson (state.lessonIndex - 1); };
     lessonBox.onNext = [this] { showLesson (state.lessonIndex + 1); };
@@ -556,6 +557,17 @@ void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
         }
     }
 
+    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    {
+        const bool playing = proc.mixTrack.isPlaying();
+        if (playing && ! mixWasPlaying)
+        {
+            const auto info = proc.mixTrack.getInfo (0);
+            proc.beginPass (info != nullptr ? proc.mixTrack.getPlayPosition() * info->seconds : -1.0);
+        }
+        mixWasPlaying = playing;
+    }
+
     proc.analyzer.readSnapshot (state.snap);
 
     // mastering EQ and limiter: what the user set, the limiter's meter, and the bypass level
@@ -619,7 +631,7 @@ void WwmaAudioProcessorEditor::reassess()
     state.targetSlot = proc.getProfileIndex() == proc.referenceIndex() ? proc.targetSlot() : -1;
     for (auto& r : state.refs)
         if (r.ready())
-            r.assessment = assess (r.snap, style, Window::song, state.lang, state.stage);
+            r.assessment = assess (r.snap, style, Window::song, state.lang, r.earlier ? state.stage : Stage::mastering, ! r.earlier);
 
     auto& bus = TrackBus::shared();
     bus.publish (proc.busId, printOf (state.snap, state.trackRole));
@@ -660,8 +672,98 @@ void WwmaAudioProcessorEditor::reassess()
     if (state.learnMode)
         updateLesson();
     updateBaselineDiff();
+    updatePasses();
     findings.refresh();
     findings.repaint();
+}
+
+void WwmaAudioProcessorEditor::updatePasses()
+{
+    // passes are told apart by the analyser restarting at every play
+    state.passesOn = proc.getAutoReset() || proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
+    const int count = proc.passCount.load();
+    if (count != passSeen)
+    {
+        if (state.currentPass.valid())
+        {
+            state.passes.push_back (state.currentPass);
+            if (state.passes.size() > 20)
+                state.passes.erase (state.passes.begin());
+        }
+        state.currentPass = {};
+        state.passStartPos = proc.passStart.load();
+        secondsAtPassChange = state.passesOn ? state.snap.secondsAnalysed : -1.0f;
+        passSeen = count;
+    }
+    // until the analyser has restarted, the numbers still belong to the previous pass
+    if (secondsAtPassChange >= 0.5f && state.snap.secondsAnalysed >= secondsAtPassChange)
+        return;
+    secondsAtPassChange = -1.0f;
+
+    // passes are always compared over everything measured in them (the SONG window)
+    Assessment songWide;
+    const Assessment* a = &state.assessment;
+    if (state.window != Window::song)
+    {
+        if (state.trackRole == TrackRole::mix)
+            songWide = assess (state.snap, state.profile, Window::song, state.lang, state.stage);
+        else
+        {
+            const auto* ref = state.targetRefView();
+            songWide = assessTrack (state.snap, proc.getProfile(), state.trackRole, Window::song, state.lang,
+                                    TrackBus::shared().others (proc.busId), ref != nullptr ? &ref->snap : nullptr);
+        }
+        a = &songWide;
+    }
+    if (a->enoughData && state.snap.secondsAnalysed >= state.currentPass.seconds)
+        state.currentPass = makePassRecord (*a, state.profile, state.stage, state.snap.secondsAnalysed, state.passStartPos);
+
+    const auto* previous = state.passesOn ? matchingPass (state.passes, state.passStartPos) : nullptr;
+    state.passComparable = previous != nullptr;
+    state.passVerdict = previous != nullptr ? comparePasses (*previous, state.currentPass, state.lang) : PassVerdict {};
+
+    if (state.trial.active)
+    {
+        const bool newPass = passSeen > state.trial.passAtStart;
+        const auto& b = state.trial.before;
+        const bool samePart = b.start < 0.0 || state.passStartPos < 0.0 || std::abs (b.start - state.passStartPos) <= 2.0;
+        state.trialResult = judgeTrial (state.trial, state.currentPass, newPass, samePart, state.lang);
+    }
+    progress.syncButtons();
+    progress.repaint();
+}
+
+void WwmaAudioProcessorEditor::toggleTrial()
+{
+    const bool done = state.trial.active && state.trialResult.kind != TrialResult::Kind::waiting;
+    if (state.trial.active && ! done)
+    {
+        state.trial = {};
+        state.trialResult = {};
+    }
+    else
+    {
+        // the most important finding with something to do, judged against the pass that just played
+        state.trial = {};
+        state.trialResult = {};
+        const auto& before = state.currentPass.valid() ? state.currentPass
+                           : (! state.passes.empty() ? state.passes.back() : PassRecord {});
+        for (const auto& f : state.assessment.findings)
+            if ((f.severity == Severity::fix || f.severity == Severity::watch) && before.valid())
+            {
+                state.trial.active = true;
+                state.trial.findingId = f.id;
+                state.trial.title = f.title;
+                state.trial.step = firstStep (f.howTo);
+                state.trial.before = before;
+                state.trial.passAtStart = passSeen;
+                break;
+            }
+        if (state.trial.active)
+            state.trialResult = judgeTrial (state.trial, state.currentPass, false, true, state.lang);
+    }
+    progress.syncButtons();
+    progress.repaint();
 }
 
 void WwmaAudioProcessorEditor::updateStyleButton()
@@ -987,7 +1089,7 @@ void WwmaAudioProcessorEditor::readReferences()
                 v.wave = info->wave;
                 std::tie (v.loopStart, v.loopEnd) = refs.getLoop (i);
                 v.earlier = refs.isEarlier (i);
-                v.assessment = assess (v.snap, state.profile, Window::song, state.lang, state.stage);
+                v.assessment = assess (v.snap, state.profile, Window::song, state.lang, v.earlier ? state.stage : Stage::mastering, ! v.earlier);
             }
             else if (v.status != ui::RefView::Status::loading)
             {

@@ -400,10 +400,63 @@ namespace
             check (ok, "kick, bass and kick + bass advice is complete in English and Finnish");
         }
     }
-    /** Screenshots of the track mode: WWMA on the kick, with another WWMA on the bass. */
+    /** Screenshots of the track mode: WWMA on the kick, with another WWMA on the bass,
+        and of "try the top fix" after the next pass. */
     void trackShots (const juce::File& dir)
     {
         dir.createDirectory();
+        for (auto lang : { Lang::english, Lang::finnish })
+        {
+            WwmaAudioProcessor p;
+            p.setPlayConfigDetails (2, 2, 48000.0, 512);
+            p.prepareToPlay (48000.0, 512);
+            p.setLang (lang);
+            p.setWindow (Window::song);
+            p.setStage (Stage::mixing);
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            auto* e = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+            auto pass = [&] (const synth::SongParams& base)
+            {
+                p.beginPass (30.0);
+                auto sp = base;
+                sp.seconds = 12.0;
+                const auto x = synth::renderSong (sp);
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                size_t since = 0;
+                e->refresh (true);
+                for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                {
+                    buf.copyFrom (0, 0, x.l.data() + i, 512);
+                    buf.copyFrom (1, 0, x.r.data() + i, 512);
+                    p.processBlock (buf, midi);
+                    if ((since += 512) >= 24000)
+                    {
+                        since = 0;
+                        e->refresh (true);
+                        e->pushHistory();
+                    }
+                }
+            };
+            synth::SongParams muddy, better;
+            muddy.mudDb = 8.0;
+            better.mudDb = 2.0;
+            pass (muddy);
+            e->refresh (true);
+            e->toggleTrial();
+            pass (better);
+            for (int k = 0; k < 60; ++k)
+                e->refresh (true);
+            e->settleDisplay();
+            e->refresh (false);
+            const auto name = lang == Lang::english ? "wwma-try-fix-en.png" : "wwma-try-fix-fi.png";
+            const auto img = e->createComponentSnapshot (e->getLocalBounds(), true, 1.0f);
+            juce::FileOutputStream out (dir.getChildFile (name));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (img, out);
+            std::cout << "  wrote " << name << std::endl;
+        }
         using Solo = synth::SongParams::Solo;
         for (auto lang : { Lang::english, Lang::finnish })
         {
@@ -468,11 +521,120 @@ namespace
             }
         }
     }
+
+    /** References are judged without mastering; every pass is compared with the previous pass of the
+        same part; "try the top fix" tells whether the change helped. */
+    void passTests()
+    {
+        std::cout << "References, passes and trying one fix" << std::endl;
+        const double sr = 48000.0;
+        const auto& house = builtInProfiles()[(size_t) defaultProfileIndex()];
+        {
+            // a loud master, clipped flat at the output: a normal finished commercial track
+            synth::SongParams hot;
+            hot.seconds = 20.0;
+            hot.driveDb = 18.0;
+            hot.limiter = false;
+            const auto x = synth::renderSong (hot);
+            const auto snap = analyse (Stereo { x.l, x.r }, sr);
+            const auto asMix = assess (snap, house, Window::song, Lang::english, Stage::mastering);
+            const auto asRef = assess (snap, house, Window::song, Lang::english, Stage::mastering, true);
+            bool anyMastering = false;
+            for (const char* id : { "loud", "peak", "clipping", "squashed", "headroom", "hotmix" })
+                anyMastering = anyMastering || has (asRef, id);
+            check ((has (asMix, "peak") || has (asMix, "clipping")) && ! anyMastering && asRef.score > asMix.score,
+                   "a mastered reference is not told off for peaks, loudness or clipping, and scores on its mix",
+                   ids (asMix) + " | " + ids (asRef));
+        }
+
+        struct Session
+        {
+            WwmaAudioProcessor p;
+            std::unique_ptr<juce::AudioProcessorEditor> ed;
+            WwmaAudioProcessorEditor* editor = nullptr;
+            Session()
+            {
+                p.setPlayConfigDetails (2, 2, 48000.0, 512);
+                p.prepareToPlay (48000.0, 512);
+                p.setProfileIndex (0);
+                p.setWindow (Window::song);
+                p.setStage (Stage::mixing);
+                ed.reset (p.createEditor());
+                editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+            }
+            /** Press play at the given song position and play this version for 12 s. */
+            void pass (double at, synth::SongParams sp)
+            {
+                p.beginPass (at);
+                sp.seconds = 12.0;
+                const auto x = synth::renderSong (sp);
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                size_t since = 0;
+                editor->refresh (true);
+                for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                {
+                    buf.copyFrom (0, 0, x.l.data() + i, 512);
+                    buf.copyFrom (1, 0, x.r.data() + i, 512);
+                    p.processBlock (buf, midi);
+                    if ((since += 512) >= 24000)
+                    {
+                        since = 0;
+                        editor->refresh (true);
+                    }
+                }
+                editor->refresh (true);
+            }
+        };
+
+        synth::SongParams muddy, clean, muddier;
+        muddy.mudDb = 8.0;
+        muddier.mudDb = 13.0;
+        {
+            Session s;
+            s.pass (30.0, muddy);
+            check (! s.editor->isPassComparable(), "the first pass has nothing to compare with");
+            s.pass (30.0, clean);
+            const auto v = s.editor->getPassVerdict();
+            check (s.editor->isPassComparable() && v.ready && v.verdict > 0, "the same part played again after a fix: 'better than the last pass'",
+                   juce::String (v.scoreDelta, 1) + " | better: " + v.betterNames.joinIntoString (", ") + " | worse: " + v.worseNames.joinIntoString (", "));
+            s.pass (30.0, muddier);
+            check (s.editor->getPassVerdict().verdict < 0, "  and after a change for the worse: 'worse than the last pass'",
+                   juce::String (s.editor->getPassVerdict().scoreDelta, 1));
+            s.pass (95.0, clean);
+            check (! s.editor->isPassComparable(), "  a different part of the song is not compared with it");
+        }
+        {
+            Session s;
+            s.pass (30.0, muddy);
+            s.editor->toggleTrial();
+            const auto& t = s.editor->getTrial();
+            check (t.active && t.findingId == "range2+" && t.step.isNotEmpty() && ! t.step.startsWith ("1."),
+                   "'try the top fix' picks the muddy low mids and gives one concrete step", juce::String (t.findingId) + ": " + t.step);
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::waiting, "  and waits for the next pass");
+            s.pass (30.0, clean);
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped, "  cutting the mud: 'it helped, keep it'",
+                   s.editor->getTrialResult().headline + " / " + s.editor->getTrialResult().detail);
+            s.editor->toggleTrial(); // next fix
+            Session w;
+            w.pass (30.0, muddy);
+            w.editor->toggleTrial();
+            w.pass (30.0, muddier);
+            check (w.editor->getTrialResult().kind == TrialResult::Kind::worse, "  more mud instead: 'that made it worse, undo it'",
+                   w.editor->getTrialResult().headline);
+        }
+    }
 }
 
 int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "passes")
+    {
+        passTests();
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
     if (argc > 1 && juce::String (argv[1]) == "track")
     {
         trackTests (true); // quick run of the track mode only, with the measured values
@@ -1329,6 +1491,7 @@ int main (int argc, char* argv[])
 
     // ------------------------------------------------------------------ track mode
     trackTests (false);
+    passTests();
 
     // ------------------------------------------------------------------ snapshots, lessons, report
     std::cout << "Snapshots, lessons and the mix report" << std::endl;

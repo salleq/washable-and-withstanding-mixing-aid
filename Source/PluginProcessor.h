@@ -77,6 +77,12 @@ public:
     wwma::TrackRole getTrackRole() const;
     void setTrackRole (wwma::TrackRole r);
     wwma::TrackRole getLastTrackKind() const;
+    /** Passes: every start of playback is a new pass, measured on its own (when "reset on play"
+        is on), so the editor can compare it with the previous pass of the same part. */
+    std::atomic<int> passCount { 0 };
+    std::atomic<double> passStart { -1.0 }; // song position of the newest pass, seconds (-1: unknown)
+    void beginPass (double startSeconds) noexcept;
+
     /** This instance on the shared track bus (other WWMA instances see its low end). */
     const int busId = wwma::TrackBus::shared().join();
 

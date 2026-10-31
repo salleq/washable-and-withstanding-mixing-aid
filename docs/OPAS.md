@@ -77,6 +77,28 @@ Prosentti jaetaan lähisukulaisten kesken: "House 72 %" tarkoittaa koko house-pe
 4. Tee muutos ja soita sama kohta uudestaan. Taajuustasapainossa näkyy snapshotin käyrä himmeänä turkoosina **haamukäyränä**, ja ero sen ja miksisi välillä on täytetty sinisellä, joten näet heti, kuinka paljon sointi on muuttunut. Selitteen **Ero**-ruudusta saat täytön pois päältä tai takaisin.
 5. Paina **Ennen/jälkeen**: taulukko näyttää jokaisen lukeman ennen ja nyt, merkittynä PAREMPI, HUONOMPI tai =.
 
+### Auttoiko muutos? Soitot ja "Kokeile ylintä vinkkiä"
+
+Vinkeistä on hyötyä vain, jos niiden noudattaminen oikeasti parantaa biisiä. WWMA tarkistaa sen puolestasi.
+
+**Jokaista soittoa verrataan edelliseen.** Kun **Nollaa playssa** on päällä (oletus), WWMA aloittaa mittauksen alusta aina, kun painat play. Kun soitat saman kohdan kuin äsken (aloitus enintään 2 sekunnin päässä samasta kohdasta), edistymispaneelin banneri kertoo muutaman sekunnin päästä **▲ Parempi kuin edellinen soitto (+6)**, **▼ Huonompi** tai **= Suunnilleen sama**, ja mitkä luvut liikkuivat: *Parempi: Sävy: Muta. Huonompi: Stereoleveys.* Kaava on siis yksinkertainen: muuta yhtä asiaa, soita sama kohta uudelleen, lue banneri. Eri kohtaa biisistä ei verrata, koska breakdownia ja droppia ei voi verrata reilusti.
+
+**Kokeile ylintä vinkkiä** (nappi edistymispaneelissa) tekee tästä askel askeleelta etenevän oppitunnin omalla biisilläsi:
+
+1. WWMA valitsee tärkeimmän havainnon ja näyttää siitä **yhden konkreettisen askeleen**, esimerkiksi *Pyyhkäise kapeaa korostusta 200–400 Hz:n välillä, etsi laatikkomainen kohta ja leikkaa siitä 2–4 dB.*
+2. Teet muutoksen ja soitat saman kohdan uudelleen.
+3. WWMA vertaa soittoa muutosta edeltävään ja kertoo:
+   - **Auttoi. Pidä muutos**: havainto pieneni selvästi tai katosi, eivätkä pisteet laskeneet. Tallenna DAW-projekti uutena versiona.
+   - **Tämä huononsi: peru muutos**: havainto tai pisteet huononivat. Peru ja kokeile pienempää liikettä tai seuraavaa askelta.
+   - **Ei selvää muutosta vielä**: muutos oli luultavasti liian pieni tai väärällä raidalla. Mene vähän pidemmälle.
+4. **Seuraava vinkki** siirtyy uuteen tärkeimpään havaintoon.
+
+![Kokeile ylintä vinkkiä: auttoi](images/wwma-try-fix-fi.png)
+
+Luvut eivät riipu siitä, kuinka kovaa soitat, mutta korvasi riippuvat: kun banneri sanoo, että muutos auttoi, kuuntele vielä kerran tasatulla äänekkyydellä (bouncaa vanha versio **aiempi versio** -paikkaan tai vertaa EQ:n ja limitterin kohdalla **Kuuntele ilman** -napilla).
+
+**Referenssiraidat** arvioidaan valmiina mastereina: niiden äänekkyys, true peak, klipatut huiput ja limitointi ovat masteroinnin valintoja, joten WWMA ei listaa niitä eikä vie niistä pisteitä. Vain miksi arvioidaan (sävy, bassopää, stereo, rummut). Oma **aiempi versiosi** arvioidaan kuten miksisi.
+
 ## 5. Opettelutila
 
 **Opettele**-napista saat lyhyitä käytännön tehtäviä havaintojen tilalle. Jokainen kertoo miksi asia on tärkeä ja mitä tehdä, ja palkki täyttyy, kun lähestyt tavoitetta. Tehtävä on valmis, kun tavoite pysyy 3 sekuntia musiikkia. Looppaa kohtaa ja säädä samalla, kun katsot.

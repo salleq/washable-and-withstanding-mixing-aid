@@ -160,14 +160,11 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         if (auto pos = ph->getPosition())
         {
             hostPlaying = pos->getIsPlaying();
-            if (hostPlaying && ! wasPlaying && autoReset.load())
-            {
-                analyzer.requestReset();
-                inputAnalyzer.requestReset();
-            }
-            wasPlaying = hostPlaying;
             if (auto t = pos->getTimeInSamples())
                 hostSample = *t;
+            if (hostPlaying && ! wasPlaying)
+                beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : -1.0);
+            wasPlaying = hostPlaying;
         }
     }
 
@@ -358,6 +355,17 @@ int WwmaAudioProcessor::getTarget() const { return (int) apvts.state.getProperty
 void WwmaAudioProcessor::setTarget (int t) { apvts.state.setProperty (targetId, t, nullptr); }
 Stage WwmaAudioProcessor::getStage() const { return (int) apvts.state.getProperty (stageId, 1) == 0 ? Stage::mixing : Stage::mastering; }
 void WwmaAudioProcessor::setStage (Stage st) { apvts.state.setProperty (stageId, st == Stage::mixing ? 0 : 1, nullptr); }
+
+void WwmaAudioProcessor::beginPass (double startSeconds) noexcept
+{
+    if (autoReset.load())
+    {
+        analyzer.requestReset();
+        inputAnalyzer.requestReset();
+    }
+    passStart.store (startSeconds);
+    passCount.fetch_add (1);
+}
 
 TrackRole WwmaAudioProcessor::getTrackRole() const
 {
