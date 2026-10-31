@@ -200,11 +200,12 @@ Comparing your mix only with an older bounce of your own song tells you what cha
 With one earlier version and one real reference loaded, the table becomes **Now vs earlier**:
 
 - three columns side by side: **Now** (your mix), **Earlier** and **Ref**, for loudness, true peak, PLR, LRA and width;
-- the three tonal ranges that differ most, level-matched, as the difference to the reference, now and in the earlier version;
+- the **score** of all three, measured against the same target (with the Reference track preset, built from the real reference);
+- the two tonal ranges that differ most, level-matched, as the difference to the reference, now and in the earlier version;
 - **To ref** on every row: *closer* (green) when your mix is now nearer the reference than the earlier version was, *further* (orange) when it moved away, *same* otherwise;
 - a summary line, for example "Closer in 6 of 8, further in 1".
 
-The tonal chart draws the earlier version as an orange dotted line next to the reference's dashed one, so you can see which one your curve sits nearer. The reference is still the target: findings, the score and **B · REF** use the selected reference as before. Select the earlier version (click its name) to listen to it with B; the table then warns that it is not a target.
+The tonal chart draws the earlier version as an orange dotted line next to the reference's dashed one, so you can see which one your curve sits nearer. The target is never built from your earlier version, even when you select it: with the **Reference track** preset it always comes from the real reference, so every change that moves your mix towards the reference counts as better. The reference is still the target: findings, the score and **B · REF** use the selected reference as before. Select the earlier version (click its name) to listen to it with B; the table then warns that it is not a target.
 
 ![Now, earlier version and reference side by side](images/wwma-earlier-version.png)
 
