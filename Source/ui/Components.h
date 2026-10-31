@@ -66,6 +66,7 @@ struct ViewState
     // reference tracks
     std::array<RefView, 2> refs;
     int activeRef = -1;
+    int targetSlot = -1;             // the reference slot the target is built from (Reference track preset), -1: none
     bool listening = false;          // A/B is on B: the reference is playing
     float refGainDb = 0.0f;          // level matching applied to the reference
     double playPosition = 0.0;

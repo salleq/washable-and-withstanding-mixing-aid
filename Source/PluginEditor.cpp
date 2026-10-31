@@ -67,7 +67,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     refBox.onCue = [this] (int, double fraction) { proc.refs.setCue (fraction); };
     refBox.onPlayPause = [this] (int slot) { toggleReferencePlay (slot); };
     refBox.onOpenDetail = [this] (int slot) { openReferenceDetail (slot); };
-    refBox.onToggleEarlier = [this] (int slot) { proc.refs.setEarlier (slot, ! proc.refs.isEarlier (slot)); readReferences(); compare.repaint(); };
+    refBox.onToggleEarlier = [this] (int slot) { proc.refs.setEarlier (slot, ! proc.refs.isEarlier (slot)); readReferences(); reassess(); };
     refDetail.onToggleEarlier = [this] { refBox.onToggleEarlier (refDetail.getSlot()); };
     refDetail.onClose = [this] { closeReferenceDetail(); };
     refDetail.onPlayPause = [this] { toggleReferencePlay (refDetail.getSlot()); };
@@ -567,6 +567,7 @@ void WwmaAudioProcessorEditor::reassess()
     state.profile = proc.getProfile();
     state.profileName = proc.getProfileIndex() == proc.referenceIndex() ? tr (state.lang, "Reference", "Referenssi")
                                                                         : juce::String (state.profile.name);
+    state.targetSlot = proc.getProfileIndex() == proc.referenceIndex() ? proc.targetSlot() : -1;
     state.assessment = assess (state.snap, state.profile, state.window, state.lang, state.stage);
     for (auto& r : state.refs)
         if (r.ready())

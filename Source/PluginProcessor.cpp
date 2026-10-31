@@ -277,9 +277,24 @@ void WwmaAudioProcessor::setChainOpen (bool on) { apvts.state.setProperty ("chai
 
 // ---- profiles
 
+int WwmaAudioProcessor::targetSlot() const
+{
+    // the target is built from a real reference, never from a track marked as the user's earlier version
+    auto usable = [this] (int i)
+    {
+        return juce::isPositiveAndBelow (i, ReferenceTracks::numSlots) && refs.getStatus (i) == ReferenceTracks::Status::ready && ! refs.isEarlier (i);
+    };
+    if (usable (refs.getActive()))
+        return refs.getActive();
+    for (int i = 0; i < ReferenceTracks::numSlots; ++i)
+        if (usable (i))
+            return i;
+    return -1;
+}
+
 bool WwmaAudioProcessor::hasReference() const
 {
-    return reference.has_value() || refs.getStatus (refs.getActive()) == ReferenceTracks::Status::ready;
+    return reference.has_value() || targetSlot() >= 0;
 }
 
 int WwmaAudioProcessor::getProfileIndex() const
@@ -303,8 +318,11 @@ Profile WwmaAudioProcessor::getProfile() const
     if (i == referenceIndex())
     {
         // the active reference track, or else a reference learned by listening
-        if (auto info = refs.getInfo (refs.getActive()); info != nullptr && refs.getStatus (refs.getActive()) == ReferenceTracks::Status::ready)
-            p = profileFromSnapshot (info->snap, info->name.toStdString());
+        if (const int slot = targetSlot(); slot >= 0)
+        {
+            if (auto info = refs.getInfo (slot))
+                p = profileFromSnapshot (info->snap, info->name.toStdString());
+        }
         else if (reference.has_value())
             p = *reference;
     }

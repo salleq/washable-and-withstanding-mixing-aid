@@ -58,6 +58,8 @@ public:
     wwma::Profile getProfile() const;
     /** True when the "Reference" preset has something to use: a loaded track or a learned one. */
     bool hasReference() const;
+    /** The reference slot the target is built from: the active one, unless it is marked as my earlier version. -1: none. */
+    int targetSlot() const;
     void learnReference (const wwma::Snapshot& s);
 
     wwma::Window getWindow() const;

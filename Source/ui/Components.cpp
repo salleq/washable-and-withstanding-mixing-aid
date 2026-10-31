@@ -989,7 +989,11 @@ void ScoreBox::paint (juce::Graphics& g)
                   fonts::body (12.5f), act->earlier ? colours::earlier : colours::ref);
         // what holds a reference's score down: the reference's own biggest findings
         const auto& other = state.otherAssessment();
-        if (other.score < 95.0f && ! other.findings.empty())
+        if (! state.viewingRef() && state.targetSlot >= 0 && state.targetSlot == state.activeRef)
+            a.append (t (lang, " This track is the target itself, so a high score says nothing about it.",
+                               " Tämä raita on itse tavoite, joten korkea pistemäärä ei kerro siitä mitään."),
+                      fonts::body (12.5f), colours::warn);
+        else if (other.score < 95.0f && ! other.findings.empty())
         {
             juce::String why;
             for (size_t i = 0; i < other.findings.size() && i < 1; ++i)
@@ -1771,6 +1775,11 @@ void CompareBox::paintThreeWay (juce::Graphics& g, juce::Rectangle<int> r, juce:
     {
         rows.push_back ({ name, fmt (lang, now), fmt (lang, earlier), fmt (lang, refV), verdict (now, earlier, refV, same) });
     };
+    // the score: all three measured against the same target, built from the real reference
+    rows.push_back ({ t (lang, "Score", "Pisteet"), juce::String (juce::roundToInt (state.assessment.score)),
+                      juce::String (juce::roundToInt (old->assessment.score)), juce::String (juce::roundToInt (ref->assessment.score)),
+                      state.assessment.score > old->assessment.score + 2.0f ? Verdict::closer
+                          : (state.assessment.score < old->assessment.score - 2.0f ? Verdict::further : Verdict::same) });
     add (t (lang, "Integrated", "Integroitu"), m.loudness, old->snap.integrated, ref->snap.integrated, 0.5f);
     add ("True peak", m.truePeak, em.truePeak, rm.truePeak, 0.3f);
     add ("PLR", m.plr, em.plr, rm.plr, 0.5f);
@@ -1784,7 +1793,7 @@ void CompareBox::paintThreeWay (juce::Graphics& g, juce::Rectangle<int> r, juce:
     auto dOld = [&] (int i) { return em.rangeDeviation[(size_t) i] - rm.rangeDeviation[(size_t) i]; };
     auto weight = [&] (int i) { return juce::jmax (std::abs (dNow (i)), std::abs (dOld (i))); };
     std::sort (order.begin(), order.end(), [&] (int a, int b) { return weight (a) > weight (b); });
-    for (int k = 0; k < 3; ++k)
+    for (int k = 0; k < 2; ++k)
     {
         const int i = order[(size_t) k];
         rows.push_back ({ rangeNickname ((Range) i, lang), fmt (lang, dNow (i), 1, true), fmt (lang, dOld (i), 1, true), juce::String ("0"),
@@ -1801,7 +1810,7 @@ void CompareBox::paintThreeWay (juce::Graphics& g, juce::Rectangle<int> r, juce:
         g.drawHorizontalLine (rr.getY(), (float) rr.getX(), (float) rr.getRight());
         g.setColour (colours::soft);
         g.setFont (fonts::body (12.5f));
-        g.drawText (row.name + (k >= 5 ? juce::String (" *") : juce::String()), rr, juce::Justification::centredLeft);
+        g.drawText (row.name + (k >= 6 ? juce::String (" *") : juce::String()), rr, juce::Justification::centredLeft);
         g.setFont (fonts::num (11.5f));
         cell (rr, c1 - 50, c1, row.now, colours::text);
         cell (rr, c2 - 50, c2, row.old, colours::earlier);

@@ -596,6 +596,19 @@ int main (int argc, char* argv[])
         check (q2.refs.isEarlier (1) && ! q2.refs.isEarlier (0), "  the mark is saved with the project");
         q2.refs.loadNow (1, refFile);
         check (! q2.refs.isEarlier (1), "  a new file in the slot starts as a normal reference");
+        {
+            // the target comes from the real reference even while my earlier version is the selected track
+            WwmaAudioProcessor w;
+            w.setPlayConfigDetails (2, 2, sr, 512);
+            w.prepareToPlay (sr, 512);
+            w.refs.loadNow (0, refFile);
+            w.refs.loadNow (1, refFile);
+            w.refs.setEarlier (1, true);
+            w.refs.setActive (1);
+            check (w.targetSlot() == 0 && w.hasReference(), "the target is built from the real reference, not from my earlier version");
+            w.refs.setEarlier (0, true);
+            check (w.targetSlot() < 0 && ! w.hasReference(), "  and with only earlier versions loaded there is no target");
+        }
         using V = wwma::ui::CompareBox::Verdict;
         check (wwma::ui::CompareBox::verdict (-9.0f, -6.0f, -9.5f, 0.5f) == V::closer
                    && wwma::ui::CompareBox::verdict (-4.0f, -6.0f, -9.5f, 0.5f) == V::further
