@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - name: macOS
-            os: macos-14
+            os: macos-15
             pluginval_url: https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
             pluginval_bin: pluginval.app/Contents/MacOS/pluginval
           - name: Windows
