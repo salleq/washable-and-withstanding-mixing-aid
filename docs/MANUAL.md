@@ -191,6 +191,8 @@ Playing the reference inside WWMA:
 
 ![Choosing a loop in the big reference view](images/wwma-reference-loop.png)
 
+**What the reference's score means.** "Ref 1 scores 73 against the House preset" is how well the track fits the selected preset, not how good it is. A great record can score low if it differs from the preset (a heavier bass, a different loudness). It also loses points for things that do not depend on a target, like peaks over the ceiling or clipped runs, and the line says what held it down. Pick the **Reference track** preset to use the reference as the target: its score then only reflects those target-independent problems.
+
 ### Your earlier version against a real reference
 
 Comparing your mix only with an older bounce of your own song tells you what changed, not whether it got better. So load both: a record you like in one slot and your earlier bounce in the other, then press the small **EARLIER** chip on the earlier bounce (or **My earlier version** in the big view). The slot then reads "my earlier version" and the mark is saved with your project.
