@@ -6,7 +6,7 @@ using namespace wwma;
 namespace
 {
     const juce::Identifier windowId ("window"), langId ("lang"), autoResetId ("autoReset"), referenceId ("Reference"),
-                           stageId ("stage"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
+                           stageId ("stage"), trackId ("track"), trackKindId ("trackKind"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
                            refsId ("ReferenceTracks"), slotId ("Slot");
 
     Lang defaultLang() { return Lang::english; } // Finnish is one click away
@@ -358,6 +358,23 @@ int WwmaAudioProcessor::getTarget() const { return (int) apvts.state.getProperty
 void WwmaAudioProcessor::setTarget (int t) { apvts.state.setProperty (targetId, t, nullptr); }
 Stage WwmaAudioProcessor::getStage() const { return (int) apvts.state.getProperty (stageId, 1) == 0 ? Stage::mixing : Stage::mastering; }
 void WwmaAudioProcessor::setStage (Stage st) { apvts.state.setProperty (stageId, st == Stage::mixing ? 0 : 1, nullptr); }
+
+TrackRole WwmaAudioProcessor::getTrackRole() const
+{
+    return (TrackRole) juce::jlimit (0, numTrackRoles - 1, (int) apvts.state.getProperty (trackId, 0));
+}
+
+void WwmaAudioProcessor::setTrackRole (TrackRole r)
+{
+    apvts.state.setProperty (trackId, (int) r, nullptr);
+    if (r != TrackRole::mix)
+        apvts.state.setProperty (trackKindId, (int) r, nullptr);
+}
+
+TrackRole WwmaAudioProcessor::getLastTrackKind() const
+{
+    return (TrackRole) juce::jlimit (1, numTrackRoles - 1, (int) apvts.state.getProperty (trackKindId, (int) TrackRole::kick));
+}
 
 std::vector<SavedSnapshot> WwmaAudioProcessor::getSnapshots() const
 {

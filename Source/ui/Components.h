@@ -5,6 +5,7 @@
 #include "advice/Lessons.h"
 #include "advice/MixReport.h"
 #include "advice/ChainAdvice.h"
+#include "advice/TrackAdvice.h"
 #include <functional>
 #include <array>
 #include <map>
@@ -38,6 +39,11 @@ struct ViewState
     Lang lang = Lang::english;
     Window window = Window::song;
     Stage stage = Stage::mastering;
+    TrackRole trackRole = TrackRole::mix; // track mode: WWMA on a kick, bass or kick + bass bus
+
+    /** Track mode: low end peaks marked in the tonal view (this track, and the other track on the bus). */
+    struct Marker { float hz; juce::String label; juce::Colour colour; };
+    std::vector<Marker> markers;
 
     bool styleChipShown = false;         // the style suggestion sits in the tonal panel's header
     float displayScore = 0.0f;           // smoothed for the meter

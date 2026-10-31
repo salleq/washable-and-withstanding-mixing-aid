@@ -124,7 +124,45 @@ Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ
 
 Miksausraportti listaa EQ- ja limitteriasetuksesi ehdotusten rinnalla.
 
-## 8. Hyvä työjärjestys
+## 8. Raitatila: kick, basso ja kick + basso
+
+WWMA:n voi laittaa myös yksittäiselle raidalle. Paina yläpalkista **RAITA** (MIKSAUS- ja MASTER-nappien vieressä) ja valitse, mikä raita on: **Kick**, **Basso** tai **Kick + basso -väylä**. Tarkistukset, taajuustavoite ja pisteet vaihtuvat sen äänen mukaan, ja äänekkyyslaatikko näyttää äänekkyystavoitteen sijaan raidan tilan (huiput noin −10…−6 dBFS). WWMA vain mittaa, se ei käsittele ääntä. Valinta tallentuu projektiin, ja **MIKSAUS** tai **MASTER** palauttaa normaalitilaan.
+
+![WWMA kick-raidalla, toinen WWMA bassolla](images/wwma-track-kick-fi.png)
+
+**Kick**
+
+- **Viritys:** kickin sävel ja taajuus (esim. *A1, 55 Hz*), merkittynä spektriin. Useimmat elektroniset kickit ovat 45–65 Hz:ssä. Hyvin matala (alle 40 Hz) tai matalan rungon puute (yli 100 Hz) saa huomautuksen.
+- **Pituus:** kuinka kauan kickillä kestää vaimeta 20 dB. Kun biitti on tasainen, sitä verrataan offbeatiin: 124 BPM:ssä offbeat-basso alkaa 242 ms kickin jälkeen, joten pidempi häntä soi sen päälle. Psytrancessa raja on tiukempi; tyyleissä, joissa pitkä kick on itse soundi (808, hardstyle, dubstep), pituutta ei arvioida.
+- **Klikki:** 2–6 kHz:n klikki suhteessa runkoon. Ilman sitä kick katoaa puhelimesta; liikaa klikkiä kuulostaa terävältä.
+- **Pahvisuus:** 200–500 Hz suhteessa runkoon.
+- **Litistys:** crest-kerroin (huippu suhteessa RMS:ään). Alle noin 7 dB:ssä kick on klipattu tai limitoitu litteäksi.
+
+**Basso**
+
+- **Pääsävel:** missä bassolinjan paino on, sävelenä.
+- **Harmoniset:** 200–800 Hz suhteessa perustaajuuteen. Puhdas siniaaltobasso katoaa puhelimesta; enimmäkseen keskiääntä oleva basso tappelee sointujen ja vokaalin kanssa.
+- **Sub vs. basso:** alle 50 Hz suhteessa 63–125 Hz:iin, väljästi tyyliin verrattuna.
+- **Tasaiset nuotit:** yli noin 17 dB:n crest-kerroin tarkoittaa, että jotkin nuotit hyppäävät esiin.
+
+**Kick + basso -väylä** (molemmat samassa ryhmässä tai väylässä)
+
+- *Kick hukkuu bassoon*: kuinka paljon kick nousee basson yli, ja sidechain-asetukset tempon mukaan (release noin puoli iskua).
+- *Sub vs. basso* tyyliin verrattuna, liikaa tai liian vähän.
+- Harmoniset puhelinta varten, ja klipperillä litistetty väylä.
+
+**Kaikilta raidoilta** tarkistetaan lisäksi jyrinä alle 30 Hz:n (ja mihin ylipäästösuodin kannattaa laittaa), bassopää joka ei ole mono tai heikkenee monona, väylälle liian kuumat huiput (tavoite −10…−6 dBFS) ja klippaus.
+
+**Kick ja basso näkevät toisensa.** Laita yksi WWMA kickiin (Kick) ja toinen bassoon (Basso). Ne jakavat mittauksensa, joten kumpikin näyttää toisen matalan huipun omassa spektrissään ja kertoo:
+
+- *Kickin ja basson huiput osuvat samaan kohtaan*: kummankin vahvin bassopää on noin kahden puolisävelen sisällä tai ne jakavat laajan alueen. Valitse silloin yksi korjaus: duckaa bassoa, siirrä ne erilleen (esim. kick 50–60 Hz ja basso 80–110 Hz) tai leikkaa bassoon kapea kuoppa kickin taajuudelle.
+- *Kick on epävireessä basson kanssa*: kickin sävel on riitasointuisen välin (puolisävel, kokosävel, tritonus tai septimi) päässä basson pääsävelestä. Viritä kick basson sävelelle tai sen kvintille.
+
+Kummankin WWMA:n pitää soida muutama sekunti, ennen kuin toinen näkee sen. Tämä toimii DAWeissa, jotka lataavat pluginit samaan prosessiin (useimmat). Jos DAW ajaa jokaista pluginia erikseen, jakaminen ei onnistu; käytä silloin yhtä WWMA:ta kick + basso -väylällä.
+
+**Kun referenssiraita on ladattu**, kickin viritystä verrataan referenssin vahvimpaan matalaan huippuun (yleensä sen kickiin), ja kick + basso -väylällä sub/basso-tasapainoa, kickin nousua basson yli ja duckausta verrataan referenssin bassopäähän.
+
+## 9. Hyvä työjärjestys
 
 1. **Tasapaino ensin.** Säädä faderit ennen pluginien lisäämistä. Kick ja basso ensin, sitten virveli, sitten liidi tai vokaali, sitten loput.
 2. **Matalat kuntoon.** Päätä, kumpi omistaa subin, kick vai basso. Pidä kaikki alle noin 120 Hz monona. Ylipäästösuodata muut äänet.
@@ -133,7 +171,7 @@ Miksausraportti listaa EQ- ja limitteriasetuksesi ehdotusten rinnalla.
 5. **Tila ja leveys.** Pidä tärkeät äänet keskellä ja levitä tukiosat sivuille. Tarkista monona.
 6. **Masterointi vasta lopuksi.** Jätä miksaukseen tilaa (huiput noin −6…−3 dBFS). Lisää limitteri vasta MASTER-vaiheessa ja säädä katto (−1 dBTP) sekä äänekkyys tyylin mukaan. Vertaa **Kuuntele ilman** -napilla ennen kuin päätät.
 
-## 9. Perusasiat lyhyesti
+## 10. Perusasiat lyhyesti
 
 ### EQ
 
@@ -159,7 +197,7 @@ Miksausraportti listaa EQ- ja limitteriasetuksesi ehdotusten rinnalla.
 - **Virveli tarvitsee** runkoa noin 200 Hz:ssä ja napsua 2–5 kHz:ssä.
 - Jos rummuista puuttuu terävyys, syyllinen on usein limitteri tai väyläkompressori, ei EQ.
 
-## 10. Yleiset sudenkuopat (WWMA huomaa nämä)
+## 11. Yleiset sudenkuopat (WWMA huomaa nämä)
 
 | Sudenkuoppa | Mitä tapahtuu | Mitä tehdä |
 |---|---|---|
@@ -189,7 +227,7 @@ Miksausraportti listaa EQ- ja limitteriasetuksesi ehdotusten rinnalla.
 - **Kovempi kuulostaa paremmalta.** Tasaa äänekkyys aina ennen vertailua. A/B-kytkin tekee sen referenssille.
 - **Soolo johtaa harhaan.** Tee päätökset kaiken soidessa.
 
-## 11. Muista
+## 12. Muista
 
 - Pisteet kertovat, kuinka lähellä tyylin tyypillistä masteria olet. Ne eivät kerro, onko biisi hyvä.
 - Presetit ovat valistuneita arvauksia yleisestä käytännöstä. Tarkin tavoite on referenssiraita, josta pidät.

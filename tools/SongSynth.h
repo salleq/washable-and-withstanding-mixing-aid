@@ -47,6 +47,13 @@ struct SongParams
     double driveDb = 7.0;         // into the limiter: more = louder and flatter
     double ceilingDb = -1.0;      // limiter output ceiling (sample peak)
     bool limiter = true;          // false: just the gain, hard clipped at 0 dBFS
+
+    // single tracks (track mode): only these parts, no master limiter
+    enum class Solo { all, kick, bass, kickBass } solo = Solo::all;
+    double kickHz = 48.0;         // where the kick's pitch drop ends
+    double kickSweep = 32.0;      // 1/s, how fast the kick's pitch drops to kickHz
+    double kickDecay = 7.0;       // 1/s, how fast the kick body fades (larger = shorter)
+    double kickClick = 0.25;      // level of the noise click at the start
 };
 
 namespace detail
@@ -146,9 +153,9 @@ inline Stereo renderSong (const SongParams& p, int seed = 1)
         double kick = 0.0;
         if (p.drums && tk < 2.0)
         {
-            kickPhase += 2.0 * pi * (48.0 + 110.0 * std::exp (-tk * 32.0)) / sr;
-            kick = db (p.kickDb) * (0.95 * std::exp (-tk * 7.0) * std::sin (kickPhase)
-                                    + 0.25 * (rng.nextDouble() * 2.0 - 1.0) * std::exp (-tk * 400.0));
+            kickPhase += 2.0 * pi * (p.kickHz + 110.0 * std::exp (-tk * p.kickSweep)) / sr;
+            kick = db (p.kickDb) * (0.95 * std::exp (-tk * p.kickDecay) * std::sin (kickPhase)
+                                    + p.kickClick * (rng.nextDouble() * 2.0 - 1.0) * std::exp (-tk * 400.0));
         }
 
         // bass: off-beat eighths with harmonics, low-passed
@@ -222,6 +229,12 @@ inline Stereo renderSong (const SongParams& p, int seed = 1)
 
         double l = musicL + kick + snare + hatL;
         double r = musicR + kick + snare + hatR;
+        if (p.solo != SongParams::Solo::all)
+        {
+            const bool k = p.solo != SongParams::Solo::bass, b = p.solo != SongParams::Solo::kick;
+            l = (k ? kick : 0.0) + (b ? bl : 0.0);
+            r = (k ? kick : 0.0) + (b ? br : 0.0);
+        }
         if (p.rumbleDb > -90.0)
         {
             const double rum = db (p.rumbleDb) * 0.5 * std::sin (2.0 * pi * 21.0 * t);

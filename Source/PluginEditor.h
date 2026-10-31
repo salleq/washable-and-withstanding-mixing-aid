@@ -70,6 +70,9 @@ public:
     void setShowSuggestions (bool on);
     /** Level-matched bypass of the EQ and limiter. */
     void setListeningWithout (bool on);
+    /** Track mode: WWMA on a kick, bass or kick + bass bus (TrackRole::mix = the normal mode). */
+    void setTrackRole (wwma::TrackRole r);
+    const wwma::Assessment& getAssessment() const noexcept { return state.assessment; }
 
     static constexpr int baseWidth = 1140, baseHeight = 800;
 
@@ -125,6 +128,9 @@ private:
     int refGeneration = -1;
 
     juce::ComboBox profileBox, targetBox;
+    juce::ComboBox trackBox; // shown instead of the loudness target in track mode
+    juce::TextButton trackButton;
+    void fillTrackBox();
     juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, langButton, mixAButton, refBButton;
     juce::ToggleButton autoResetToggle;
     juce::TextButton mixLoadButton, mixPlayButton; // standalone app only: your own song

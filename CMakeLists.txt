@@ -84,6 +84,7 @@ set(WWMA_CORE_SOURCES
     Source/advice/MixReport.cpp
     Source/advice/Lessons.cpp
     Source/advice/ChainAdvice.cpp
+    Source/advice/TrackAdvice.cpp
     Source/dsp/MasterChain.cpp
     Source/reference/ReferenceTracks.cpp)
 

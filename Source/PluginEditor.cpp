@@ -20,7 +20,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     addAndMakeVisible (content);
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &loudness, &meters, &history, &compare, &refBox, &tonal, &findings, &score, &translation, &progress,
-             &profileBox, &targetBox, &mixButton, &masterButton, &nowButton, &songButton, &mixAButton, &refBButton,
+             &profileBox, &targetBox, &trackBox, &mixButton, &masterButton, &trackButton, &nowButton, &songButton, &mixAButton, &refBButton,
              &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton })
         content.addAndMakeVisible (c);
     content.addChildComponent (beforeAfter);
@@ -55,6 +55,17 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
         b.setConnectedEdges (juce::Button::ConnectedOnLeft);
     };
     segment (mixButton, masterButton, 1);
+    // MIX | MASTER | TRACK: one group of three
+    trackButton.setClickingTogglesState (true);
+    trackButton.setRadioGroupId (1);
+    masterButton.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    trackButton.setConnectedEdges (juce::Button::ConnectedOnLeft);
+    trackBox.onChange = [this]
+    {
+        const int id = trackBox.getSelectedId();
+        if (id > 0)
+            setTrackRole ((TrackRole) id);
+    };
     segment (nowButton, songButton, 2);
     segment (mixAButton, refBButton, 3);
     refBButton.getProperties().set ("onColour", (juce::int64) colours::ref.getARGB());
@@ -95,8 +106,9 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
         readReferences();
     };
 
-    mixButton.onClick = [this] { if (mixButton.getToggleState()) { proc.setStage (Stage::mixing); reassess(); } };
-    masterButton.onClick = [this] { if (masterButton.getToggleState()) { proc.setStage (Stage::mastering); reassess(); } };
+    mixButton.onClick = [this] { if (mixButton.getToggleState()) { proc.setStage (Stage::mixing); setTrackRole (TrackRole::mix); } };
+    masterButton.onClick = [this] { if (masterButton.getToggleState()) { proc.setStage (Stage::mastering); setTrackRole (TrackRole::mix); } };
+    trackButton.onClick = [this] { if (trackButton.getToggleState()) setTrackRole (proc.getLastTrackKind()); };
     nowButton.onClick = [this] { if (nowButton.getToggleState()) { proc.setWindow (Window::now); state.scoreHistory.clear(); reassess(); } };
     songButton.onClick = [this] { if (songButton.getToggleState()) { proc.setWindow (Window::song); state.scoreHistory.clear(); reassess(); } };
 
@@ -304,10 +316,12 @@ void WwmaAudioProcessorEditor::Content::resized()
     auto& e = editor;
 
     // top bar
-    e.profileBox.setBounds (160, 12, 220, 32);
-    e.mixButton.setBounds (390, 12, 64, 32);
-    e.masterButton.setBounds (454, 12, 76, 32);
-    e.targetBox.setBounds (540, 12, 168, 32);
+    e.profileBox.setBounds (160, 12, 190, 32);
+    e.mixButton.setBounds (358, 12, 64, 32);
+    e.masterButton.setBounds (422, 12, 72, 32);
+    e.trackButton.setBounds (494, 12, 66, 32);
+    e.targetBox.setBounds (568, 12, 140, 32);
+    e.trackBox.setBounds (568, 12, 140, 32);
     e.mixAButton.setBounds (766, 12, 72, 32);
     e.refBButton.setBounds (838, 12, 72, 32);
     e.langButton.setBounds (baseWidth - margin - 40, 12, 40, 32);
@@ -386,11 +400,40 @@ void WwmaAudioProcessorEditor::fillTargetBox()
     targetBox.setSelectedId (proc.getTarget() + 1, juce::dontSendNotification);
 }
 
+void WwmaAudioProcessorEditor::fillTrackBox()
+{
+    trackBox.clear (juce::dontSendNotification);
+    for (int i = 1; i < numTrackRoles; ++i)
+        trackBox.addItem (trackRoleName ((TrackRole) i, proc.getLang()), i);
+    trackBox.setSelectedId ((int) proc.getLastTrackKind(), juce::dontSendNotification);
+}
+
+void WwmaAudioProcessorEditor::setTrackRole (TrackRole r)
+{
+    proc.setTrackRole (r);
+    if (r != TrackRole::mix && state.chainOpen)
+        setChainOpen (false);
+    state.scoreHistory.clear();
+    updateTexts();
+    reassess();
+}
+
 void WwmaAudioProcessorEditor::updateTexts()
 {
     const auto lang = proc.getLang();
     fillProfileBox();
     fillTargetBox();
+    fillTrackBox();
+    const bool trackMode = proc.getTrackRole() != TrackRole::mix;
+    trackBox.getProperties().set ("caption", tr (lang, "Track", "Raita"));
+    trackBox.setTooltip (tr (lang, "What this track is. WWMA measures what matters for it: the kick's tuning, length and click, the bass's harmonics and mono, or how kick and bass share the low end. With WWMA on both the kick and the bass, the two see each other.",
+                                   "Mikä raita tämä on. WWMA mittaa sille tärkeät asiat: kickin virityksen, pituuden ja klikin, basson harmoniset ja monon, tai miten kick ja basso jakavat bassopään. Kun WWMA on sekä kickillä että bassolla, ne näkevät toisensa."));
+    trackButton.setButtonText (ui::upper (tr (lang, "Track", "Raita")));
+    trackButton.setTooltip (tr (lang, "Track mode: put WWMA on a single kick, bass or kick + bass bus instead of last on the master. It still only measures and suggests.",
+                                      "Raitatila: laita WWMA yksittäiselle kick-, basso- tai kick + basso -raidalle masterin viimeisen paikan sijaan. Se edelleen vain mittaa ja ehdottaa."));
+    trackBox.setVisible (trackMode);
+    targetBox.setVisible (! trackMode);
+    chainButton.setEnabled (! trackMode);
     targetBox.getProperties().set ("caption", tr (lang, "Target", "Kohde"));
     targetBox.setTooltip (tr (lang, "Loudness target. The style's own is a good start; pick streaming if the song goes to Spotify and friends.",
                                     "Äänekkyystavoite. Tyylin oma on hyvä alku; valitse suoratoisto, jos biisi menee Spotifyyn ja muihin palveluihin."));
@@ -455,8 +498,9 @@ void WwmaAudioProcessorEditor::updateTexts()
     mixAButton.setToggleState (! state.listening, juce::dontSendNotification);
     refBButton.setToggleState (state.listening, juce::dontSendNotification);
     const bool mixing = proc.getStage() == Stage::mixing;
-    mixButton.setToggleState (mixing, juce::dontSendNotification);
-    masterButton.setToggleState (! mixing, juce::dontSendNotification);
+    mixButton.setToggleState (mixing && ! trackMode, juce::dontSendNotification);
+    masterButton.setToggleState (! mixing && ! trackMode, juce::dontSendNotification);
+    trackButton.setToggleState (trackMode, juce::dontSendNotification);
     content.repaint();
 }
 
@@ -564,16 +608,47 @@ void WwmaAudioProcessorEditor::reassess()
     state.lang = proc.getLang();
     state.window = proc.getWindow();
     state.stage = proc.getStage();
-    state.profile = proc.getProfile();
+    state.trackRole = proc.getTrackRole();
+    const auto style = proc.getProfile();
+    const bool trackMode = state.trackRole != TrackRole::mix;
+    state.profile = trackMode ? trackProfile (state.trackRole, style) : style;
     state.profileName = proc.getProfileIndex() == proc.referenceIndex() ? tr (state.lang, "Reference", "Referenssi")
-                                                                        : juce::String (state.profile.name);
+                                                                        : juce::String (style.name);
+    if (trackMode)
+        state.profileName = trackRoleName (state.trackRole, state.lang) + " (" + state.profileName + ")";
     state.targetSlot = proc.getProfileIndex() == proc.referenceIndex() ? proc.targetSlot() : -1;
-    state.assessment = assess (state.snap, state.profile, state.window, state.lang, state.stage);
     for (auto& r : state.refs)
         if (r.ready())
-            r.assessment = assess (r.snap, state.profile, Window::song, state.lang, state.stage);
+            r.assessment = assess (r.snap, style, Window::song, state.lang, state.stage);
 
-    state.chainAdvice = adviseChain (state.inputSnap, state.profile, state.window, state.lang, state.stage, state.chainSettings);
+    auto& bus = TrackBus::shared();
+    bus.publish (proc.busId, printOf (state.snap, state.trackRole));
+    state.markers.clear();
+    if (trackMode)
+    {
+        const auto others = bus.others (proc.busId);
+        const auto* ref = state.targetRefView();
+        state.assessment = assessTrack (state.snap, style, state.trackRole, state.window, state.lang, others, ref != nullptr ? &ref->snap : nullptr);
+        if (state.assessment.enoughData)
+        {
+            const auto& fine = state.window == Window::song ? state.snap.lowFineSong : state.snap.lowFineNow;
+            const auto pk = state.trackRole == TrackRole::kick ? findKickNote (fine) : findLowPeak (fine, 30.0, 250.0);
+            if (pk.found)
+                state.markers.push_back ({ pk.hz, trackRoleName (state.trackRole, state.lang) + " " + noteName (pk.hz) + " " + juce::String (juce::roundToInt (pk.hz)) + " Hz", colours::accent });
+            for (const auto& o : others)
+                if (o.peakHz > 0.0f && o.role != state.trackRole)
+                {
+                    state.markers.push_back ({ o.peakHz, trackRoleName (o.role, state.lang) + " " + noteName (o.peakHz) + " " + juce::String (juce::roundToInt (o.peakHz)) + " Hz", colours::info });
+                    break;
+                }
+        }
+        state.chainAdvice = {};
+    }
+    else
+    {
+        state.assessment = assess (state.snap, state.profile, state.window, state.lang, state.stage);
+        state.chainAdvice = adviseChain (state.inputSnap, state.profile, state.window, state.lang, state.stage, state.chainSettings);
+    }
     chainPanel.refresh();
 
     updateStyleButton();
@@ -598,7 +673,7 @@ void WwmaAudioProcessorEditor::updateStyleButton()
     const bool usingPreset = current >= 0 && current < (int) all.size();
 
     // a loaded reference is the better target, and its legend uses this spot
-    const bool show = styleGuess.valid && state.activeRefView() == nullptr;
+    const bool show = styleGuess.valid && state.activeRefView() == nullptr && state.trackRole == TrackRole::mix;
     state.styleChipShown = show;
     styleButton.setVisible (show);
     styleSuggests = false;

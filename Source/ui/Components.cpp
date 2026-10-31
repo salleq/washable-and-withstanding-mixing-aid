@@ -144,7 +144,23 @@ void LoudnessBox::paint (juce::Graphics& g)
             else if (v < p.lufsMin - 0.5f) { status = t (lang, "quieter", "hiljaisempi"); col = colours::warn; }
             else                           { status = t (lang, "on target", "kohdallaan"); col = colours::good; }
         }
-        const auto text = t (lang, "Target ", "Tavoite ") + fmt (lang, p.lufsMin) + " " + ellipsis + " " + fmt (lang, p.lufsMax) + (status.isNotEmpty() ? dot : juce::String());
+        if (state.trackRole != TrackRole::mix)
+        {
+            // a single track has no loudness target: what counts is headroom for the bus
+            const float pk = juce::jmax (s.truePeakMax, s.samplePeakMax);
+            status = {};
+            col = colours::dim;
+            if (pk > -100.0f)
+            {
+                if (pk > -1.0f)       { status = t (lang, "too hot", "liian kuuma"); col = colours::bad; }
+                else if (pk < -30.0f) { status = t (lang, "very low", "hyvin matala"); col = colours::warn; }
+                else                  { status = t (lang, "headroom ok", "tilaa on"); col = colours::good; }
+            }
+        }
+        const auto text = (state.trackRole != TrackRole::mix
+                               ? t (lang, "Track peaks ", "Raidan huiput ") + fmt (lang, -10.0f, 0) + " " + ellipsis + " " + fmt (lang, -6.0f, 0) + " dBFS"
+                               : t (lang, "Target ", "Tavoite ") + fmt (lang, p.lufsMin) + " " + ellipsis + " " + fmt (lang, p.lufsMax))
+                          + (status.isNotEmpty() ? dot : juce::String());
         g.setFont (fonts::body (12.5f));
         g.setColour (colours::dim);
         g.drawText (text, row, juce::Justification::centredLeft);
@@ -157,10 +173,10 @@ void LoudnessBox::paint (juce::Graphics& g)
 
     const float plr = s.integrated > -100.0f && s.truePeakMax > -100.0f ? s.truePeakMax - s.integrated : -200.0f;
     juce::Colour plrCol = colours::text, tpCol = colours::text;
-    if (plr > -100.0f)
+    if (plr > -100.0f && state.trackRole == TrackRole::mix)
         plrCol = plr < p.plrMin ? outsideColour (p.plrMin - plr, 2.0f) : outsideColour (plr - p.plrMax, 3.0f);
     if (s.truePeakMax > -100.0f)
-        tpCol = outsideColour (s.truePeakMax - p.truePeakMax, 1.0f);
+        tpCol = outsideColour (s.truePeakMax - (state.trackRole == TrackRole::mix ? p.truePeakMax : -1.0f), 1.0f);
     const float corr = state.window == Window::now ? s.correlationNow : s.correlationSong;
 
     struct Stat { juce::String label, value, unit; juce::Colour col; };
@@ -346,6 +362,8 @@ void TonalView::paint (juce::Graphics& g)
         drawLabel (g, t (lang, "showing ", "näytetään ") + state.refLabel() + t (lang, " (reference playing)", " (referenssi soi)"), head, colours::ref, juce::Justification::centredRight);
     else if (refView != nullptr)
         drawLabel (g, t (lang, "ref level-matched ", "ref tasattu ") + fmt (lang, state.refGainDb, 1, true) + " dB", head, colours::ref, juce::Justification::centredRight);
+    else if (state.trackRole != TrackRole::mix)
+        drawLabel (g, t (lang, "green band = a typical shape for this sound", "vihreä kaista = tyypillinen muoto tälle äänelle"), head, colours::faint, juce::Justification::centredRight);
     else if (! state.styleChipShown)
         drawLabel (g, t (lang, "green band = the style's normal range", "vihreä kaista = tyylin normaali alue"), head, colours::faint, juce::Justification::centredRight);
     r.removeFromTop (6);
@@ -382,7 +400,7 @@ void TonalView::paint (juce::Graphics& g)
         const auto info = rangeBands ((Range) i);
         const float x0 = xFor (juce::jmax (20.0, Bands::lower (info.firstBand))), x1 = xFor (juce::jmin (20000.0, Bands::upper (info.lastBand)));
         juce::Colour col = colours::dim;
-        if (m.valid)
+        if (m.valid && state.trackRole == TrackRole::mix) // a single sound is only compared loosely: the findings say what matters
         {
             const float d = std::abs (m.rangeDeviation[(size_t) i]), tl = tolFor (state.profile, i);
             if (d > tl)
@@ -428,7 +446,7 @@ void TonalView::paint (juce::Graphics& g)
         auto lg = juce::Rectangle<float> (plot.getRight() - 150.0f, plot.getY() + 4.0f, 150.0f, 80.0f);
         g.setColour (state.viewingRef() ? colours::ref : colours::text);
         g.fillRect (lg.getX(), lg.getY() + 5.0f, 18.0f, 2.0f);
-        drawLabel (g, state.viewingRef() ? state.refLabel() : t (lang, "Your mix", "Sinun miksi"), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), colours::dim, juce::Justification::centredLeft, 10.5f);
+        drawLabel (g, state.viewingRef() ? state.refLabel() : (state.trackRole != TrackRole::mix ? t (lang, "This track", "Tämä raita") : t (lang, "Your mix", "Sinun miksi")), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(), colours::dim, juce::Justification::centredLeft, 10.5f);
         lg.removeFromTop (4.0f);
         if (ghost != nullptr)
         {
@@ -477,7 +495,8 @@ void TonalView::paint (juce::Graphics& g)
         }
         g.setColour (colours::good.withAlpha (0.3f));
         g.fillRect (lg.getX(), lg.getY() + 2.0f, 18.0f, 8.0f);
-        drawLabel (g, t (lang, "Target", "Tavoite") + juce::String (juce::CharPointer_UTF8 (" ±" "3 dB")), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(),
+        drawLabel (g, state.trackRole != TrackRole::mix ? t (lang, "Typical shape", "Tyypillinen muoto")
+                                                         : t (lang, "Target", "Tavoite") + juce::String (juce::CharPointer_UTF8 (" ±" "3 dB")), lg.removeFromTop (12.0f).withTrimmedLeft (24.0f).toNearestInt(),
                    colours::dim, juce::Justification::centredLeft, 10.5f);
     }
 
@@ -510,7 +529,7 @@ void TonalView::paint (juce::Graphics& g)
             quad.lineTo (edge[(size_t) b + 1]);
             quad.lineTo (edge[(size_t) b]);
             quad.closeSubPath();
-            g.setColour ((above == 1 ? colours::bad : colours::warn).withAlpha (0.55f));
+            g.setColour ((above == 1 ? colours::bad : colours::warn).withAlpha (state.trackRole == TrackRole::mix ? 0.55f : 0.16f));
             g.fillPath (quad);
         }
     }
@@ -576,7 +595,7 @@ void TonalView::paint (juce::Graphics& g)
     for (int i = 0; i < numRanges; ++i)
     {
         const float d = m.rangeDeviation[(size_t) i], tl = tolFor (state.profile, i);
-        if (std::abs (d) <= tl)
+        if (std::abs (d) <= tl || state.trackRole != TrackRole::mix)
             continue;
         const auto info = rangeBands ((Range) i);
         int worst = info.firstBand;
@@ -601,6 +620,24 @@ void TonalView::paint (juce::Graphics& g)
         }
         placed.push_back (ink);
         drawLabel (g, text, box.toNearestInt(), col, juce::Justification::centred, 11.5f);
+    }
+
+    // track mode: where the low peaks are (this track, and the other one on the bus)
+    float labelY = plot.getY() + 2.0f;
+    for (const auto& mk : state.markers)
+    {
+        if (mk.hz < 20.0f)
+            continue;
+        const float x = xFor (mk.hz);
+        juce::Path line, dashed;
+        line.startNewSubPath (x, plot.getY());
+        line.lineTo (x, plot.getBottom());
+        const float dashes[] = { 3.0f, 3.0f };
+        juce::PathStrokeType (1.2f).createDashedStroke (dashed, line, dashes, 2);
+        g.setColour (mk.colour.withAlpha (0.8f));
+        g.fillPath (dashed);
+        drawLabel (g, mk.label, juce::Rectangle<float> (x + 4.0f, labelY, 150.0f, 13.0f).toNearestInt(), mk.colour, juce::Justification::centredLeft, 10.5f);
+        labelY += 14.0f;
     }
     g.restoreState();
 }

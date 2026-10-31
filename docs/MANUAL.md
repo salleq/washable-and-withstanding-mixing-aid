@@ -249,7 +249,49 @@ Press **EQ + Limiter** at the bottom to open the panel. It has a four-band EQ an
 
 The mix report lists your EQ and limiter settings next to the suggestions.
 
-## 10. Good habits
+## 10. Track mode: kick, bass and kick + bass
+
+WWMA can also sit on a single track. Press **TRACK** in the top bar (next to MIX and MASTER) and pick what the track is: **Kick**, **Bass** or **Kick + bass bus**. The checks, the tonal target and the score change to fit that sound, and the loudness box shows track headroom (peaks around −10 to −6 dBFS) instead of a loudness target. It still only measures: nothing is processed. The choice is saved with the project, and **MIX** or **MASTER** takes you back.
+
+![WWMA on a kick track, with another WWMA on the bass](images/wwma-track-kick.png)
+
+**Kick**
+
+| Check | What WWMA looks at |
+|---|---|
+| Tuning | The kick's note and frequency (for example *A1, 55 Hz*), marked on the spectrum. Most electronic kicks sit at 45–65 Hz. Very low (under 40 Hz) or no low body (over 100 Hz) gets a note. |
+| Length | How long the kick takes to fade 20 dB. With a steady beat this is compared with the off-beat: at 124 BPM the off-beat bass comes in after 242 ms, so a longer tail rings into it. Psytrance gets a stricter limit; styles where a long kick is the sound (808s, hardstyle, dubstep) are left alone. |
+| Click | The 2–6 kHz click against the body. Without it the kick disappears on a phone; too much of it gets sharp. |
+| Boxy | 200–500 Hz against the body. |
+| Squashed | The crest factor (peak over RMS). Under about 7 dB the kick has been clipped or limited flat. |
+
+**Bass**
+
+| Check | What WWMA looks at |
+|---|---|
+| Main note | Where the bass line has most of its weight, as a note. |
+| Harmonics | 200–800 Hz against the fundamental. A pure sine bass disappears on phones; a bass that is mostly mids fights the chords and the vocal. |
+| Sub vs bass | Below 50 Hz against 63–125 Hz, loosely compared with the style. |
+| Even notes | A crest factor over about 17 dB means some notes jump out. |
+
+**Kick + bass bus** (both on one group or bus)
+
+- *Kick drowns in the bass*: the kick's rise over the bass, with sidechain settings worked out from the tempo (release about half a beat).
+- *Sub vs bass* against the style, too much or too little.
+- Harmonics for phones, and a bus squashed by a clipper.
+
+**Every track** is also checked for rumble below 30 Hz (with the high-pass frequency to use), a low end that is not mono or gets weaker in mono, peaks that are too hot for the bus (aim for −10 to −6 dBFS), and clipping.
+
+**Kick and bass see each other.** Put one WWMA on the kick (Kick) and another on the bass (Bass). The two share what they measure, so each one shows the other's low peak on its spectrum and tells you:
+
+- *Kick and bass peak at the same spot*: both have their strongest low end within about two semitones, or share a wide range. Then pick one fix: duck the bass, move them apart (for example kick at 50–60 Hz and bass at 80–110 Hz), or cut a narrow dip in the bass at the kick's frequency.
+- *Kick is out of tune with the bass*: the kick's note is a dissonant interval (a semitone, a whole tone, a tritone or a seventh) from the bass's main note. Tune the kick to the bass's note or its fifth.
+
+Each WWMA must be playing for a few seconds before the other one sees it. This works in DAWs that load plugins in the same process (most do). Hosts that run each plugin on its own can't share; then use one WWMA on a kick + bass bus.
+
+**With a reference track** loaded, the kick's tuning is compared with the reference's strongest low peak (usually its kick), and on a kick + bass bus the sub vs bass balance, the kick's rise over the bass and the ducking are compared with the reference's low end.
+
+## 11. Good habits
 
 1. Balance first, plugins later: kick and bass, then snare, then the lead, then the rest.
 2. Decide who owns the sub (kick or bass), and keep everything below about 120 Hz mono.
@@ -258,7 +300,7 @@ The mix report lists your EQ and limiter settings next to the suggestions.
 5. Keep important parts in the centre, and check in mono.
 6. Master last: leave headroom while mixing, then set the limiter ceiling to −1 dBTP. Compare with **Hear without** before you decide.
 
-## 11. Remember
+## 12. Remember
 
 - The score tells you how close you are to a typical master in the style. It does not tell you whether the song is good.
 - The presets are educated guesses from common practice. The most accurate target is a reference track you like.
