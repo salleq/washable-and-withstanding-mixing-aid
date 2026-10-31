@@ -62,6 +62,14 @@ void Analyzer::prepare (double sampleRate)
     }
     bandStart[Bands::count] = (int) binWeights.size();
 
+    // fine low end grid: power interpolated between the two nearest bins
+    for (int i = 0; i < LowFine::count; ++i)
+    {
+        const double x = LowFine::freq (i) / df;
+        fineBin[(size_t) i] = juce::jlimit (1, fftSize / 2 - 2, (int) x);
+        fineFrac[(size_t) i] = (float) juce::jlimit (0.0, 1.0, x - fineBin[(size_t) i]);
+    }
+
     timeline.assign ((size_t) timelineCapacity, TimelinePoint {});
     reset();
 }
@@ -98,6 +106,9 @@ void Analyzer::reset() noexcept
     fifoPos = hopCount = 0;
     midNowP.fill (0.0); sideNowP.fill (0.0); midSongP.fill (0.0); sideSongP.fill (0.0);
     nowFrames = sideNowFrames = 0; songFrames = sideSongFrames = 0;
+    fineNowP.fill (0.0); fineSongP.fill (0.0);
+    numDecayPending = 0; decayVals.fill (0.0f); decayFrames.fill (-100000); decayPos = 0; decayCount = 0; decaySum = 0.0;
+    rawSum = 0.0; rawRing.fill (0.0); rmsNowDb = -200.0; crestNowDb = crestSum = 0.0; crestCount = 0;
 
     envPos = 0; lowEnv1 = lowEnv2 = highEnv1 = highEnv2 = harmEnv1 = harmEnv2 = 0.0;
     highEnv.fill (-200.0f);
@@ -265,6 +276,7 @@ void Analyzer::processChunk (const float* left, const float* right, int n) noexc
         const double kl = kHigh[0].process (kShelf[0].process (l));
         const double kr = kHigh[1].process (kShelf[1].process (r));
         subSum += kl * kl + kr * kr;
+        rawSum += 0.5 * (l * l + r * r);
 
         cLR += l * r; cLL += l * l; cRR += r * r;
 
@@ -462,7 +474,10 @@ void Analyzer::detectKicks (float lowDb, float harmDb) noexcept
         lastOnset = now;
         pendingOnsets[(size_t) numPending++] = now - 4; // the rise started about here
         onsetHistory[(size_t) (onsetCount++ % (int64_t) onsetHistory.size())] = now - 4;
+        if (numDecayPending < (int) decayPending.size())
+            decayPending[(size_t) numDecayPending++] = now - 4;
     }
+    measureDecays();
 
     // 200 ms after a kick: how far its peak rose above the bass just before it, and how far
     // the low end dipped after it (ducking)
@@ -513,6 +528,40 @@ void Analyzer::detectKicks (float lowDb, float harmDb) noexcept
     ++frameIndex;
 }
 
+void Analyzer::measureDecays() noexcept
+{
+    // ~550 ms after a kick: how long its low end took to fade 20 dB below its peak.
+    // The search stops at the next kick, so a tail that runs into it counts as "at least this long".
+    constexpr int decayWindow = 110;
+    auto at = [this] (int64_t i) { return lowLine[(size_t) (i % lineSize)]; };
+    const int64_t now = frameIndex;
+    while (numDecayPending > 0 && now - decayPending[0] >= decayWindow)
+    {
+        const int64_t o = decayPending[0];
+        const int64_t next = numDecayPending > 1 ? decayPending[1] : o + decayWindow;
+        int64_t pk = o;
+        for (int64_t i = o; i <= o + 16; ++i)
+            if (at (i) > at (pk))
+                pk = i;
+        const int64_t end = juce::jmin (o + decayWindow, next);
+        int64_t i = pk + 1;
+        while (i < end && at (i) > at (pk) - 20.0f)
+            ++i;
+        const float ms = (float) ((double) (i - pk) * envLen / sr * 1000.0);
+        if (at (pk) > -60.0f && gateOpen() && rhythmic())
+        {
+            decayVals[(size_t) decayPos] = ms;
+            decayFrames[(size_t) decayPos] = o;
+            decayPos = (decayPos + 1) % (int) decayVals.size();
+            decaySum += ms;
+            ++decayCount;
+        }
+        for (int k = 1; k < numDecayPending; ++k)
+            decayPending[(size_t) k - 1] = decayPending[(size_t) k];
+        --numDecayPending;
+    }
+}
+
 void Analyzer::endSubBlock() noexcept
 {
     // --- loudness
@@ -556,6 +605,23 @@ void Analyzer::endSubBlock() noexcept
     subPeakL = subPeakR = 0.0f;
 
     const bool open = gateOpen();
+
+    // --- crest factor: true peak over the plain RMS of the last 3 s
+    rawRing[(size_t) ((ringPos - 1 + ringSize) % ringSize)] = rawSum / subLen;
+    rawSum = 0.0;
+    {
+        double sum = 0.0;
+        for (int k = 0; k < ringFilled; ++k)
+            sum += rawRing[(size_t) ((ringPos - 1 - k + 2 * ringSize) % ringSize)];
+        rmsNowDb = ringFilled > 0 ? powerToDb (sum / ringFilled) : -200.0;
+        const double peakDb = gainToDb (*std::max_element (peakRing.begin(), peakRing.end()));
+        crestNowDb = rmsNowDb > -100.0 ? peakDb - rmsNowDb : 0.0;
+        if (open && ringFilled == ringSize)
+        {
+            crestSum += crestNowDb;
+            ++crestCount;
+        }
+    }
 
     // --- correlation
     nowLR += subCoef * (cLR - nowLR);
@@ -624,6 +690,21 @@ void Analyzer::runFft (int pass) noexcept
         work[(size_t) i] = fifo[(size_t) ((fifoPos + i) % fftSize)] * window[(size_t) i];
     std::fill (work.begin() + fftSize, work.end(), 0.0f);
     fft->performFrequencyOnlyForwardTransform (work.data(), true);
+
+    if (pass == 0)
+    {
+        auto binPower = [this] (int j) { return (double) work[(size_t) j] * work[(size_t) j]; };
+        for (int i = 0; i < LowFine::count; ++i)
+        {
+            const int j = fineBin[(size_t) i];
+            const double f = fineFrac[(size_t) i];
+            const double p = (1.0 - f) * binPower (j) + f * binPower (j + 1);
+            if (audible)
+                fineNowP[(size_t) i] += (nowFrames == 0 ? 1.0 : fftNowCoef) * (p - fineNowP[(size_t) i]);
+            if (open)
+                fineSongP[(size_t) i] += p;
+        }
+    }
 
     std::array<double, Bands::count> power {};
     for (int b = 0; b < Bands::count; ++b)
@@ -718,6 +799,31 @@ void Analyzer::publish() noexcept
         s.lowContrastNow = n > 0 ? (float) (sum / n) : 0.0f;
         s.kickSongValid = kickSepCount >= 8;
         s.lowContrastSong = kickSepCount > 0 ? (float) (kickSepSum / (double) kickSepCount) : 0.0f;
+    }
+    {
+        double sum = 0.0;
+        int n = 0;
+        for (size_t k = 0; k < decayVals.size(); ++k)
+            if (frameIndex - decayFrames[k] <= envRingSize + 150)
+            {
+                sum += decayVals[k];
+                ++n;
+            }
+        s.kickDecayNowValid = n >= 3;
+        s.kickDecayNow = n > 0 ? (float) (sum / n) : 0.0f;
+        s.kickDecaySongValid = decayCount >= 8;
+        s.kickDecaySong = decayCount > 0 ? (float) (decaySum / (double) decayCount) : 0.0f;
+    }
+    s.rmsNow = (float) rmsNowDb;
+    s.crestNow = (float) crestNowDb;
+    s.crestSong = crestCount > 0 ? (float) (crestSum / (double) crestCount) : (float) crestNowDb;
+    {
+        const double n = songFrames > 0 ? (double) songFrames : 1.0;
+        for (int i = 0; i < LowFine::count; ++i)
+        {
+            s.lowFineNow[(size_t) i] = (float) powerToDb (fineNowP[(size_t) i]);
+            s.lowFineSong[(size_t) i] = (float) powerToDb (fineSongP[(size_t) i] / n);
+        }
     }
     s.highContrastNow = (float) highContrastNow;
     s.contrastNowValid = envFilled >= envRingSize / 3;

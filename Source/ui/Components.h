@@ -5,6 +5,8 @@
 #include "advice/Lessons.h"
 #include "advice/MixReport.h"
 #include "advice/ChainAdvice.h"
+#include "advice/TrackAdvice.h"
+#include "advice/Passes.h"
 #include <functional>
 #include <array>
 #include <map>
@@ -38,6 +40,11 @@ struct ViewState
     Lang lang = Lang::english;
     Window window = Window::song;
     Stage stage = Stage::mastering;
+    TrackRole trackRole = TrackRole::mix; // track mode: WWMA on a kick, bass or kick + bass bus
+
+    /** Track mode: low end peaks marked in the tonal view (this track, and the other track on the bus). */
+    struct Marker { float hz; juce::String label; juce::Colour colour; };
+    std::vector<Marker> markers;
 
     bool styleChipShown = false;         // the style suggestion sits in the tonal panel's header
     float displayScore = 0.0f;           // smoothed for the meter
@@ -49,6 +56,17 @@ struct ViewState
     bool awaitingSaveConfirm = false;     // newest snapshot: DAW project not yet confirmed saved as a new version
     bool compareOpen = false;             // the before/after panel is shown
     std::vector<MetricChange> changes;    // newest snapshot vs now
+
+    // passes: each play-through compared with the previous one of the same part
+    std::vector<PassRecord> passes;      // finished passes, oldest first
+    PassRecord currentPass;              // the pass playing now (song window)
+    double passStartPos = -1.0;
+    bool passComparable = false;         // an earlier pass of the same part exists
+    PassVerdict passVerdict;
+    bool passesOn = true;                // "reset on play" is on (otherwise passes can't be told apart)
+    // "try one fix"
+    Trial trial;
+    TrialResult trialResult;
 
     // lesson mode
     bool learnMode = false;
@@ -316,14 +334,16 @@ public:
     void resized() override;
     void updateTexts();
 
-    std::function<void()> onSave, onClear, onCompare, onConfirm;
+    std::function<void()> onSave, onClear, onCompare, onConfirm, onTry;
     /** Shows the confirm button while a snapshot waits for its DAW save, and enables Before/after. */
     void syncButtons();
 
 private:
     const ViewState& state;
-    juce::TextButton saveButton, compareButton, clearButton, confirmButton;
+    juce::TextButton saveButton, compareButton, clearButton, confirmButton, tryButton;
     juce::Rectangle<int> plotArea() const;
+    static constexpr int bannerHeight = 66;
+    void paintBanner (juce::Graphics& g, juce::Rectangle<float> r);
 };
 
 /** Newest snapshot vs now: which numbers got better or worse. Shown over the findings. */

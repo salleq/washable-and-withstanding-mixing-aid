@@ -6,7 +6,7 @@ using namespace wwma;
 namespace
 {
     const juce::Identifier windowId ("window"), langId ("lang"), autoResetId ("autoReset"), referenceId ("Reference"),
-                           stageId ("stage"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
+                           stageId ("stage"), trackId ("track"), trackKindId ("trackKind"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
                            refsId ("ReferenceTracks"), slotId ("Slot");
 
     Lang defaultLang() { return Lang::english; } // Finnish is one click away
@@ -123,6 +123,7 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     withoutMix = 0.0f;
     abStep = (float) (1.0 / (0.03 * sampleRate)); // 30 ms crossfade between mix and reference
     wasPlaying = false;
+    expectedSample = -1;
 }
 
 void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
@@ -160,14 +161,16 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         if (auto pos = ph->getPosition())
         {
             hostPlaying = pos->getIsPlaying();
-            if (hostPlaying && ! wasPlaying && autoReset.load())
-            {
-                analyzer.requestReset();
-                inputAnalyzer.requestReset();
-            }
-            wasPlaying = hostPlaying;
             if (auto t = pos->getTimeInSamples())
                 hostSample = *t;
+            // A new pass starts when play starts, and also when the play head jumps while playing:
+            // a loop going back to its start, or a click elsewhere in the song.
+            const bool jumped = hostPlaying && wasPlaying && hostSample >= 0 && expectedSample >= 0
+                                && std::abs (hostSample - expectedSample) > (int64_t) (0.05 * getSampleRate()) + 64;
+            if ((hostPlaying && ! wasPlaying) || jumped)
+                beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : -1.0);
+            wasPlaying = hostPlaying;
+            expectedSample = hostPlaying && hostSample >= 0 ? hostSample + n : -1;
         }
     }
 
@@ -360,6 +363,34 @@ int WwmaAudioProcessor::getTarget() const { return (int) apvts.state.getProperty
 void WwmaAudioProcessor::setTarget (int t) { apvts.state.setProperty (targetId, t, nullptr); }
 Stage WwmaAudioProcessor::getStage() const { return (int) apvts.state.getProperty (stageId, 1) == 0 ? Stage::mixing : Stage::mastering; }
 void WwmaAudioProcessor::setStage (Stage st) { apvts.state.setProperty (stageId, st == Stage::mixing ? 0 : 1, nullptr); }
+
+void WwmaAudioProcessor::beginPass (double startSeconds) noexcept
+{
+    if (autoReset.load())
+    {
+        analyzer.requestReset();
+        inputAnalyzer.requestReset();
+    }
+    passStart.store (startSeconds);
+    passCount.fetch_add (1);
+}
+
+TrackRole WwmaAudioProcessor::getTrackRole() const
+{
+    return (TrackRole) juce::jlimit (0, numTrackRoles - 1, (int) apvts.state.getProperty (trackId, 0));
+}
+
+void WwmaAudioProcessor::setTrackRole (TrackRole r)
+{
+    apvts.state.setProperty (trackId, (int) r, nullptr);
+    if (r != TrackRole::mix)
+        apvts.state.setProperty (trackKindId, (int) r, nullptr);
+}
+
+TrackRole WwmaAudioProcessor::getLastTrackKind() const
+{
+    return (TrackRole) juce::jlimit (1, numTrackRoles - 1, (int) apvts.state.getProperty (trackKindId, (int) TrackRole::kick));
+}
 
 std::vector<SavedSnapshot> WwmaAudioProcessor::getSnapshots() const
 {

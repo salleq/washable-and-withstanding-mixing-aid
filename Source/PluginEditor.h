@@ -72,6 +72,15 @@ public:
     void setShowSuggestions (bool on);
     /** Level-matched bypass of the EQ and limiter. */
     void setListeningWithout (bool on);
+    /** Track mode: WWMA on a kick, bass or kick + bass bus (TrackRole::mix = the normal mode). */
+    void setTrackRole (wwma::TrackRole r);
+    const wwma::Assessment& getAssessment() const noexcept { return state.assessment; }
+    /** "Try the top fix": starts a trial on the most important finding, or ends the current one. */
+    void toggleTrial();
+    const wwma::TrialResult& getTrialResult() const noexcept { return state.trialResult; }
+    const wwma::Trial& getTrial() const noexcept { return state.trial; }
+    const wwma::PassVerdict& getPassVerdict() const noexcept { return state.passVerdict; }
+    bool isPassComparable() const noexcept { return state.passComparable; }
 
     static constexpr int baseWidth = 1140, baseHeight = 800;
 
@@ -127,6 +136,9 @@ private:
     int refGeneration = -1;
 
     juce::ComboBox profileBox, targetBox;
+    juce::ComboBox trackBox; // shown instead of the loudness target in track mode
+    juce::TextButton trackButton;
+    void fillTrackBox();
     juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, langButton, mixAButton, refBButton;
     juce::ToggleButton autoResetToggle;
     juce::TextButton mixLoadButton, mixPlayButton; // standalone app only: your own song
@@ -152,6 +164,10 @@ private:
     wwma::StyleGuess styleGuess;
     bool styleSuggests = false; // false: the chip only confirms the chosen preset
     void updateStyleButton();
+    void updatePasses();
+    int passSeen = 0;
+    float secondsAtPassChange = -1.0f; // the analyser hasn't restarted yet for the new pass while seconds stay at least this
+    bool mixWasPlaying = false;        // standalone: your mix's own play button starts a pass
     juce::TooltipWindow tooltips { this, 600 };
 
     int ticks = 0;

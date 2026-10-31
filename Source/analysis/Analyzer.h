@@ -22,6 +22,8 @@ namespace wwma
     - Spectrum: third-octave mid and side levels from a 16k-point FFT,
       as a 3 second running average ("now") and a gated song average.
     - Stereo: correlation now and over the song.
+    - Low end on a 1/24 octave grid (20-320 Hz), kick length and crest factor, for
+      the track mode (the plugin on a kick, bass or kick + bass bus).
     - Drums: kick detection on a 5 ms envelope of the low end (how far each kick
       rises above the bass), and the spread of the snare/hat region envelope,
       used to spot a kick that drowns in the bass, or drums squashed flat. */
@@ -100,6 +102,9 @@ private:
     std::vector<BinWeight> binWeights;
     std::array<int, Bands::count + 1> bandStart {};
     std::array<double, Bands::count> midNowP {}, sideNowP {}, midSongP {}, sideSongP {};
+    std::array<int, LowFine::count> fineBin {};
+    std::array<float, LowFine::count> fineFrac {};
+    std::array<double, LowFine::count> fineNowP {}, fineSongP {};
     double fftNowCoef = 0.0;
     int nowFrames = 0, sideNowFrames = 0;
     int64_t songFrames = 0, sideSongFrames = 0;
@@ -127,6 +132,20 @@ private:
     int64_t duckCount = 0;
     int64_t kickSepCount = 0;
     std::array<int64_t, 8> onsetHistory {};
+    // kick length: each onset waits ~550 ms until its tail has been seen
+    std::array<int64_t, 8> decayPending {};
+    int numDecayPending = 0;
+    std::array<float, 16> decayVals {};
+    std::array<int64_t, 16> decayFrames {};
+    int decayPos = 0;
+    int64_t decayCount = 0;
+    double decaySum = 0.0;
+    void measureDecays() noexcept;
+    // crest factor
+    double rawSum = 0.0;
+    std::array<double, ringSize> rawRing {};
+    double rmsNowDb = -200.0, crestNowDb = 0.0, crestSum = 0.0;
+    int64_t crestCount = 0;
     int64_t onsetCount = 0;
     void detectKicks (float lowDb, float harmDb) noexcept;
     bool rhythmic() const noexcept;

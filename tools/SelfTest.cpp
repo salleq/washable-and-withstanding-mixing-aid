@@ -180,11 +180,470 @@ namespace
         }
         return s;
     }
+
+    /** A single track rendered by the song synth: no master limiter, just the parts. */
+    Stereo soloTrack (synth::SongParams sp, synth::SongParams::Solo solo, double seconds = 16.0)
+    {
+        sp.solo = solo;
+        sp.seconds = seconds;
+        sp.limiter = false;
+        sp.driveDb = 0.0;
+        const auto x = synth::renderSong (sp);
+        return Stereo { x.l, x.r };
+    }
+
+    juce::String describe (const Snapshot& s)
+    {
+        const auto pk = findLowPeak (s.lowFineSong, 30.0, 250.0);
+        return "peak " + juce::String (pk.hz, 1) + " Hz " + noteName (pk.hz) + ", tail " + juce::String (s.kickDecaySong, 0) + " ms"
+               + (s.kickDecaySongValid ? "" : "?") + ", crest " + juce::String (s.crestSong, 1) + ", tp " + juce::String (s.truePeakMax, 1)
+               + ", contrast " + juce::String (s.lowContrastSong, 1) + (s.kickSongValid ? "" : "?") + ", duck " + juce::String (s.duckSong, 1)
+               + ", tempo " + juce::String (s.tempoBpm, 0) + "/" + juce::String (s.tempoConfidence, 2);
+    }
+
+    /** Track mode: kick, bass and kick + bass bus advice, and the kick and bass seeing each other. */
+    void trackTests (bool verbose)
+    {
+        using Solo = synth::SongParams::Solo;
+        std::cout << "Track mode (kick, bass, kick + bass)" << std::endl;
+        const double sr = 48000.0;
+        const auto& profiles = builtInProfiles();
+        const auto& house = profiles[(size_t) defaultProfileIndex()];
+        auto run = [&] (const Snapshot& snap, TrackRole role, const std::vector<TrackPrint>& others = {}, const Snapshot* ref = nullptr, Lang lang = Lang::english)
+        {
+            return assessTrack (snap, house, role, Window::song, lang, others, ref);
+        };
+        auto show = [&] (const char* what, const Snapshot& snap, const Assessment& a)
+        {
+            if (verbose)
+                std::cout << "      " << what << ": " << describe (snap) << " | " << ids (a) << " | " << juce::String (a.score, 0) << std::endl;
+        };
+
+        synth::SongParams base;
+        const auto longKick = analyse (soloTrack (base, Solo::kick), sr);
+        synth::SongParams tight = base;
+        tight.kickDecay = 20.0;
+        tight.kickHz = 55.0;
+        tight.kickSweep = 90.0;
+        tight.kickClick = 0.5;
+        const auto shortKick = analyse (soloTrack (tight, Solo::kick), sr);
+        synth::SongParams dull = tight;
+        dull.kickClick = 0.0;
+        const auto noClick = analyse (soloTrack (dull, Solo::kick), sr);
+        synth::SongParams rumbly = tight;
+        rumbly.rumbleDb = -6.0;
+        const auto rumbleKick = analyse (soloTrack (rumbly, Solo::kick), sr);
+        const auto a1 = run (longKick, TrackRole::kick), a2 = run (shortKick, TrackRole::kick), a3 = run (noClick, TrackRole::kick), a4 = run (rumbleKick, TrackRole::kick);
+        show ("long kick", longKick, a1);
+        show ("tight kick", shortKick, a2);
+        show ("no click", noClick, a3);
+        show ("rumble", rumbleKick, a4);
+
+        const auto pk = findKickNote (shortKick.lowFineSong);
+        check (pk.found && std::abs (12.0f * std::log2 (pk.hz / 55.0f)) < 0.6f, "a kick tuned to 55 Hz reads A1", juce::String (pk.hz, 1) + " Hz " + noteName (pk.hz));
+        check (has (a1, "kick-long") && ! has (a2, "kick-long"), "a kick ringing past the off-beat is 'too long', a tight one is not",
+               juce::String (longKick.kickDecaySong, 0) + " ms vs " + juce::String (shortKick.kickDecaySong, 0) + " ms");
+        check (has (a3, "kick-noclick") && ! has (a2, "kick-noclick"), "a kick without a click 'vanishes on phones'", ids (a3));
+        check (has (a4, "rumble") && ! has (a2, "rumble"), "21 Hz rumble under the kick: 'high-pass at 25-30 Hz'", ids (a4));
+
+        // bass
+        const auto bass = analyse (soloTrack (base, Solo::bass), sr);
+        synth::SongParams sine = base;
+        sine.bassHarmonics = 0.0;
+        const auto sineBass = analyse (soloTrack (sine, Solo::bass), sr);
+        synth::SongParams wide = base;
+        wide.bassWidth = 1.0;
+        const auto wideBass = analyse (soloTrack (wide, Solo::bass), sr);
+        const auto b1 = run (bass, TrackRole::bass), b2 = run (sineBass, TrackRole::bass), b3 = run (wideBass, TrackRole::bass);
+        show ("bass", bass, b1);
+        show ("sine bass", sineBass, b2);
+        show ("wide bass", wideBass, b3);
+        check (has (b2, "bass-noharm") && ! has (b1, "bass-noharm"), "a pure sine bass 'disappears on phones', a saw bass does not", ids (b1) + " | " + ids (b2));
+        check (has (b3, "lowwidth") && ! has (b1, "lowwidth"), "a stereo bass: 'low end is not mono'", ids (b3));
+
+        // kick + bass bus
+        synth::SongParams noDuck = tight;
+        noDuck.duckDb = 0.0;
+        noDuck.bassSustain = true;
+        noDuck.kickHz = 47.0;
+        synth::SongParams ducked = noDuck;
+        ducked.duckDb = 8.0;
+        const auto busBad = analyse (soloTrack (noDuck, Solo::kickBass, 24.0), sr);
+        const auto busGood = analyse (soloTrack (ducked, Solo::kickBass, 24.0), sr);
+        synth::SongParams buried = noDuck;
+        buried.bassDb = 8.0;
+        const auto busBuried = analyse (soloTrack (buried, Solo::kickBass, 24.0), sr);
+        const auto c3 = run (busBuried, TrackRole::kickBass);
+        show ("bus, loud bass", busBuried, c3);
+        bool tempoRelease = false;
+        for (const auto& f : c3.findings)
+            tempoRelease = tempoRelease || (f.id == "kickbass" && f.howTo.contains ("release about 242 ms"));
+        check (has (c3, "kickbass") && tempoRelease, "a loud sustained bass on the bus: 'kick drowns in the bass', with a sidechain release from the tempo", ids (c3));
+        synth::SongParams offBeat = tight;
+        offBeat.duckDb = 0.0;
+        const auto c4 = run (analyse (soloTrack (offBeat, Solo::kickBass, 24.0), sr), TrackRole::kickBass);
+        check (! has (c4, "kickbass"), "  an off-beat bass leaves the kick alone", ids (c4));
+        const auto c1 = run (busBad, TrackRole::kickBass);
+        check (c1.score > c3.score, "  a quieter bass scores better", juce::String (c3.score, 0) + " < " + juce::String (c1.score, 0));
+
+        // the kick and the bass see each other through the track bus
+        {
+            auto& bus = TrackBus::shared();
+            const int kickId = bus.join(), bassId = bus.join();
+            synth::SongParams kickA = tight;
+            kickA.kickHz = 55.0;
+            bus.publish (kickId, printOf (analyse (soloTrack (kickA, Solo::kick), sr), TrackRole::kick));
+            bus.publish (bassId, printOf (bass, TrackRole::bass));
+            const auto clash = run (bass, TrackRole::bass, bus.others (bassId));
+            check (has (clash, "clash"), "a kick at A1 under a bass in A: 'kick and bass peak at the same spot'", ids (clash));
+
+            synth::SongParams tritone = tight;
+            tritone.kickHz = 77.8; // D#2, a tritone from the bass's A
+            const auto offKick = analyse (soloTrack (tritone, Solo::kick), sr);
+            bus.publish (kickId, printOf (offKick, TrackRole::kick));
+            const auto off = run (offKick, TrackRole::kick, bus.others (kickId));
+            show ("kick a tritone off", offKick, off);
+            check (has (off, "kick-tune") && ! has (off, "clash"), "a kick a tritone from the bass: 'out of tune with the bass'", ids (off));
+
+            synth::SongParams fifth = tight;
+            fifth.kickHz = 82.4; // E2, a fifth above A
+            const auto okKick = analyse (soloTrack (fifth, Solo::kick), sr);
+            const auto ok = run (okKick, TrackRole::kick, bus.others (kickId));
+            check (! has (ok, "kick-tune") && ! has (ok, "clash"), "  a kick on the fifth is fine", ids (ok));
+            bus.leave (kickId);
+            bus.leave (bassId);
+            check (bus.others (bassId).empty() || std::none_of (bus.others (bassId).begin(), bus.others (bassId).end(), [] (const TrackPrint& p) { return p.role == TrackRole::kick; }),
+                   "  an instance that is removed leaves the bus");
+        }
+
+        // against a reference (a whole mix): its low end is mostly kick and bass
+        {
+            synth::SongParams subby = tight;
+            subby.subDb = 3.0;
+            subby.bassSustain = true;
+            subby.kickHz = 47.0;
+            const auto bus = analyse (soloTrack (subby, Solo::kickBass, 24.0), sr);
+            synth::SongParams song;
+            song.seconds = 24.0;
+            const auto ref = analyse ([&] { const auto x = synth::renderSong (song); return Stereo { x.l, x.r }; }(), sr);
+            const auto a = run (bus, TrackRole::kickBass, {}, &ref);
+            juce::String values;
+            for (const auto& f : a.findings)
+                values << f.id << "=" << f.value << "; ";
+            const auto plain = run (busBad, TrackRole::kickBass, {}, &ref);
+            check (has (a, "ref-sub+") && ! has (run (bus, TrackRole::kickBass), "ref-sub+"), "a bus with a loud sine sub: 'more sub than the reference'", values);
+            check (! has (plain, "ref-sub+") && ! has (plain, "ref-sub-"), "  a bus without it matches the reference's low end", ids (plain));
+        }
+
+        // in the plugin: the TRACK mode is saved with the project, and two instances see each other
+        {
+            struct Instance
+            {
+                WwmaAudioProcessor p;
+                std::unique_ptr<juce::AudioProcessorEditor> ed;
+                WwmaAudioProcessorEditor* editor = nullptr;
+                explicit Instance (TrackRole role)
+                {
+                    p.setPlayConfigDetails (2, 2, 48000.0, 512);
+                    p.prepareToPlay (48000.0, 512);
+                    p.setWindow (Window::song);
+                    ed.reset (p.createEditor());
+                    editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+                    editor->setTrackRole (role);
+                }
+                void play (const Stereo& x)
+                {
+                    juce::AudioBuffer<float> buf (2, 512);
+                    juce::MidiBuffer midi;
+                    size_t since = 0;
+                    for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                    {
+                        buf.copyFrom (0, 0, x.l.data() + i, 512);
+                        buf.copyFrom (1, 0, x.r.data() + i, 512);
+                        p.processBlock (buf, midi);
+                        if ((since += 512) >= 24000)
+                        {
+                            since = 0;
+                            editor->refresh (true);
+                        }
+                    }
+                    editor->refresh (true);
+                }
+            };
+            Instance kickTrack (TrackRole::kick), bassTrack (TrackRole::bass);
+            synth::SongParams kickA = tight;
+            kickTrack.play (soloTrack (kickA, Solo::kick, 12.0));
+            bassTrack.play (soloTrack (base, Solo::bass, 12.0));
+            kickTrack.editor->refresh (true);
+            const auto& ka = kickTrack.editor->getAssessment();
+            const auto& ba = bassTrack.editor->getAssessment();
+            check (has (ka, "kick-note", Severity::info) && ! has (ka, "partner", Severity::info), "a WWMA set to Kick gives kick advice and sees the bass", ids (ka));
+            check (has (ba, "clash"), "  the WWMA on the bass sees the kick: 'kick and bass peak at the same spot'", ids (ba));
+
+            juce::MemoryBlock state;
+            kickTrack.p.getStateInformation (state);
+            WwmaAudioProcessor restored;
+            restored.setStateInformation (state.getData(), (int) state.getSize());
+            check (restored.getTrackRole() == TrackRole::kick, "the track role is saved with the project");
+            kickTrack.editor->setTrackRole (TrackRole::mix);
+            check (kickTrack.p.getTrackRole() == TrackRole::mix && kickTrack.p.getLastTrackKind() == TrackRole::kick,
+                   "  back to MIX, and TRACK remembers it was the kick");
+        }
+
+        // every role gives complete advice in both languages
+        {
+            bool ok = true;
+            for (auto role : { TrackRole::kick, TrackRole::bass, TrackRole::kickBass })
+                for (auto lang : { Lang::english, Lang::finnish })
+                    for (const auto* snap : { &longKick, &sineBass, &busBad, &wideBass })
+                        for (const auto& f : run (*snap, role, {}, &busGood, lang).findings)
+                            ok = ok && f.title.isNotEmpty() && (f.severity == Severity::good || f.why.isNotEmpty());
+            check (ok, "kick, bass and kick + bass advice is complete in English and Finnish");
+        }
+    }
+    /** Screenshots of the track mode: WWMA on the kick, with another WWMA on the bass,
+        and of "try the top fix" after the next pass. */
+    void trackShots (const juce::File& dir)
+    {
+        dir.createDirectory();
+        for (auto lang : { Lang::english, Lang::finnish })
+        {
+            WwmaAudioProcessor p;
+            p.setPlayConfigDetails (2, 2, 48000.0, 512);
+            p.prepareToPlay (48000.0, 512);
+            p.setLang (lang);
+            p.setWindow (Window::song);
+            p.setStage (Stage::mixing);
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            auto* e = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+            auto pass = [&] (const synth::SongParams& base)
+            {
+                p.beginPass (30.0);
+                auto sp = base;
+                sp.seconds = 12.0;
+                const auto x = synth::renderSong (sp);
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                size_t since = 0;
+                e->refresh (true);
+                for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                {
+                    buf.copyFrom (0, 0, x.l.data() + i, 512);
+                    buf.copyFrom (1, 0, x.r.data() + i, 512);
+                    p.processBlock (buf, midi);
+                    if ((since += 512) >= 24000)
+                    {
+                        since = 0;
+                        e->refresh (true);
+                        e->pushHistory();
+                    }
+                }
+            };
+            synth::SongParams muddy, better;
+            muddy.mudDb = 8.0;
+            better.mudDb = 2.0;
+            pass (muddy);
+            e->refresh (true);
+            e->toggleTrial();
+            pass (better);
+            for (int k = 0; k < 60; ++k)
+                e->refresh (true);
+            e->settleDisplay();
+            e->refresh (false);
+            const auto name = lang == Lang::english ? "wwma-try-fix-en.png" : "wwma-try-fix-fi.png";
+            const auto img = e->createComponentSnapshot (e->getLocalBounds(), true, 1.0f);
+            juce::FileOutputStream out (dir.getChildFile (name));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (img, out);
+            std::cout << "  wrote " << name << std::endl;
+        }
+        using Solo = synth::SongParams::Solo;
+        for (auto lang : { Lang::english, Lang::finnish })
+        {
+            auto make = [lang] (TrackRole role)
+            {
+                auto* p = new WwmaAudioProcessor();
+                p->setPlayConfigDetails (2, 2, 48000.0, 512);
+                p->prepareToPlay (48000.0, 512);
+                p->setLang (lang);
+                p->setWindow (Window::song);
+                p->setTrackRole (role);
+                return std::unique_ptr<WwmaAudioProcessor> (p);
+            };
+            auto feed = [] (WwmaAudioProcessor& p, WwmaAudioProcessorEditor* ed, const Stereo& x)
+            {
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                size_t since = 0;
+                for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                {
+                    buf.copyFrom (0, 0, x.l.data() + i, 512);
+                    buf.copyFrom (1, 0, x.r.data() + i, 512);
+                    p.processBlock (buf, midi);
+                    if (ed != nullptr && (since += 512) >= 24000)
+                    {
+                        since = 0;
+                        ed->refresh (true);
+                        ed->pushHistory();
+                    }
+                }
+            };
+            auto bassProc = make (TrackRole::bass);
+            std::unique_ptr<juce::AudioProcessorEditor> bassEd (bassProc->createEditor());
+            auto* be = dynamic_cast<WwmaAudioProcessorEditor*> (bassEd.get());
+            synth::SongParams bassSong;
+            feed (*bassProc, be, soloTrack (bassSong, Solo::bass, 16.0));
+            be->refresh (true);
+
+            auto kickProc = make (TrackRole::kick);
+            std::unique_ptr<juce::AudioProcessorEditor> kickEd (kickProc->createEditor());
+            auto* ke = dynamic_cast<WwmaAudioProcessorEditor*> (kickEd.get());
+            synth::SongParams kick;
+            kick.kickHz = 52.0;
+            kick.kickSweep = 70.0;
+            kick.kickDecay = 8.0;
+            kick.kickClick = 0.12;
+            kick.rumbleDb = -14.0;
+            feed (*kickProc, ke, soloTrack (kick, Solo::kick, 16.0));
+            for (const auto& pair : { std::make_pair (ke, lang == Lang::english ? "wwma-track-kick-en.png" : "wwma-track-kick-fi.png"),
+                                std::make_pair (be, lang == Lang::english ? "wwma-track-bass-en.png" : "wwma-track-bass-fi.png") })
+            {
+                for (int k = 0; k < 60; ++k)
+                    pair.first->refresh (true);
+                pair.first->settleDisplay();
+                pair.first->refresh (false);
+                const auto img = pair.first->createComponentSnapshot (pair.first->getLocalBounds(), true, 1.0f);
+                juce::FileOutputStream out (dir.getChildFile (pair.second));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (img, out);
+                std::cout << "  wrote " << pair.second << std::endl;
+            }
+        }
+    }
+
+    /** References are judged without mastering; every pass is compared with the previous pass of the
+        same part; "try the top fix" tells whether the change helped. */
+    void passTests()
+    {
+        std::cout << "References, passes and trying one fix" << std::endl;
+        const double sr = 48000.0;
+        const auto& house = builtInProfiles()[(size_t) defaultProfileIndex()];
+        {
+            // a loud master, clipped flat at the output: a normal finished commercial track
+            synth::SongParams hot;
+            hot.seconds = 20.0;
+            hot.driveDb = 18.0;
+            hot.limiter = false;
+            const auto x = synth::renderSong (hot);
+            const auto snap = analyse (Stereo { x.l, x.r }, sr);
+            const auto asMix = assess (snap, house, Window::song, Lang::english, Stage::mastering);
+            const auto asRef = assess (snap, house, Window::song, Lang::english, Stage::mastering, true);
+            bool anyMastering = false;
+            for (const char* id : { "loud", "peak", "clipping", "squashed", "headroom", "hotmix" })
+                anyMastering = anyMastering || has (asRef, id);
+            check ((has (asMix, "peak") || has (asMix, "clipping")) && ! anyMastering && asRef.score > asMix.score,
+                   "a mastered reference is not told off for peaks, loudness or clipping, and scores on its mix",
+                   ids (asMix) + " | " + ids (asRef));
+        }
+
+        struct Session
+        {
+            WwmaAudioProcessor p;
+            std::unique_ptr<juce::AudioProcessorEditor> ed;
+            WwmaAudioProcessorEditor* editor = nullptr;
+            Session()
+            {
+                p.setPlayConfigDetails (2, 2, 48000.0, 512);
+                p.prepareToPlay (48000.0, 512);
+                p.setProfileIndex (0);
+                p.setWindow (Window::song);
+                p.setStage (Stage::mixing);
+                ed.reset (p.createEditor());
+                editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+            }
+            /** Press play at the given song position and play this version for 12 s. */
+            void pass (double at, synth::SongParams sp)
+            {
+                p.beginPass (at);
+                sp.seconds = 12.0;
+                const auto x = synth::renderSong (sp);
+                juce::AudioBuffer<float> buf (2, 512);
+                juce::MidiBuffer midi;
+                size_t since = 0;
+                editor->refresh (true);
+                for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                {
+                    buf.copyFrom (0, 0, x.l.data() + i, 512);
+                    buf.copyFrom (1, 0, x.r.data() + i, 512);
+                    p.processBlock (buf, midi);
+                    if ((since += 512) >= 24000)
+                    {
+                        since = 0;
+                        editor->refresh (true);
+                    }
+                }
+                editor->refresh (true);
+            }
+        };
+
+        synth::SongParams muddy, clean, muddier;
+        muddy.mudDb = 8.0;
+        muddier.mudDb = 13.0;
+        {
+            Session s;
+            s.pass (30.0, muddy);
+            check (! s.editor->isPassComparable(), "the first pass has nothing to compare with");
+            s.pass (30.0, clean);
+            const auto v = s.editor->getPassVerdict();
+            check (s.editor->isPassComparable() && v.ready && v.verdict > 0, "the same part played again after a fix: 'better than the last pass'",
+                   juce::String (v.scoreDelta, 1) + " | better: " + v.betterNames.joinIntoString (", ") + " | worse: " + v.worseNames.joinIntoString (", "));
+            s.pass (30.0, muddier);
+            check (s.editor->getPassVerdict().verdict < 0, "  and after a change for the worse: 'worse than the last pass'",
+                   juce::String (s.editor->getPassVerdict().scoreDelta, 1));
+            s.pass (95.0, clean);
+            check (! s.editor->isPassComparable(), "  a different part of the song is not compared with it");
+        }
+        {
+            Session s;
+            s.pass (30.0, muddy);
+            s.editor->toggleTrial();
+            const auto& t = s.editor->getTrial();
+            check (t.active && t.findingId == "range2+" && t.step.isNotEmpty() && ! t.step.startsWith ("1."),
+                   "'try the top fix' picks the muddy low mids and gives one concrete step", juce::String (t.findingId) + ": " + t.step);
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::waiting, "  and waits for the next pass");
+            s.pass (30.0, clean);
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped, "  cutting the mud: 'it helped, keep it'",
+                   s.editor->getTrialResult().headline + " / " + s.editor->getTrialResult().detail);
+            s.editor->toggleTrial(); // next fix
+            Session w;
+            w.pass (30.0, muddy);
+            w.editor->toggleTrial();
+            w.pass (30.0, muddier);
+            check (w.editor->getTrialResult().kind == TrialResult::Kind::worse, "  more mud instead: 'that made it worse, undo it'",
+                   w.editor->getTrialResult().headline);
+        }
+    }
 }
 
 int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    if (argc > 1 && juce::String (argv[1]) == "passes")
+    {
+        passTests();
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "track")
+    {
+        trackTests (true); // quick run of the track mode only, with the measured values
+        if (argc > 2)
+            trackShots (juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]));
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
 
     // ------------------------------------------------------------------ loudness
     std::cout << "Loudness (BS.1770-4 / EBU R128)" << std::endl;
@@ -620,6 +1079,58 @@ int main (int argc, char* argv[])
                "now vs earlier: closer / further / same against the reference (either side of it)");
         p.setPlayHead (nullptr);
     }
+    {
+        // "reset on play" also restarts when a loop goes back to its start, or the play head jumps
+        struct MovingHost : juce::AudioPlayHead
+        {
+            bool playing = true;
+            int64_t pos = 0;
+            juce::Optional<PositionInfo> getPosition() const override
+            {
+                PositionInfo info;
+                info.setIsPlaying (playing);
+                info.setTimeInSamples (pos);
+                return info;
+            }
+        } host;
+        WwmaAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, sr, 512);
+        p.prepareToPlay (sr, 512);
+        p.setPlayHead (&host);
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> buf (2, 512);
+        auto play = [&] (int blocks)
+        {
+            for (int k = 0; k < blocks; ++k)
+            {
+                buf.clear();
+                p.processBlock (buf, midi);
+                host.pos += 512;
+            }
+        };
+        host.pos = (int64_t) (4.0 * sr);
+        play (100);
+        const int afterStart = p.passCount.load();
+        check (afterStart == 1 && near (p.passStart.load(), 4.0, 1.0e-6), "pressing play starts a pass at the play head");
+        play (200);
+        check (p.passCount.load() == afterStart, "  steady playing does not start new passes");
+        host.pos = (int64_t) (4.0 * sr); // the loop goes back to its start
+        play (50);
+        check (p.passCount.load() == afterStart + 1 && near (p.passStart.load(), 4.0, 1.0e-6),
+               "a loop starting over starts a new pass at the loop start", juce::String (p.passCount.load()));
+        host.pos = (int64_t) (30.0 * sr); // a click further on while playing
+        play (50);
+        check (p.passCount.load() == afterStart + 2 && near (p.passStart.load(), 30.0, 1.0e-6), "  and so does a jump elsewhere while playing");
+        host.pos += 100; // a host that is a few samples off is not a jump
+        play (50);
+        check (p.passCount.load() == afterStart + 2, "  a tiny position wobble is not a jump");
+        host.playing = false;
+        play (10);
+        host.playing = true;
+        play (10);
+        check (p.passCount.load() == afterStart + 3, "  pressing play again after stop still starts a pass");
+        p.setPlayHead (nullptr);
+    }
 
     // ------------------------------------------------------------------ synthetic songs
     std::cout << "Synthetic songs (kick, bass, snare, hats, pad, lead, limiter)" << std::endl;
@@ -1032,6 +1543,10 @@ int main (int argc, char* argv[])
             check (measured.truePeakMax > -11.0f, "  while the meters keep measuring what the chain puts out", juce::String (measured.truePeakMax, 2));
         }
     }
+
+    // ------------------------------------------------------------------ track mode
+    trackTests (false);
+    passTests();
 
     // ------------------------------------------------------------------ snapshots, lessons, report
     std::cout << "Snapshots, lessons and the mix report" << std::endl;
@@ -1504,6 +2019,9 @@ int main (int argc, char* argv[])
             std::cout << "  wrote " << shot.name << std::endl;
         }
     }
+
+    if (argc > 1)
+        trackShots (juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]));
 
     std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
     return failures == 0 ? 0 : 1;

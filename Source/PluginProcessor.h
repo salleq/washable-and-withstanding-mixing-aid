@@ -5,6 +5,7 @@
 #include "analysis/Analyzer.h"
 #include "advice/Advisor.h"
 #include "advice/Profiles.h"
+#include "advice/TrackAdvice.h"
 #include "reference/ReferenceTracks.h"
 #include "dsp/MasterChain.h"
 #include <atomic>
@@ -19,7 +20,7 @@ class WwmaAudioProcessor : public juce::AudioProcessor
 {
 public:
     WwmaAudioProcessor();
-    ~WwmaAudioProcessor() override = default;
+    ~WwmaAudioProcessor() override { wwma::TrackBus::shared().leave (busId); }
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -70,6 +71,20 @@ public:
     void setAutoReset (bool on);
     wwma::Stage getStage() const;
     void setStage (wwma::Stage s);
+
+    /** Track mode: WWMA on a single kick, bass or kick + bass bus instead of the master.
+        TrackRole::mix is the normal mode. The last track kind is remembered for the TRACK button. */
+    wwma::TrackRole getTrackRole() const;
+    void setTrackRole (wwma::TrackRole r);
+    wwma::TrackRole getLastTrackKind() const;
+    /** Passes: every start of playback is a new pass, measured on its own (when "reset on play"
+        is on), so the editor can compare it with the previous pass of the same part. */
+    std::atomic<int> passCount { 0 };
+    std::atomic<double> passStart { -1.0 }; // song position of the newest pass, seconds (-1: unknown)
+    void beginPass (double startSeconds) noexcept;
+
+    /** This instance on the shared track bus (other WWMA instances see its low end). */
+    const int busId = wwma::TrackBus::shared().join();
 
     /** Loudness target: 0 = the style's own, then streaming, club, loud, Apple Music. */
     int getTarget() const;
@@ -157,6 +172,7 @@ private:
     std::optional<wwma::Profile> reference;
     std::atomic<bool> autoReset { true };
     bool wasPlaying = false;
+    int64_t expectedSample = -1; // where the play head should be at the next block
 
     wwma::MasterChain chain;
     int chainBlock = 512;

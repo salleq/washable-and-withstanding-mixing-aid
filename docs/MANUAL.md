@@ -21,7 +21,7 @@ WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teach
 5. Choose a time window:
    - **SONG** looks at everything since the last reset. Play the whole song.
    - **NOW** looks at the last 3 seconds. Loop a part and tweak while you watch.
-6. Turn on **Reset on play** to start a new measurement every time the DAW starts playing.
+6. Turn on **Reset on play** to start a new measurement every time the DAW starts playing, a loop starts over, or you jump to another spot while playing.
 
 ### The standalone app
 
@@ -141,6 +141,26 @@ Limits:
 
 Snapshots are saved with your DAW project.
 
+### Did my change help? Passes and "Try the top fix"
+
+Advice is only useful if following it makes the song better. WWMA checks that for you.
+
+**Every pass is compared with the previous one.** With **Reset on play** on (the default), every time you press play WWMA starts measuring again, and so it does when a loop goes back to its start or you click elsewhere while playing. So the easiest way is to loop the part you work on: every round of the loop is a new pass. When you play the same part as before (starting within 2 seconds of the same spot), the banner in the progress panel says, after a few seconds, **▲ Better than the last pass (+6)**, **▼ Worse** or **= About the same**, and which numbers moved: *Better: Tone: Mud. Worse: Stereo width.* So the loop is simple: change one thing, play the same part again, read the banner. A different part of the song isn't compared, because a breakdown and a drop can't be compared fairly.
+
+**Try the top fix** (button in the progress panel) turns this into a step-by-step lesson on your own song:
+
+1. WWMA picks the most important finding and shows **one concrete step** from it, for example *Sweep a narrow boost between 200 and 400 Hz to find the boxy spot, then cut 2-4 dB there.*
+2. You make that change and play the same part again.
+3. WWMA compares the pass with the one before your change and tells you:
+   - **It helped. Keep it**: the finding got clearly smaller or went away, and the score didn't drop. Save the DAW project as a new version.
+   - **That made it worse: undo it**: the finding or the score got worse. Undo, and try a smaller move or the next step.
+   - **No clear change yet**: the change was probably too small or on the wrong track. Go a bit further.
+4. **Next fix** moves on to the new top finding.
+
+![Try the top fix: it helped](images/wwma-try-fix.png)
+
+The numbers don't depend on how loud you play, but your ears do: when the banner says it helped, also listen once at matched loudness (bounce the old version into the **earlier version** slot, or compare with **Hear without** for the EQ and limiter).
+
 ## 6. Learning mode
 
 Press **Learn** to get short, hands-on tasks instead of the findings. Each lesson says why it matters, what to do step by step, and shows a bar that fills up as you get closer. The lesson is done when the goal holds for 3 seconds of music. Loop a part and tweak while you watch (lessons always look at the last 3 seconds).
@@ -204,7 +224,7 @@ Playing the reference inside WWMA:
 
 ![Choosing a loop in the big reference view](images/wwma-reference-loop.png)
 
-**What the reference's score means.** "Ref 1 scores 73 against the House preset" is how well the track fits the selected preset, not how good it is. A great record can score low if it differs from the preset (a heavier bass, a different loudness). It also loses points for things that do not depend on a target, like peaks over the ceiling or clipped runs, and the line says what held it down. Pick the **Reference track** preset to use the reference as the target: its score then only reflects those target-independent problems.
+**What the reference's score means.** "Ref 1 scores 73 against the House preset" is how well the track fits the selected preset, not how good it is. A great record can score low if it differs from the preset (a heavier bass, a different loudness). A reference is judged as a finished master: its loudness, true peak, clipped peaks and limiting are mastering choices, so WWMA neither lists them nor takes points for them. Only the mix is judged (tone, low end, stereo, drums), and the line says what held it down. Your own **earlier version** is judged like your mix. Pick the **Reference track** preset to use the reference as the target.
 
 ### Your earlier version against a real reference
 
@@ -262,7 +282,49 @@ Press **EQ + Limiter** at the bottom to open the panel. It has a four-band EQ an
 
 The mix report lists your EQ and limiter settings next to the suggestions.
 
-## 10. Good habits
+## 10. Track mode: kick, bass and kick + bass
+
+WWMA can also sit on a single track. Press **TRACK** in the top bar (next to MIX and MASTER) and pick what the track is: **Kick**, **Bass** or **Kick + bass bus**. The checks, the tonal target and the score change to fit that sound, and the loudness box shows track headroom (peaks around −10 to −6 dBFS) instead of a loudness target. It still only measures: nothing is processed. The choice is saved with the project, and **MIX** or **MASTER** takes you back.
+
+![WWMA on a kick track, with another WWMA on the bass](images/wwma-track-kick.png)
+
+**Kick**
+
+| Check | What WWMA looks at |
+|---|---|
+| Tuning | The kick's note and frequency (for example *A1, 55 Hz*), marked on the spectrum. Most electronic kicks sit at 45–65 Hz. Very low (under 40 Hz) or no low body (over 100 Hz) gets a note. |
+| Length | How long the kick takes to fade 20 dB. With a steady beat this is compared with the off-beat: at 124 BPM the off-beat bass comes in after 242 ms, so a longer tail rings into it. Psytrance gets a stricter limit; styles where a long kick is the sound (808s, hardstyle, dubstep) are left alone. |
+| Click | The 2–6 kHz click against the body. Without it the kick disappears on a phone; too much of it gets sharp. |
+| Boxy | 200–500 Hz against the body. |
+| Squashed | The crest factor (peak over RMS). Under about 7 dB the kick has been clipped or limited flat. |
+
+**Bass**
+
+| Check | What WWMA looks at |
+|---|---|
+| Main note | Where the bass line has most of its weight, as a note. |
+| Harmonics | 200–800 Hz against the fundamental. A pure sine bass disappears on phones; a bass that is mostly mids fights the chords and the vocal. |
+| Sub vs bass | Below 50 Hz against 63–125 Hz, loosely compared with the style. |
+| Even notes | A crest factor over about 17 dB means some notes jump out. |
+
+**Kick + bass bus** (both on one group or bus)
+
+- *Kick drowns in the bass*: the kick's rise over the bass, with sidechain settings worked out from the tempo (release about half a beat).
+- *Sub vs bass* against the style, too much or too little.
+- Harmonics for phones, and a bus squashed by a clipper.
+
+**Every track** is also checked for rumble below 30 Hz (with the high-pass frequency to use), a low end that is not mono or gets weaker in mono, peaks that are too hot for the bus (aim for −10 to −6 dBFS), and clipping.
+
+**Kick and bass see each other.** Put one WWMA on the kick (Kick) and another on the bass (Bass). The two share what they measure, so each one shows the other's low peak on its spectrum and tells you:
+
+- *Kick and bass peak at the same spot*: both have their strongest low end within about two semitones, or share a wide range. Then pick one fix: duck the bass, move them apart (for example kick at 50–60 Hz and bass at 80–110 Hz), or cut a narrow dip in the bass at the kick's frequency.
+- *Kick is out of tune with the bass*: the kick's note is a dissonant interval (a semitone, a whole tone, a tritone or a seventh) from the bass's main note. Tune the kick to the bass's note or its fifth.
+
+Each WWMA must be playing for a few seconds before the other one sees it. This works in DAWs that load plugins in the same process (most do). Hosts that run each plugin on its own can't share; then use one WWMA on a kick + bass bus.
+
+**With a reference track** loaded, the kick's tuning is compared with the reference's strongest low peak (usually its kick), and on a kick + bass bus the sub vs bass balance, the kick's rise over the bass and the ducking are compared with the reference's low end.
+
+## 11. Good habits
 
 1. Balance first, plugins later: kick and bass, then snare, then the lead, then the rest.
 2. Decide who owns the sub (kick or bass), and keep everything below about 120 Hz mono.
@@ -271,7 +333,7 @@ The mix report lists your EQ and limiter settings next to the suggestions.
 5. Keep important parts in the centre, and check in mono.
 6. Master last: leave headroom while mixing, then set the limiter ceiling to −1 dBTP. Compare with **Hear without** before you decide.
 
-## 11. Remember
+## 12. Remember
 
 - The score tells you how close you are to a typical master in the style. It does not tell you whether the song is good.
 - The presets are educated guesses from common practice. The most accurate target is a reference track you like.

@@ -48,6 +48,20 @@ inline RangeInfo rangeBands (Range r) noexcept
 
 constexpr int numRanges = (int) Range::count;
 
+/** A finer grid for the low end only: 1/24 octave from 20 Hz to 320 Hz. Fine enough to tell
+    which note a kick is tuned to, or where a bass line has most of its energy. */
+struct LowFine
+{
+    static constexpr int count = 97;            // 4 octaves, 24 steps each, both ends included
+    static constexpr int perOctave = 24;
+    static double freq (double i) noexcept { return 20.0 * std::pow (2.0, i / perOctave); }
+    static int index (double hz) noexcept
+    {
+        const int i = (int) std::lround (perOctave * std::log2 (hz / 20.0));
+        return i < 0 ? 0 : (i >= count ? count - 1 : i);
+    }
+};
+
 /** Everything the analyser has measured, published from the audio thread
     to the editor about 20 times a second. Levels are in dB. */
 struct Snapshot
@@ -81,6 +95,16 @@ struct Snapshot
 
     float secondsAnalysed = 0.0f;  // music above the gates since reset
     float secondsNow = 0.0f;       // how much of the "now" window is filled (0-3 s)
+
+    /** Track mode: how long a kick takes to fade 20 dB in the low end (40-120 Hz) after its
+        peak, ms, measured up to the next kick (0 = not measured). */
+    float kickDecayNow = 0.0f, kickDecaySong = 0.0f;
+    bool kickDecayNowValid = false, kickDecaySongValid = false;
+    /** Crest factor: true peak over the plain (unweighted) RMS level of the last 3 s, dB. */
+    float rmsNow = -200.0f;
+    float crestNow = 0.0f, crestSong = 0.0f;
+
+    std::array<float, LowFine::count> lowFineNow {}, lowFineSong {}; // mid, dB per grid point
 
     std::array<float, Bands::count> midNow {}, sideNow {}, midSong {}, sideSong {};
     bool spectrumNowValid = false, spectrumSongValid = false;
