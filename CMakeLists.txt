@@ -123,6 +123,7 @@ target_link_libraries(WWMA
         WWMAAssets
         juce::juce_audio_utils
         juce::juce_dsp
+        juce::juce_opengl
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -137,7 +138,7 @@ if(WWMA_BUILD_TOOLS)
     target_compile_definitions(wwma_selftest PRIVATE
         JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="WWMA" JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_USE_MP3AUDIOFORMAT=1)
     target_link_libraries(wwma_selftest PRIVATE
-        WWMAAssets juce::juce_audio_utils juce::juce_dsp
+        WWMAAssets juce::juce_audio_utils juce::juce_dsp juce::juce_opengl
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     # main() keeps many processors (each with two analysers) on the stack; Windows' default 1 MB is too small
     if(MSVC)

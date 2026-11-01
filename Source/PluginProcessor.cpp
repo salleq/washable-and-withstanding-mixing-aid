@@ -112,8 +112,14 @@ bool WwmaAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) con
 
 void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    analyzer.prepare (sampleRate);
-    inputAnalyzer.prepare (sampleRate);
+    // Hosts call this again when switching between realtime and offline (export) with the same
+    // rate; preparing resets the analysis, which would wipe the result of a finished export.
+    if (sampleRate != preparedRate)
+    {
+        analyzer.prepare (sampleRate);
+        inputAnalyzer.prepare (sampleRate);
+        preparedRate = sampleRate;
+    }
     refs.setPlaybackRate (sampleRate);
     mixTrack.setPlaybackRate (sampleRate);
     refScratch.setSize (2, juce::jmax (512, samplesPerBlock), false, false, true);
@@ -123,6 +129,7 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     withoutMix = 0.0f;
     abStep = (float) (1.0 / (0.03 * sampleRate)); // 30 ms crossfade between mix and reference
     wasPlaying = false;
+    wasOffline = false;
     expectedSample = -1;
 }
 
@@ -173,6 +180,16 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
             expectedSample = hostPlaying && hostSample >= 0 ? hostSample + n : -1;
         }
     }
+
+    // An export (bounce) renders offline: start a fresh pass when it begins, even if the host
+    // does not report "playing", so SONG covers the whole render from the start.
+    const bool offline = isNonRealtime();
+    if (offline && ! wasOffline)
+        beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : 0.0);
+    wasOffline = offline;
+    exporting.store (offline);
+    if (offline && hostSample >= 0 && getSampleRate() > 0.0)
+        exportSeconds.store ((double) hostSample / getSampleRate());
 
     // mastering EQ and limiter, exactly as the user set them (a fixed delay when both are off)
     const auto settings = getChainSettings();

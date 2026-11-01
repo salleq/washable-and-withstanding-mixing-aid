@@ -34,6 +34,8 @@ struct RefView
 struct ViewState
 {
     Snapshot snap;
+    bool exporting = false;      // the host is rendering an export
+    float exportSeconds = 0.0f;  // how far into the song the export is
     Assessment assessment;
     Profile profile;
     juce::String profileName;

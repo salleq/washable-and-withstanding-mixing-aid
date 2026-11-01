@@ -119,6 +119,10 @@ public:
         with both stages off the input is the output, and the main analyser already has it. */
     wwma::Analyzer inputAnalyzer;
     std::atomic<bool> inputAnalysisWanted { false };
+    // true while the host renders an export; the editor uses it to show progress when the host
+    // blocks the message thread and its normal timer cannot run
+    std::atomic<bool> exporting { false };
+    std::atomic<double> exportSeconds { 0.0 };
 
     /** Standalone app only: nobody plays through a microphone there, so the audio interface input
         is ignored and "your mix" is a file loaded into the app (slot 0, with its own play button).
@@ -172,6 +176,8 @@ private:
     std::optional<wwma::Profile> reference;
     std::atomic<bool> autoReset { true };
     bool wasPlaying = false;
+    bool wasOffline = false;
+    double preparedRate = 0.0;
     int64_t expectedSample = -1; // where the play head should be at the next block
 
     wwma::MasterChain chain;

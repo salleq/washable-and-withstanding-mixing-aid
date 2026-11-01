@@ -1,6 +1,7 @@
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
+#include <juce_opengl/juce_opengl.h>
 #include "PluginProcessor.h"
 #include "ui/Components.h"
 #include "ui/ChainPanel.h"
@@ -90,10 +91,32 @@ private:
     public:
         explicit Content (WwmaAudioProcessorEditor& e) : editor (e) {}
         void paint (juce::Graphics&) override;
+        void paintOverChildren (juce::Graphics&) override;
         void resized() override;
     private:
         WwmaAudioProcessorEditor& editor;
     };
+
+    /** While the host renders an export it can keep the message thread busy, so the timer never
+        runs and the window would freeze. This thread then reads the measurements itself and has
+        the OpenGL context redraw the window, which does not need the message thread. */
+    struct ExportPulse : public juce::Thread
+    {
+        explicit ExportPulse (WwmaAudioProcessorEditor& e) : juce::Thread ("WWMA export display"), editor (e) {}
+        void run() override
+        {
+            while (! threadShouldExit())
+            {
+                wait (400);
+                editor.exportTick();
+            }
+        }
+        WwmaAudioProcessorEditor& editor;
+    };
+    void exportTick();
+    juce::OpenGLContext glContext;
+    std::atomic<juce::uint32> lastTimerMs { 0 };
+    ExportPulse exportPulse { *this };
 
     void timerCallback() override;
     void reassess();
@@ -132,6 +155,8 @@ private:
     float lessonSeconds = -1.0f; // music time when the lesson goal was last checked
     void updateLesson();
     void chooseReportFile();
+    /** Copies the report files to the clipboard (Windows) and shows them in the file manager. */
+    void shareReportFiles (const juce::File& markdownFile);
     std::unique_ptr<juce::FileChooser> chooser;
     int refGeneration = -1;
 

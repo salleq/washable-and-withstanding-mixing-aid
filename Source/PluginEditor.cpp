@@ -2,6 +2,14 @@
 #include "advice/ListeningReport.h"
 #include "ui/TimelineImage.h"
 
+#if JUCE_WINDOWS
+ #ifndef NOMINMAX
+  #define NOMINMAX
+ #endif
+ #include <windows.h>
+ #include <shlobj.h>
+#endif
+
 using namespace wwma;
 namespace ui = wwma::ui;
 namespace colours = wwma::ui::colours;
@@ -13,6 +21,53 @@ namespace
     constexpr int leftWidth = 222, rightWidth = 272;
     constexpr size_t historyPoints = 360; // 3 minutes, one point every 0.5 s
     constexpr size_t scorePoints = 120;   // 60 s
+
+    /** Puts the files on the clipboard the way Explorer's Copy does, so they can be pasted
+        (Ctrl+V) into a chat with an AI assistant. Only Windows; returns false elsewhere. */
+    bool copyFilesToClipboard ([[maybe_unused]] const juce::Array<juce::File>& files, [[maybe_unused]] void* ownerWindow)
+    {
+       #if JUCE_WINDOWS
+        std::vector<wchar_t> paths;
+        for (const auto& f : files)
+        {
+            const auto p = f.getFullPathName().toWideCharPointer();
+            paths.insert (paths.end(), p, p + wcslen (p) + 1);
+        }
+        if (paths.empty())
+            return false;
+        paths.push_back (L'\0');
+
+        const SIZE_T bytes = sizeof (DROPFILES) + paths.size() * sizeof (wchar_t);
+        HGLOBAL mem = GlobalAlloc (GMEM_MOVEABLE | GMEM_ZEROINIT, bytes);
+        if (mem == nullptr)
+            return false;
+        if (auto* drop = static_cast<DROPFILES*> (GlobalLock (mem)))
+        {
+            drop->pFiles = sizeof (DROPFILES);
+            drop->fWide = TRUE;
+            memcpy (reinterpret_cast<char*> (drop) + sizeof (DROPFILES), paths.data(), paths.size() * sizeof (wchar_t));
+            GlobalUnlock (mem);
+        }
+        else
+        {
+            GlobalFree (mem);
+            return false;
+        }
+
+        bool ok = false;
+        if (OpenClipboard (static_cast<HWND> (ownerWindow)))
+        {
+            EmptyClipboard();
+            ok = SetClipboardData (CF_HDROP, mem) != nullptr;
+            CloseClipboard();
+        }
+        if (! ok)
+            GlobalFree (mem); // the clipboard owns the memory only after a successful SetClipboardData
+        return ok;
+       #else
+        return false;
+       #endif
+    }
 }
 
 WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
@@ -205,11 +260,16 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     proc.inputAnalysisWanted.store (state.chainOpen);
     updatePanels();
     refresh();
+    lastTimerMs.store (juce::Time::getMillisecondCounter());
     startTimerHz (30);
+    glContext.attachTo (*this);
+    exportPulse.startThread();
 }
 
 WwmaAudioProcessorEditor::~WwmaAudioProcessorEditor()
 {
+    exportPulse.stopThread (2000);
+    glContext.detach();
     stopTimer();
     proc.listenToReference.store (false); // never leave the reference playing with no window to show it
     proc.listenWithoutChain.store (false); // nor the bypass on
@@ -229,6 +289,22 @@ void WwmaAudioProcessorEditor::resized()
 }
 
 // =====================================================================================
+void WwmaAudioProcessorEditor::Content::paintOverChildren (juce::Graphics& g)
+{
+    const auto& st = editor.state;
+    if (! st.exporting)
+        return;
+    const int secs = (int) st.exportSeconds;
+    const auto text = tr (editor.proc.getLang(), "Exporting - measuring: ", "Export käynnissä - mitataan: ")
+                      + juce::String (secs / 60) + ":" + juce::String (secs % 60).paddedLeft ('0', 2);
+    auto box = juce::Rectangle<float> (baseWidth * 0.5f - 190.0f, 10.0f, 380.0f, 36.0f);
+    g.setColour (colours::accent);
+    g.fillRoundedRectangle (box, 6.0f);
+    g.setColour (juce::Colour (0xff10141a));
+    g.setFont (fonts::labelBold (16.0f));
+    g.drawText (text, box, juce::Justification::centred);
+}
+
 void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
 {
     const auto lang = editor.proc.getLang();
@@ -492,10 +568,12 @@ void WwmaAudioProcessorEditor::updateTexts()
     learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
                                       "Oppimistila: lyhyitä käytännön tehtäviä (esim. basson duckaus kickin alle). WWMA seuraa viimeisiä 3 sekuntia ja kertoo, kun onnistuit."));
     reportButton.setButtonText (ui::upper (tr (lang, "Report", "Raportti")));
-    reportButton.setTooltip (tr (lang, "Save a report of this mix (Markdown + JSON). If an earlier report is in the same folder, the new one shows what changed since. "
-                                       "Also saves \"... AI.md\" and a spectrogram picture: the song part by part, with a ready question, to give to an AI assistant.",
+    reportButton.setTooltip (tr (lang, "Save a report of this mix (Markdown + JSON) straight to the report folder. If an earlier report is in the same folder, the new one shows what changed since. "
+                                       "Also saves \"... AI.md\" and a spectrogram picture: the song part by part, with a ready question, to give to an AI assistant. "
+                                       "The files are copied to the clipboard (paste them into the chat with Ctrl+V) and the folder opens.",
                                        "Tallenna raportti tästä miksistä (Markdown + JSON). Jos samassa kansiossa on aiempi raportti, uusi näyttää, mikä muuttui sen jälkeen. "
-                                       "Tallentaa myös \"... AI.md\" -tiedoston ja spektrogrammikuvan: kappale osa kerrallaan ja valmis kysymys tekoälyavustajalle annettavaksi."));
+                                       "Tallentaa myös \"... AI.md\" -tiedoston ja spektrogrammikuvan: kappale osa kerrallaan ja valmis kysymys tekoälyavustajalle annettavaksi. "
+                                       "Tiedostot kopioidaan leikepöydälle (liitä ne keskusteluun Ctrl+V) ja kansio aukeaa."));
 
     const bool now = proc.getWindow() == Window::now;
     nowButton.setToggleState (now, juce::dontSendNotification);
@@ -512,12 +590,26 @@ void WwmaAudioProcessorEditor::updateTexts()
 // =====================================================================================
 void WwmaAudioProcessorEditor::timerCallback()
 {
+    lastTimerMs.store (juce::Time::getMillisecondCounter());
+    state.exporting = false;
     ++ticks;
     proc.updateReferenceState();
     readReferences();
     if (ticks % 15 == 0)
         pushHistory();
     refresh (ticks % 10 == 0);
+}
+
+void WwmaAudioProcessorEditor::exportTick()
+{
+    // the normal timer is running: nothing to do
+    if (! proc.exporting.load() || juce::Time::getMillisecondCounter() - lastTimerMs.load() < 600)
+        return;
+    proc.analyzer.readSnapshot (state.snap);
+    state.exporting = true;
+    state.exportSeconds = (float) proc.exportSeconds.load();
+    content.repaint();
+    glContext.triggerRepaint();
 }
 
 void WwmaAudioProcessorEditor::pushHistory()
@@ -993,20 +1085,27 @@ void WwmaAudioProcessorEditor::chooseReportFile()
     auto folder = proc.getReportFolder();
     folder.createDirectory();
     const auto name = "WWMA report " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M") + ".md";
-    chooser = std::make_unique<juce::FileChooser> (tr (proc.getLang(), "Save the mix report", "Tallenna miksausraportti"),
-                                                   folder.getChildFile (name), "*.md");
-    juce::Component::SafePointer<WwmaAudioProcessorEditor> safe (this);
-    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
-                              | juce::FileBrowserComponent::warnAboutOverwriting,
-                          [safe] (const juce::FileChooser& fc)
-                          {
-                              if (safe == nullptr || fc.getResult() == juce::File())
-                                  return;
-                              auto file = fc.getResult();
-                              if (! file.hasFileExtension ("md"))
-                                  file = file.withFileExtension ("md");
-                              safe->saveReport (file);
-                          });
+    const auto file = folder.getChildFile (name);
+    saveReport (file);
+    shareReportFiles (file);
+}
+
+void WwmaAudioProcessorEditor::shareReportFiles (const juce::File& markdownFile)
+{
+    // The files an AI assistant needs: the report and the song part by part (text + pictures).
+    const auto folder = markdownFile.getParentDirectory();
+    const auto base = markdownFile.getFileNameWithoutExtension();
+    juce::Array<juce::File> files;
+    for (const auto& f : { folder.getChildFile (base + " AI.md"), folder.getChildFile (base + " AI.png"),
+                           folder.getChildFile (base + " AI reference.png"), markdownFile })
+        if (f.existsAsFile())
+            files.add (f);
+
+    // copied like Explorer's Copy, so Ctrl+V in the chat attaches them; the folder opens
+    // with the report selected, to show where they are and as a fallback
+    void* window = getPeer() != nullptr ? getPeer()->getNativeHandle() : nullptr;
+    copyFilesToClipboard (files, window);
+    markdownFile.revealToUser();
 }
 
 juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
