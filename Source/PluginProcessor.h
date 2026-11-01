@@ -81,7 +81,7 @@ public:
         is on), so the editor can compare it with the previous pass of the same part. */
     std::atomic<int> passCount { 0 };
     std::atomic<double> passStart { -1.0 }; // song position of the newest pass, seconds (-1: unknown)
-    void beginPass (double startSeconds) noexcept;
+    void beginPass (double startSeconds, bool forceReset = false) noexcept;
 
     /** This instance on the shared track bus (other WWMA instances see its low end). */
     const int busId = wwma::TrackBus::shared().join();

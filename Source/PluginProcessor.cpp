@@ -182,10 +182,11 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     }
 
     // An export (bounce) renders offline: start a fresh pass when it begins, even if the host
-    // does not report "playing", so SONG covers the whole render from the start.
+    // does not report "playing", so SONG covers the whole render from the start. An export always
+    // resets, whether or not "reset on play" is on.
     const bool offline = isNonRealtime();
     if (offline && ! wasOffline)
-        beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : 0.0);
+        beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : 0.0, true);
     wasOffline = offline;
     exporting.store (offline);
     if (offline && hostSample >= 0 && getSampleRate() > 0.0)
@@ -381,9 +382,9 @@ void WwmaAudioProcessor::setTarget (int t) { apvts.state.setProperty (targetId, 
 Stage WwmaAudioProcessor::getStage() const { return (int) apvts.state.getProperty (stageId, 1) == 0 ? Stage::mixing : Stage::mastering; }
 void WwmaAudioProcessor::setStage (Stage st) { apvts.state.setProperty (stageId, st == Stage::mixing ? 0 : 1, nullptr); }
 
-void WwmaAudioProcessor::beginPass (double startSeconds) noexcept
+void WwmaAudioProcessor::beginPass (double startSeconds, bool forceReset) noexcept
 {
-    if (autoReset.load())
+    if (forceReset || autoReset.load())
     {
         analyzer.requestReset();
         inputAnalyzer.requestReset();
