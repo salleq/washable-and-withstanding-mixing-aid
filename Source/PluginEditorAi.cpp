@@ -342,7 +342,7 @@ void WwmaAudioProcessorEditor::testAiConnection()
     {
         if (self == nullptr)
             return;
-        const auto lang = self->state.lang;
+        const auto l = self->state.lang;
         if (! reply.ok)
         {
             self->aiPanel.setTestStatus (reply.error, false);
@@ -358,8 +358,8 @@ void WwmaAudioProcessorEditor::testAiConnection()
         self->aiPanel.setModels (reply.models);
         const auto model = p.model.isNotEmpty() ? p.model : ai::defaultModel (provider);
         const bool known = reply.models.contains (model);
-        self->aiPanel.setTestStatus (tr (lang, "The key works. Model: ", "Avain toimii. Malli: ") + model
-                                         + (known ? juce::String() : tr (lang, " (not in your account's list: pick another)", " (ei tilisi listassa: valitse toinen)")),
+        self->aiPanel.setTestStatus (tr (l, "The key works. Model: ", "Avain toimii. Malli: ") + model
+                                         + (known ? juce::String() : tr (l, " (not in your account's list: pick another)", " (ei tilisi listassa: valitse toinen)")),
                                      known);
     });
 }
