@@ -45,6 +45,9 @@ struct Trial
     juce::String title, step;  // the finding, and the first step of its fix
     PassRecord before;         // the pass the change is judged against
     int passAtStart = 0;       // the result comes from a later pass
+    /** What the ears said after A/B: 0 not yet, +1 the mix now is better, -1 BEFORE was better, 2 no difference. */
+    int ear = 0;
+    bool decided = false;      // the ears answered: the result no longer changes
 };
 
 struct TrialResult
@@ -53,7 +56,17 @@ struct TrialResult
     float excessBefore = 0.0f, excessAfter = 0.0f; // the finding itself (0 = gone)
     PassVerdict overall;
     juce::String headline, detail;
+    bool askEar = false;       // the meter has its say; now the ears: BEFORE or MIX?
+    bool overrule = false;     // the ears went against the meter: the finding stops counting
 };
+
+/** Once the meter has judged a trial, hand it to the ears: compare BEFORE and MIX.
+    beforeReady: the BEFORE take has this part (otherwise the DAW's undo is the A/B). */
+TrialResult askEars (TrialResult meter, const Trial& t, bool beforeReady, Lang lang);
+
+/** The final word: the meter's result and what the ears said. The ears win.
+    overrulesSoFar: how often the ears overruled the meter before, to suggest a reference. */
+TrialResult judgeWithEars (const TrialResult& meter, const Trial& t, int overrulesSoFar, Lang lang);
 
 /** The first numbered step of a finding's "how to", without the number. */
 juce::String firstStep (const juce::String& howTo);

@@ -701,6 +701,7 @@ namespace
 
     juce::String chipText (const Finding& f, Lang lang)
     {
+        if (f.earOverruled) return t (lang, "Your ears", "Korvasi päätti");
         if (f.severity == Severity::good) return t (lang, "Fine", "Kunnossa");
         if (f.severity == Severity::info) return t (lang, "Info", "Info");
         if (f.direction > 0) return t (lang, "Too much", "Liikaa");
@@ -778,8 +779,21 @@ namespace
         juce::AttributedString a;
         a.setWordWrap (juce::AttributedString::byWord);
         a.setLineSpacing (2.0f);
+        if (f.earOverruled)
+        {
+            a.append (t (lang, "In A/B your ears preferred it without this fix, so it no longer counts. For this song it is a choice.",
+                               "A/B-vertailussa korvasi piti enemmän versiosta ilman tätä korjausta, joten sitä ei enää lasketa. Tässä biisissä se on valinta."),
+                      fonts::body (13.0f), colours::dim);
+            return a;
+        }
         if (! open)
         {
+            // first what to listen for, then one thing to try
+            if (f.listenFor.isNotEmpty())
+            {
+                a.append (t (lang, "Listen: ", "Kuuntele: "), fonts::bodyBold (13.0f), colours::earlier);
+                a.append (f.listenFor + "\n", fonts::body (13.0f), colours::soft);
+            }
             const auto step = firstStep (f.howTo);
             if (step.isNotEmpty())
             {
@@ -789,6 +803,11 @@ namespace
             else if (f.why.isNotEmpty())
                 a.append (f.why, fonts::body (13.0f), colours::soft);
             return a;
+        }
+        if (f.listenFor.isNotEmpty())
+        {
+            a.append (t (lang, "What you hear\n", "Mitä kuulet\n"), fonts::bodyBold (13.0f), colours::earlier);
+            a.append (f.listenFor + "\n", fonts::body (13.0f), colours::text);
         }
         if (f.why.isNotEmpty())
             a.append (f.why + "\n", fonts::body (13.0f), colours::soft);
@@ -811,6 +830,13 @@ namespace
                     a.append (line + nl, fonts::body (13.0f), colours::text);
             }
         }
+        if (f.ignoreWhen.isNotEmpty())
+        {
+            a.append (t (lang, "\nWhen to leave it\n", "\nMilloin voit jättää\n"), fonts::bodyBold (13.0f), colours::dim);
+            a.append (f.ignoreWhen + t (lang, " Check with BEFORE and MIX: if the fixed version sounds worse, put it back.",
+                                             " Tarkista ENNEN- ja MIKSI-napeilla: jos korjattu versio kuulostaa huonommalta, palauta."),
+                      fonts::body (13.0f), colours::soft);
+        }
         return a;
     }
 }
@@ -826,7 +852,7 @@ int FindingsPanel::List::layout (int width)
     int problems = 0;
     for (const auto& f : st.shownAssessment().findings)
     {
-        const bool problem = f.severity == Severity::fix || f.severity == Severity::watch;
+        const bool problem = (f.severity == Severity::fix || f.severity == Severity::watch) && ! f.earOverruled;
         if (problem && ++problems > 4)
             continue;
         shown.push_back (f);
@@ -868,7 +894,7 @@ void FindingsPanel::List::paint (juce::Graphics& g)
         const auto& f = *card.finding;
         const bool open = f.id == owner.expanded && ! card.compact;
         auto r = card.bounds.toFloat();
-        const auto col = severityColour (f.severity);
+        const auto col = f.earOverruled ? colours::earlier.withAlpha (0.6f) : severityColour (f.severity);
 
         g.setColour (colours::panel);
         g.fillRoundedRectangle (r, 7.0f);
@@ -1230,6 +1256,13 @@ ProgressBox::ProgressBox (const ViewState& s) : state (s)
     confirmButton.onClick = [this] { if (onConfirm) onConfirm(); };
     tryButton.onClick = [this] { if (onTry) onTry(); };
     versionsButton.onClick = [this] { if (onVersions) onVersions(); };
+    earNowButton.onClick = [this] { if (onEar) onEar (1); };
+    earBeforeButton.onClick = [this] { if (onEar) onEar (-1); };
+    earSameButton.onClick = [this] { if (onEar) onEar (2); };
+    earNowButton.getProperties().set ("primary", true);
+    earBeforeButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
+    for (auto* b : { &earNowButton, &earBeforeButton, &earSameButton })
+        addChildComponent (b);
     versionsButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
     compareButton.setClickingTogglesState (false);
     for (auto* b : { &saveButton, &compareButton, &clearButton, &tryButton, &versionsButton })
@@ -1252,7 +1285,10 @@ void ProgressBox::syncButtons()
                                    "Yksi korjaus kerrallaan: WWMA valitsee tärkeimmän havainnon ja antaa yhden konkreettisen askeleen. Tee muutos, soita sama kohta uudelleen, ja WWMA kertoo, auttoiko se oikeasti verrattuna muutosta edeltävään soittoon."));
     tryButton.getProperties().set ("primary", ! state.trial.active || done);
     tryButton.setEnabled (state.trial.active || state.assessment.enoughData);
-    tryButton.setVisible (! state.awaitingSaveConfirm);
+    const bool ask = state.trial.active && state.trialResult.askEar && ! state.awaitingSaveConfirm;
+    tryButton.setVisible (! state.awaitingSaveConfirm && ! ask);
+    for (auto* b : { &earNowButton, &earBeforeButton, &earSameButton })
+        b->setVisible (ask);
 }
 
 juce::Rectangle<int> ProgressBox::plotArea() const
@@ -1276,6 +1312,13 @@ void ProgressBox::updateTexts()
     compareButton.setButtonText (upper (t (lang, "Before/after", "Ennen/jälkeen")));
     compareButton.setTooltip (t (lang, "Compare the newest snapshot with now: which numbers got better, which got worse.",
                                        "Vertaa uusinta snapshotia nykyhetkeen: mitkä luvut paranivat, mitkä huononivat."));
+    earNowButton.setButtonText (upper (t (lang, "Mix better", "Miksi parempi")));
+    earNowButton.setTooltip (t (lang, "The mix as it is now sounds better than BEFORE.", "Miksi nyt kuulostaa paremmalta kuin ENNEN."));
+    earBeforeButton.setButtonText (upper (t (lang, "Before better", "Ennen parempi")));
+    earBeforeButton.setTooltip (t (lang, "BEFORE sounded better: the change should go, whatever the meter says.",
+                                         "ENNEN kuulosti paremmalta: muutos saa lähteä, sanoi mittari mitä tahansa."));
+    earSameButton.setButtonText (upper (t (lang, "Same", "Ei eroa")));
+    earSameButton.setTooltip (t (lang, "You can't hear a difference.", "Et kuule eroa."));
     versionsButton.setButtonText (upper (t (lang, "Versions", "Versiot")));
     versionsButton.setTooltip (t (lang, "Every snapshot also saves what BEFORE plays, in WWMA's own folder. Use, name or remove the versions, and the sessions kept there.",
                                         "Jokainen snapshot tallentaa myös sen, mitä ENNEN soittaa, WWMA:n omaan kansioon. Käytä, nimeä tai poista versioita ja siellä olevia istuntoja."));
@@ -1295,7 +1338,17 @@ void ProgressBox::resized()
     clearButton.setBounds (buttons);
     versionsButton.setBounds (r.getRight() - 72, r.getY() - 3, 72, 20);
     r.removeFromTop (16);
-    tryButton.setBounds (r.removeFromTop (22));
+    auto tryRow = r.removeFromTop (22);
+    tryButton.setBounds (tryRow);
+    {
+        auto row = tryRow;
+        const int w = (row.getWidth() - 8) / 3;
+        earNowButton.setBounds (row.removeFromLeft (w + 10));
+        row.removeFromLeft (4);
+        earBeforeButton.setBounds (row.removeFromLeft (w + 10));
+        row.removeFromLeft (4);
+        earSameButton.setBounds (row);
+    }
     const auto plot = plotArea();
     confirmButton.setBounds (plot.getCentreX() - 60, plot.getBottom() - 30, 120, 26);
 }
@@ -1315,6 +1368,8 @@ void ProgressBox::paintBanner (juce::Graphics& g, juce::Rectangle<float> r)
             case TrialResult::Kind::noChange: col = colours::warn; break;
             case TrialResult::Kind::waiting:  col = colours::accent; break;
         }
+        if (res.askEar)
+            col = colours::earlier;
         if (res.kind == TrialResult::Kind::waiting && res.detail == state.trial.step)
         {
             headline = t (lang, "Try: ", "Kokeile: ") + state.trial.title;

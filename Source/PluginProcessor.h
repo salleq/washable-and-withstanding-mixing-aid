@@ -147,6 +147,9 @@ public:
     /** The 0-100 number on the meters. Off by default: the meter is a hint, the ears decide. */
     bool getShowScore() const;
     void setShowScore (bool on);
+    /** Findings the user's ears ruled against in A/B (ids). Kept with the project. */
+    std::set<std::string> getEarOverruled() const;
+    void setEarOverruled (const std::set<std::string>& ids);
     bool getChainOpen() const;
     void setChainOpen (bool on);
 

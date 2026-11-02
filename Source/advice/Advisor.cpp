@@ -193,6 +193,25 @@ juce::String playbackName (Playback p, Lang lang)
     return {};
 }
 
+void applyEarDecisions (Assessment& a, const std::set<std::string>& overruled)
+{
+    if (overruled.empty() || ! a.enoughData)
+        return;
+    float removed = 0.0f;
+    for (auto& f : a.findings)
+        if (overruled.count (f.id) != 0 && ! f.earOverruled)
+        {
+            removed += f.penalty;
+            f.penalty = 0.0f;
+            f.earOverruled = true;
+        }
+    if (removed <= 0.0f && std::none_of (a.findings.begin(), a.findings.end(), [] (const Finding& f) { return f.earOverruled; }))
+        return;
+    // the score is 100 * exp (-penalty / 60): taking a penalty away scales it back up
+    a.score = juce::jlimit (0.0f, 100.0f, a.score * std::exp (removed / 60.0f));
+    std::stable_partition (a.findings.begin(), a.findings.end(), [] (const Finding& f) { return ! f.earOverruled; });
+}
+
 juce::String verdictFor (float score, Lang lang)
 {
     if (score >= 90.0f) return tr (lang, "Looks perfect", "Näyttää täydelliseltä");

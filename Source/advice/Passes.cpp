@@ -138,4 +138,78 @@ TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, boo
     }
     return r;
 }
+TrialResult askEars (TrialResult meter, const Trial& t, bool beforeReady, Lang lang)
+{
+    if (meter.kind == TrialResult::Kind::waiting)
+        return meter;
+    meter.askEar = true;
+    const auto said = meter.kind == TrialResult::Kind::helped ? tr (lang, "The meter: it helped.", "Mittari: auttoi.")
+                    : meter.kind == TrialResult::Kind::worse  ? tr (lang, "The meter: it got worse.", "Mittari: huononi.")
+                                                              : tr (lang, "The meter: no clear change.", "Mittari: ei selvää muutosta.");
+    meter.headline = said + tr (lang, " What do your ears say?", " Mitä korva sanoo?");
+    juce::String names;
+    if (! meter.overall.betterNames.isEmpty())
+        names << tr (lang, "Better: ", "Parempi: ") << meter.overall.betterNames.joinIntoString (", ", 0, 2) << ". ";
+    if (! meter.overall.worseNames.isEmpty())
+        names << tr (lang, "Worse: ", "Huonompi: ") << meter.overall.worseNames.joinIntoString (", ", 0, 2) << ". ";
+    meter.detail = names
+                   + (beforeReady ? tr (lang, "Press BEFORE and MIX in turn (same loudness). Which one do you like better?",
+                                              "Paina vuorotellen ENNEN ja MIKSI (sama äänekkyys). Kumpi kuulostaa paremmalta?")
+                                  : tr (lang, "Compare with your DAW's undo and redo, at the same volume. Which one do you like better?",
+                                              "Vertaa DAW:n kumoa/tee uudelleen -toiminnolla samalla äänenvoimakkuudella. Kumpi kuulostaa paremmalta?"));
+    juce::ignoreUnused (t);
+    return meter;
+}
+
+TrialResult judgeWithEars (const TrialResult& meter, const Trial& t, int overrulesSoFar, Lang lang)
+{
+    TrialResult r = meter;
+    r.askEar = false;
+    r.overrule = false;
+    const bool meterGood = meter.kind == TrialResult::Kind::helped;
+    const bool meterBad = meter.kind == TrialResult::Kind::worse;
+    const auto keep = tr (lang, "Save the DAW project as a new version.", "Tallenna DAW-projekti uutena versiona.");
+    if (t.ear == 2)
+    {
+        r.kind = TrialResult::Kind::noChange;
+        r.headline = tr (lang, "You hear no difference: don't go further this way", "Et kuule eroa: älä jatka tähän suuntaan");
+        r.detail = tr (lang, "If you can't hear it, nobody else will either. Undo it or leave it, and move on to the next thing.",
+                             "Jos et itse kuule eroa, ei kukaan muukaan kuule. Peru tai jätä, ja siirry seuraavaan.");
+    }
+    else if (t.ear > 0 && ! meterBad)
+    {
+        r.kind = TrialResult::Kind::helped;
+        r.headline = meterGood ? tr (lang, "Your ears and the meter agree: keep it", "Korva ja mittari ovat samaa mieltä: pidä muutos")
+                               : tr (lang, "Your ears hear it better: keep it", "Korva kuulee parannuksen: pidä muutos");
+        r.detail = keep;
+    }
+    else if (t.ear > 0 && meterBad)
+    {
+        r.kind = TrialResult::Kind::helped;
+        r.headline = tr (lang, "Your ears like it, the meter doesn't: your ears win", "Korva pitää, mittari ei: korva voittaa");
+        r.detail = tr (lang, "Keep it if it still sounds better quietly and on a phone. The meter only measures; the music is what you hear. ",
+                             "Pidä, jos se kuulostaa paremmalta myös hiljaa ja puhelimesta. Mittari vain mittaa; musiikki on se, mitä kuulet. ")
+                   + keep;
+    }
+    else if (t.ear < 0 && meterGood)
+    {
+        r.kind = TrialResult::Kind::worse;
+        r.overrule = true;
+        r.headline = tr (lang, "Your ears win: undo it", "Korva voittaa: peru muutos");
+        r.detail = tr (lang, "The meter only sees \"", "Mittari näkee vain kohdan \"") + t.title
+                   + tr (lang, "\". The change probably took something else away: warmth, punch or space. For this song it may be a choice, so WWMA stops counting it.",
+                               "\". Muutos vei luultavasti jotain muuta: lämpöä, iskua tai tilaa. Tässä biisissä se voi olla tyylivalinta, joten WWMA lakkaa laskemasta sitä.");
+        if (overrulesSoFar >= 1)
+            r.detail << tr (lang, " Your ears have disagreed with the style preset more than once: load a track you love and pick the Reference track preset, so the target is that sound and not a guess.",
+                                  " Korva on ollut tyylipresetin kanssa eri mieltä useammin kuin kerran: lataa kappale, jota rakastat, ja valitse Referenssiraita-preset, niin tavoite on se soundi eikä arvaus.");
+    }
+    else
+    {
+        r.kind = TrialResult::Kind::worse;
+        r.headline = tr (lang, "BEFORE was better: undo it", "ENNEN oli parempi: peru muutos");
+        r.detail = tr (lang, "Undo (Ctrl/Cmd+Z), then try a smaller move, or the next step of the fix.",
+                             "Peru (Ctrl/Cmd+Z) ja kokeile pienempää muutosta tai korjauksen seuraavaa askelta.");
+    }
+    return r;
+}
 } // namespace wwma

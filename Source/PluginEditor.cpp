@@ -229,6 +229,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     progress.onCompare = [this] { setCompareOpen (! state.compareOpen); };
     progress.onConfirm = [this] { confirmSnapshotSaved(); };
     progress.onTry = [this] { toggleTrial(); };
+    progress.onEar = [this] (int ear) { answerEar (ear); };
     beforeAfter.onClose = [this] { setCompareOpen (false); };
     lessonBox.onPrev = [this] { showLesson (state.lessonIndex - 1); };
     lessonBox.onNext = [this] { showLesson (state.lessonIndex + 1); };
@@ -874,6 +875,7 @@ void WwmaAudioProcessorEditor::reassess()
         const auto others = bus.others (proc.busId);
         const auto* ref = state.targetRefView();
         state.assessment = assessTrack (state.snap, style, state.trackRole, state.window, state.lang, others, ref != nullptr ? &ref->snap : nullptr);
+        applyEarDecisions (state.assessment, proc.getEarOverruled());
         if (state.assessment.enoughData)
         {
             const auto& fine = state.window == Window::song ? state.snap.lowFineSong : state.snap.lowFineNow;
@@ -892,6 +894,7 @@ void WwmaAudioProcessorEditor::reassess()
     else
     {
         state.assessment = assess (state.snap, state.profile, state.window, state.lang, state.stage);
+        applyEarDecisions (state.assessment, proc.getEarOverruled());
         state.chainAdvice = adviseChain (state.inputSnap, state.profile, state.window, state.lang, state.stage, state.chainSettings);
     }
     chainPanel.refresh();
@@ -946,6 +949,7 @@ void WwmaAudioProcessorEditor::updatePasses()
             songWide = assessTrack (state.snap, proc.getProfile(), state.trackRole, Window::song, state.lang,
                                     TrackBus::shared().others (proc.busId), ref != nullptr ? &ref->snap : nullptr);
         }
+        applyEarDecisions (songWide, proc.getEarOverruled());
         a = &songWide;
     }
     if (a->enoughData && state.snap.secondsAnalysed >= state.currentPass.seconds)
@@ -955,12 +959,14 @@ void WwmaAudioProcessorEditor::updatePasses()
     state.passComparable = previous != nullptr;
     state.passVerdict = previous != nullptr ? comparePasses (*previous, state.currentPass, state.lang) : PassVerdict {};
 
-    if (state.trial.active)
+    if (state.trial.active && ! state.trial.decided)
     {
         const bool newPass = passSeen > state.trial.passAtStart;
         const auto& b = state.trial.before;
         const bool samePart = b.start < 0.0 || state.passStartPos < 0.0 || std::abs (b.start - state.passStartPos) <= 2.0;
-        state.trialResult = judgeTrial (state.trial, state.currentPass, newPass, samePart, state.lang, state.showScore);
+        // the meter has its say, then the ears decide
+        state.trialResult = askEars (judgeTrial (state.trial, state.currentPass, newPass, samePart, state.lang, state.showScore),
+                                     state.trial, proc.before.hasBefore(), state.lang);
     }
     progress.syncButtons();
     progress.repaint();
@@ -982,7 +988,7 @@ void WwmaAudioProcessorEditor::toggleTrial()
         const auto& before = state.currentPass.valid() ? state.currentPass
                            : (! state.passes.empty() ? state.passes.back() : PassRecord {});
         for (const auto& f : state.assessment.findings)
-            if ((f.severity == Severity::fix || f.severity == Severity::watch) && before.valid())
+            if ((f.severity == Severity::fix || f.severity == Severity::watch) && ! f.earOverruled && before.valid())
             {
                 state.trial.active = true;
                 state.trial.findingId = f.id;
@@ -993,10 +999,43 @@ void WwmaAudioProcessorEditor::toggleTrial()
                 break;
             }
         if (state.trial.active)
+        {
+            // what plays now becomes BEFORE, so the ears can compare the change with it
+            proc.before.freeze();
+            readBefore();
             state.trialResult = judgeTrial (state.trial, state.currentPass, false, true, state.lang, state.showScore);
+        }
     }
     progress.syncButtons();
     progress.repaint();
+}
+
+void WwmaAudioProcessorEditor::answerEar (int ear)
+{
+    if (! state.trial.active || ! state.trialResult.askEar)
+        return;
+    auto overruled = proc.getEarOverruled();
+    state.trial.ear = ear;
+    state.trial.decided = true;
+    state.trialResult = judgeWithEars (state.trialResult, state.trial, (int) overruled.size(), state.lang);
+    if (state.trialResult.overrule)
+    {
+        overruled.insert (state.trial.findingId);
+        proc.setEarOverruled (overruled);
+        reassess();
+    }
+    if (state.listeningBefore)
+        setListeningBefore (false);
+    progress.syncButtons();
+    progress.repaint();
+    findings.refresh();
+}
+
+void WwmaAudioProcessorEditor::clearEarDecisions()
+{
+    proc.setEarOverruled ({});
+    reassess();
+    findings.refresh();
 }
 
 void WwmaAudioProcessorEditor::updateStyleButton()

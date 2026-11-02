@@ -8,7 +8,7 @@ namespace
     const juce::Identifier windowId ("window"), langId ("lang"), autoResetId ("autoReset"), referenceId ("Reference"),
                            stageId ("stage"), trackId ("track"), trackKindId ("trackKind"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
                            refsId ("ReferenceTracks"), slotId ("Slot"), sessionIdId ("sessionId"), sessionNameId ("sessionName"),
-                           showScoreId ("showScore");
+                           showScoreId ("showScore"), earOverruledId ("earOverruled");
 
     Lang defaultLang() { return Lang::english; } // Finnish is one click away
 }
@@ -65,6 +65,23 @@ WwmaAudioProcessor::~WwmaAudioProcessor()
 
 bool WwmaAudioProcessor::getShowScore() const { return (bool) apvts.state.getProperty (showScoreId, false); }
 void WwmaAudioProcessor::setShowScore (bool on) { apvts.state.setProperty (showScoreId, on, nullptr); }
+
+std::set<std::string> WwmaAudioProcessor::getEarOverruled() const
+{
+    std::set<std::string> out;
+    for (const auto& id : juce::StringArray::fromTokens (apvts.state.getProperty (earOverruledId).toString(), " ", {}))
+        if (id.isNotEmpty())
+            out.insert (id.toStdString());
+    return out;
+}
+
+void WwmaAudioProcessor::setEarOverruled (const std::set<std::string>& ids)
+{
+    juce::StringArray list;
+    for (const auto& id : ids)
+        list.add (juce::String (id));
+    apvts.state.setProperty (earOverruledId, list.joinIntoString (" "), nullptr);
+}
 
 // ---- WWMA's own folder
 

@@ -354,12 +354,15 @@ public:
     void updateTexts();
 
     std::function<void()> onSave, onClear, onCompare, onConfirm, onTry, onVersions;
+    /** The ears' answer after a trial: +1 the mix now, -1 BEFORE, 2 no difference. */
+    std::function<void (int)> onEar;
     /** Shows the confirm button while a snapshot waits for its DAW save, and enables Before/after. */
     void syncButtons();
 
 private:
     const ViewState& state;
     juce::TextButton saveButton, compareButton, clearButton, confirmButton, tryButton, versionsButton;
+    juce::TextButton earNowButton, earBeforeButton, earSameButton;
     juce::Rectangle<int> plotArea() const;
     static constexpr int bannerHeight = 66;
     void paintBanner (juce::Graphics& g, juce::Rectangle<float> r);

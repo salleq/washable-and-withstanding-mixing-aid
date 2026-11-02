@@ -91,6 +91,10 @@ public:
     const wwma::Assessment& getAssessment() const noexcept { return state.assessment; }
     /** "Try the top fix": starts a trial on the most important finding, or ends the current one. */
     void toggleTrial();
+    /** The ears' answer after a trial: +1 the mix now is better, -1 BEFORE was better, 2 no difference. */
+    void answerEar (int ear);
+    /** Forgets what the ears overruled, so those findings count again. */
+    void clearEarDecisions();
     const wwma::TrialResult& getTrialResult() const noexcept { return state.trialResult; }
     const wwma::Trial& getTrial() const noexcept { return state.trial; }
     const wwma::PassVerdict& getPassVerdict() const noexcept { return state.passVerdict; }

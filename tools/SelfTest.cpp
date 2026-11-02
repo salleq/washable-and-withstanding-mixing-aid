@@ -852,6 +852,18 @@ namespace
 
         struct Session
         {
+            /** The DAW's play head: each pass starts playing at its spot (a new pass, as when you press play or a loop starts over). */
+            struct Host : juce::AudioPlayHead
+            {
+                int64_t pos = 0;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying (true);
+                    info.setTimeInSamples (pos);
+                    return info;
+                }
+            } host;
             WwmaAudioProcessor p;
             std::unique_ptr<juce::AudioProcessorEditor> ed;
             WwmaAudioProcessorEditor* editor = nullptr;
@@ -859,16 +871,18 @@ namespace
             {
                 p.setPlayConfigDetails (2, 2, 48000.0, 512);
                 p.prepareToPlay (48000.0, 512);
+                p.setPlayHead (&host);
                 p.setProfileIndex (0);
                 p.setWindow (Window::song);
                 p.setStage (Stage::mixing);
                 ed.reset (p.createEditor());
                 editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
             }
+            ~Session() { p.setPlayHead (nullptr); }
             /** Press play at the given song position and play this version for 12 s. */
             void pass (double at, synth::SongParams sp)
             {
-                p.beginPass (at);
+                host.pos = (int64_t) (at * 48000.0);   // the play head jumps there: WWMA starts a new pass
                 sp.seconds = 12.0;
                 const auto x = synth::renderSong (sp);
                 juce::AudioBuffer<float> buf (2, 512);
@@ -880,9 +894,11 @@ namespace
                     buf.copyFrom (0, 0, x.l.data() + i, 512);
                     buf.copyFrom (1, 0, x.r.data() + i, 512);
                     p.processBlock (buf, midi);
+                    host.pos += 512;
                     if ((since += 512) >= 24000)
                     {
                         since = 0;
+                        p.before.service (host.pos / 48000.0);   // the processor's timer
                         editor->refresh (true);
                     }
                 }
@@ -916,9 +932,35 @@ namespace
                    "'try the top fix' picks the muddy low mids and gives one concrete step", juce::String (t.findingId) + ": " + t.step);
             check (s.editor->getTrialResult().kind == TrialResult::Kind::waiting, "  and waits for the next pass");
             s.pass (30.0, clean);
-            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped, "  cutting the mud: 'it helped, keep it'",
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped, "  cutting the mud: the meter says it helped",
                    s.editor->getTrialResult().headline + " / " + s.editor->getTrialResult().detail);
+            check (s.editor->getTrialResult().askEar && s.p.before.hasBefore(),
+                   "  then the ears are asked, with BEFORE holding the pass before the change", s.editor->getTrialResult().headline);
+            s.editor->answerEar (-1);
+            const auto& er = s.editor->getTrialResult();
+            const auto& fs = s.editor->getAssessment().findings;
+            const auto mud = std::find_if (fs.begin(), fs.end(), [] (const Finding& f) { return f.id == "range2+"; });
+            check (er.kind == TrialResult::Kind::worse && er.overrule && s.p.getEarOverruled().count ("range2+") == 1,
+                   "  BEFORE sounded better: 'your ears win, undo it', and the finding stops counting", er.headline);
+            check (mud == fs.end() || (mud->earOverruled && mud->penalty == 0.0f && mud == std::find_if (fs.begin(), fs.end(), [] (const Finding& f) { return f.earOverruled; })),
+                   "  it costs no points and goes below the others");
             s.editor->toggleTrial(); // next fix
+            check (! s.editor->getTrial().active || s.editor->getTrial().findingId != "range2+", "  'try the top fix' moves on to something else",
+                   juce::String (s.editor->getTrial().findingId));
+            s.editor->clearEarDecisions();
+            check (s.p.getEarOverruled().empty(), "  and the ears' decisions can be cleared");
+            {
+                Trial t;
+                t.title = "Muddy low mids";
+                TrialResult meterSaysWorse;
+                meterSaysWorse.kind = TrialResult::Kind::worse;
+                t.ear = 1;
+                const auto keep = judgeWithEars (meterSaysWorse, t, 0, Lang::english);
+                t.ear = 2;
+                const auto same = judgeWithEars (meterSaysWorse, t, 0, Lang::english);
+                check (keep.kind == TrialResult::Kind::helped && ! keep.overrule && same.kind == TrialResult::Kind::noChange,
+                       "  the ears win the other way too: liked it -> keep it; no difference -> don't go further");
+            }
             Session w;
             w.pass (30.0, muddy);
             w.editor->toggleTrial();
@@ -951,8 +993,6 @@ int main (int argc, char* argv[])
     if (argc > 1 && juce::String (argv[1]) == "passes")
     {
         passTests();
-    beforeTests();
-    storeTests();
         std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
         return failures == 0 ? 0 : 1;
     }
@@ -1867,6 +1907,8 @@ int main (int argc, char* argv[])
     // ------------------------------------------------------------------ track mode
     trackTests (false);
     passTests();
+    beforeTests();
+    storeTests();
 
     // ------------------------------------------------------------------ snapshots, lessons, report
     std::cout << "Snapshots, lessons and the mix report" << std::endl;
