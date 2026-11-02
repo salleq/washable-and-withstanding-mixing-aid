@@ -460,6 +460,8 @@ juce::String listeningMarkdown (const ListeningInput& in, Lang lang)
 
     // ---- overview
     md << "## " << tr (lang, "The song", "Kappale") << nl() << nl();
+    if (rep.subjectFile.isNotEmpty())
+        md << "- " << tr (lang, "Audio file: ", "Äänitiedosto: ") << rep.subjectFile << nl();
     md << "- " << tr (lang, "Preset (style target): ", "Preset (tyylin tavoite): ") << rep.presetName << nl();
     md << "- " << tr (lang, "Stage: ", "Vaihe: ") << (rep.stage == Stage::mixing ? tr (lang, "mixing", "miksaus") : tr (lang, "mastering", "masterointi")) << nl();
     if (rep.styleGuess.isNotEmpty())

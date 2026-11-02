@@ -62,6 +62,7 @@ struct ReportInput
     Assessment assessment;
     Profile profile;
     std::vector<SavedSnapshot> snapshots;
+    juce::String subjectFile;         // set: the report is about this audio file (a reference track), not about the mix being played
     juce::String referenceName;       // empty when no reference is loaded
     Assessment referenceAssessment;
     ChainSettings chain;              // the mastering EQ and limiter as the user set them

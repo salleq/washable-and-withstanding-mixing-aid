@@ -546,6 +546,22 @@ namespace
             check ((has (asMix, "peak") || has (asMix, "clipping")) && ! anyMastering && asRef.score > asMix.score,
                    "a mastered reference is not told off for peaks, loudness or clipping, and scores on its mix",
                    ids (asMix) + " | " + ids (asRef));
+
+            // a report of a reference track alone (e.g. an older version of the song): about that file, with no mix parts in it
+            ReportInput one;
+            one.time = juce::Time::getCurrentTime();
+            one.subjectFile = "old version.wav";
+            one.presetName = house.name;
+            one.stage = Stage::mastering;
+            one.secondsAnalysed = snap.secondsAnalysed;
+            one.assessment = asRef;
+            one.profile = house;
+            const auto md = reportMarkdown (one, Lang::english);
+            const auto js = reportJson (one);
+            check (md.contains ("old version.wav") && ! md.contains ("Mastering EQ and limiter") && ! md.contains ("Since the previous report"),
+                   "a report of a reference alone is about that file, without the EQ and limiter section");
+            check (js.getProperty ("subject", {}).toString() == "old version.wav" && ! reportJson (ReportInput {}).hasProperty ("subject"),
+                   "  and its JSON names the file, so it is never taken for an earlier report of the mix");
         }
 
         struct Session
