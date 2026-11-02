@@ -155,11 +155,13 @@ juce::var reportJson (const ReportInput& in)
     }
     root->setProperty ("metrics", juce::var (metrics));
 
-    juce::Array<juce::var> findings;
+    juce::Array<juce::var> findings, overruled;
     for (const auto& f : in.assessment.findings)
         if (f.id != "tip")
-            findings.add (juce::String (f.id));
+            (f.earOverruled ? overruled : findings).add (juce::String (f.id));
     root->setProperty ("findings", findings);
+    if (! overruled.isEmpty())
+        root->setProperty ("earOverruled", overruled);   // the user's ears ruled these fixes out in A/B
 
     auto* chain = new juce::DynamicObject();
     chain->setProperty ("eqOn", in.chain.eqOn);
@@ -230,19 +232,38 @@ juce::String reportMarkdown (const ReportInput& in, Lang lang, const juce::var& 
 
     md << "## " << tr (lang, "What to fix", "Mitä korjata") << nl << nl;
     int n = 0;
+    juce::StringArray overruled;
     for (const auto& f : a.findings)
     {
         if (f.id == "tip" || f.severity == Severity::good)
             continue;
+        if (f.earOverruled)
+        {
+            overruled.add (f.title);
+            continue;
+        }
         md << "### " << ++n << ". " << f.title << nl << nl;
         if (f.value.isNotEmpty())
             md << "*" << f.value << "*" << nl << nl;
+        if (f.listenFor.isNotEmpty())
+            md << "**" << tr (lang, "What you hear:", "Mitä kuulet:") << "** " << f.listenFor << nl << nl;
         md << f.why << nl << nl;
         md << f.howTo << nl << nl;
+        if (f.ignoreWhen.isNotEmpty())
+            md << "**" << tr (lang, "When to leave it:", "Milloin voit jättää:") << "** " << f.ignoreWhen << nl << nl;
     }
     if (n == 0)
         md << tr (lang, "Nothing to fix. Check on a phone and in a car, then trust your ears.",
                         "Ei korjattavaa. Tarkista puhelimesta ja autossa, ja luota sitten korviisi.") << nl << nl;
+    if (! overruled.isEmpty())
+    {
+        md << "## " << tr (lang, "Your ears decided", "Korvasi päätti") << nl << nl;
+        md << tr (lang, "In A/B (BEFORE vs MIX) the version without these fixes sounded better, so they no longer count:",
+                        "A/B-vertailussa (ENNEN vs. MIKSI) versio ilman näitä korjauksia kuulosti paremmalta, joten niitä ei enää lasketa:") << nl << nl;
+        for (const auto& title : overruled)
+            md << "- " << title << nl;
+        md << nl;
+    }
 
     const auto metrics = keyMetrics (a, in.profile, in.stage);
     md << "## " << tr (lang, "Numbers", "Luvut") << nl << nl;

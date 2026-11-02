@@ -77,13 +77,15 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     addAndMakeVisible (content);
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &loudness, &meters, &history, &compare, &refBox, &tonal, &findings, &score, &translation, &progress,
-             &profileBox, &targetBox, &trackBox, &mixButton, &masterButton, &trackButton, &nowButton, &songButton, &mixAButton, &refBButton,
-             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton })
+             &profileBox, &targetBox, &trackBox, &mixButton, &masterButton, &trackButton, &nowButton, &songButton, &mixAButton, &beforeButton, &refBButton,
+             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton, &aiButton })
         content.addAndMakeVisible (c);
+    content.addChildComponent (versionsPanel);
     content.addChildComponent (beforeAfter);
     content.addChildComponent (chainPanel);
     content.addChildComponent (lessonBox);
     content.addChildComponent (refDetail);
+    content.addChildComponent (aiPanel);
 
     profileBox.getProperties().set ("caption", "Preset");
     profileBox.onChange = [this]
@@ -124,9 +126,15 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
             setTrackRole ((TrackRole) id);
     };
     segment (nowButton, songButton, 2);
+    // MIX | BEFORE | REF: one group of three
     segment (mixAButton, refBButton, 3);
+    beforeButton.setClickingTogglesState (true);
+    beforeButton.setRadioGroupId (3);
+    beforeButton.setConnectedEdges (juce::Button::ConnectedOnLeft | juce::Button::ConnectedOnRight);
+    beforeButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
     refBButton.getProperties().set ("onColour", (juce::int64) colours::ref.getARGB());
-    mixAButton.onClick = [this] { if (mixAButton.getToggleState()) setListening (false); };
+    mixAButton.onClick = [this] { if (mixAButton.getToggleState()) { setListening (false); setListeningBefore (false); } };
+    beforeButton.onClick = [this] { if (beforeButton.getToggleState()) setListeningBefore (true); };
     refBButton.onClick = [this] { if (refBButton.getToggleState()) setListening (true); };
 
     refBox.onBrowse = [this] (int slot) { browseReference (slot); };
@@ -222,6 +230,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     progress.onCompare = [this] { setCompareOpen (! state.compareOpen); };
     progress.onConfirm = [this] { confirmSnapshotSaved(); };
     progress.onTry = [this] { toggleTrial(); };
+    progress.onEar = [this] (int ear) { answerEar (ear); };
     beforeAfter.onClose = [this] { setCompareOpen (false); };
     lessonBox.onPrev = [this] { showLesson (state.lessonIndex - 1); };
     lessonBox.onNext = [this] { showLesson (state.lessonIndex + 1); };
@@ -233,11 +242,164 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     chainPanel.onClose = [this] { setChainOpen (false); };
     chainPanel.onShowSuggestions = [this] (bool on) { setShowSuggestions (on); };
     chainPanel.onListenWithout = [this] (bool on) { setListeningWithout (on); };
+    chainPanel.onUseSuggested = [this] (bool eq, bool limiter) { useSuggestedChain (eq, limiter); };
+    chainPanel.onKeepChange = [this] { keepChainChange(); };
+    chainPanel.onUndoChange = [this] { undoChainChange(); };
     state.chainOpen = proc.getChainOpen();
     state.showSuggestions = proc.getShowSuggestions();
     state.chainSettings = proc.getChainSettings();
     chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
     reportButton.onClick = [this] { chooseReportFile(); };
+
+    // the AI assistant: nothing is sent before the user presses Ask
+    aiSettings = ai::loadSettings();
+    aiPanel.setSettings (aiSettings);
+    aiButton.setClickingTogglesState (true);
+    aiButton.onClick = [this] { setAiOpen (aiButton.getToggleState()); };
+    aiPanel.onClose = [this] { setAiOpen (false); };
+    aiPanel.onAsk = [this] { askAi(); };
+    aiPanel.onCancel = [this]
+    {
+        aiWorker.cancel();
+        setAiStatus (ui::AiPanel::View::Status::idle, tr (state.lang, "Cancelled", "Peruttu"), {});
+    };
+    aiPanel.onCopyQuestion = [this]
+    {
+        juce::SystemClipboard::copyTextToClipboard (aiSession.prompt);
+        setAiStatus (aiSession.status, aiSession.headline,
+                     tr (state.lang, "The question is on the clipboard: paste it into the chat (after the files) and send it.",
+                                     "Kysymys on leikepöydällä: liitä se keskusteluun (tiedostojen jälkeen) ja lähetä."));
+    };
+    aiPanel.onPasteAnswer = [this]
+    {
+        const auto text = juce::SystemClipboard::getTextFromClipboard().trim();
+        if (text.isEmpty() || text == aiSession.prompt.trim())
+            setAiStatus (ui::AiPanel::View::Status::error, tr (state.lang, "Nothing to paste", "Ei mitään liitettävää"),
+                         tr (state.lang, "Copy the whole answer in the chat first (most chats have a copy button under the answer).",
+                                         "Kopioi ensin koko vastaus keskustelusta (useimmissa on kopiointinappi vastauksen alla)."));
+        else
+            showAiAnswer (text);
+    };
+    aiPanel.onOpenFile = [this] { if (aiSession.answerFile.existsAsFile()) aiSession.answerFile.startAsProcess(); };
+    aiPanel.onFollowUp = [this] (const juce::String& q) { aiFollowUp (q); };
+    aiPanel.onTry = [this] (int i) { tryAiSuggestion (i); };
+    aiPanel.onTryMaster = [this] (int i) { tryAiSuggestionOnMaster (i); };
+    aiPanel.onKeepChange = [this] { keepChainChange(); };
+    aiPanel.onUndoChange = [this] { undoChainChange(); };
+    aiPanel.onSettingsChanged = [this]
+    {
+        aiSettings = aiPanel.getSettings();
+        ai::saveSettings (aiSettings);
+        refreshAiView();
+    };
+    aiPanel.onTest = [this] { testAiConnection(); };
+    aiPanel.onBrowseCli = [this]
+    {
+        aiChooser = std::make_unique<juce::FileChooser> (tr (state.lang, "Where is ", "Missä on ") + ai::cliAppName (aiSettings.provider) + "?",
+                                                         juce::File::getSpecialLocation (juce::File::userHomeDirectory));
+        juce::Component::SafePointer<WwmaAudioProcessorEditor> self (this);
+        aiChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [self] (const juce::FileChooser& fc)
+        {
+            if (self == nullptr || fc.getResult() == juce::File())
+                return;
+            self->aiSettings.of (self->aiSettings.provider).cliPath = fc.getResult().getFullPathName();
+            ai::saveSettings (self->aiSettings);
+            self->aiPanel.setSettings (self->aiSettings);
+            self->testAiConnection();
+        });
+    };
+    syncChainChangeState();
+    progress.onVersions = [this] { setVersionsOpen (! versionsOpen); };
+    state.showScore = proc.getShowScore();
+    score.onShowScore = [this] (bool on)
+    {
+        proc.setShowScore (on);
+        state.showScore = on;
+        score.updateTexts();
+        reassess();
+        content.repaint();
+    };
+    versionsPanel.onClose = [this] { setVersionsOpen (false); };
+    versionsPanel.onUse = [this] (const store::VersionInfo& v)
+    {
+        proc.loadBeforeVersion (v);
+        refreshVersions();
+    };
+    versionsPanel.onRename = [this] (const store::VersionInfo& v)
+    {
+        askName (tr (state.lang, "Name this version", "Nimeä versio"), v.name, [this, v] (const juce::String& name)
+        {
+            store::renameVersion (v, name);
+            refreshVersions();
+        });
+    };
+    versionsPanel.onRemove = [this] (const store::VersionInfo& v)
+    {
+        confirm (tr (state.lang, "Remove this version?", "Poistetaanko versio?"),
+                 (v.named ? v.name : ui::whenText (v.time, state.lang)) + tr (state.lang, " goes to the trash.", " siirretään roskakoriin."),
+                 tr (state.lang, "Remove", "Poista"), [this, v] { store::removeVersion (v); refreshVersions(); });
+    };
+    versionsPanel.onRemoveAll = [this]
+    {
+        confirm (tr (state.lang, "Remove all versions?", "Poistetaanko kaikki versiot?"),
+                 tr (state.lang, "Every before version of this session goes to the trash. BEFORE keeps what it holds now until you close the project.",
+                                 "Tämän istunnon kaikki ennen-versiot siirretään roskakoriin. ENNEN pitää nykyisen sisältönsä, kunnes suljet projektin."),
+                 tr (state.lang, "Remove all", "Poista kaikki"), [this]
+                 {
+                     for (const auto& v : store::listVersions (proc.getSessionId()))
+                         store::removeVersion (v);
+                     refreshVersions();
+                 });
+    };
+    versionsPanel.onOpenFolder = [this]
+    {
+        auto folder = store::sessionFolder (proc.getSessionId());
+        if (! folder.isDirectory())
+            folder = store::root();
+        folder.startAsProcess();
+    };
+    versionsPanel.onRenameSession = [this]
+    {
+        askName (tr (state.lang, "Name this session", "Nimeä istunto"), proc.getSessionName(), [this] (const juce::String& name)
+        {
+            proc.setSessionName (name);
+            refreshVersions();
+        });
+    };
+    versionsPanel.onContinueSession = [this] (const store::SessionInfo& si)
+    {
+        confirm (tr (state.lang, "Continue that session?", "Jatketaanko sitä istuntoa?"),
+                 tr (state.lang, "This WWMA's settings, references and snapshots are replaced with those of \"", "Tämän WWMA:n asetukset, referenssit ja snapshotit korvataan istunnon \"")
+                     + si.name + tr (state.lang, "\". The current session stays in the list.", "\" tiedoilla. Nykyinen istunto jää listaan."),
+                 tr (state.lang, "Continue", "Jatka"), [this, folder = si.folder]
+                 {
+                     proc.saveSessionIfChanged();
+                     if (proc.restoreSession (folder))
+                         reloadFromProcessor();
+                     refreshVersions();
+                 });
+    };
+    versionsPanel.onRemoveSession = [this] (const store::SessionInfo& si)
+    {
+        confirm (tr (state.lang, "Remove that session?", "Poistetaanko istunto?"),
+                 tr (state.lang, "The whole session \"", "Koko istunto \"") + si.name
+                     + tr (state.lang, "\", its versions included, goes to the trash.", "\" versioineen siirretään roskakoriin."),
+                 tr (state.lang, "Remove", "Poista"), [this, folder = si.folder] { store::removeSession (folder); refreshVersions(); });
+    };
+    content.addChildComponent (sessionOffer);
+    sessionOffer.onContinue = [this] (const juce::File& folder)
+    {
+        offerDone = true;
+        sessionOffer.setVisible (false);
+        if (proc.restoreSession (folder))
+            reloadFromProcessor();
+    };
+    sessionOffer.onFresh = [this]
+    {
+        offerDone = true;
+        proc.declineRestore();
+        sessionOffer.setVisible (false);
+    };
     state.learnMode = proc.getLearnMode();
     tonal.setShowDifference (proc.getShowDifference());
     tonal.onShowDifferenceChanged = [this] (bool b) { proc.setShowDifference (b); };
@@ -269,10 +431,12 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
 
 WwmaAudioProcessorEditor::~WwmaAudioProcessorEditor()
 {
+    aiWorker.cancel();
     exportPulse.stopThread (2000);
     glContext.detach();
     stopTimer();
     proc.listenToReference.store (false); // never leave the reference playing with no window to show it
+    proc.listenToBefore.store (false);    // nor the before take
     proc.listenWithoutChain.store (false); // nor the bypass on
     proc.inputAnalysisWanted.store (false);
     setLookAndFeel (nullptr);
@@ -329,14 +493,25 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setFont (fonts::label (11.5f));
     g.drawText (ui::upper (tr (lang, "Listen", "Kuuntele")), 716, 0, 48, topBar, juce::Justification::centredRight);
     const auto& st = editor.state;
-    if (st.activeRefView() != nullptr)
+    // under BEFORE: which parts of the song the before take has (brighter: from the newest snapshot)
     {
-        auto pill = juce::Rectangle<float> (918.0f, 19.0f, 76.0f, 18.0f);
-        g.setColour (colours::ref);
-        g.fillRoundedRectangle (pill, 4.0f);
-        g.setColour (juce::Colour (0xff1a1230));
-        g.setFont (fonts::labelBold (10.5f));
-        g.drawText (ui::upper (tr (lang, "Level-matched", "Tasattu")), pill, juce::Justification::centred);
+        const auto strip = juce::Rectangle<float> (832.0f, 46.0f, 80.0f, 4.0f);
+        const auto& cov = st.beforeCoverage;
+        g.setColour (colours::line);
+        g.fillRoundedRectangle (strip, 2.0f);
+        const double length = juce::jmax ((double) cov.size(), st.songSeconds + 1.0, 60.0);
+        for (size_t i = 0; i < cov.size(); ++i)
+            if (cov[i] != 0)
+            {
+                g.setColour (colours::earlier.withAlpha (cov[i] == 2 ? 1.0f : 0.45f));
+                g.fillRect (strip.getX() + strip.getWidth() * (float) (i / length), strip.getY(),
+                            juce::jmax (1.0f, strip.getWidth() / (float) length), strip.getHeight());
+            }
+        if (st.songSeconds >= 0.0 && ! cov.empty())
+        {
+            g.setColour (juce::Colours::white);
+            g.fillRect (strip.getX() + strip.getWidth() * (float) (st.songSeconds / length) - 0.5f, strip.getY() - 2.0f, 1.0f, strip.getHeight() + 4.0f);
+        }
     }
 
     // what the plugin does to the sound right now
@@ -347,8 +522,14 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     juce::Colour statusCol = colours::dim, dotCol = colours::good;
     if (listening)
     {
-        status = tr (lang, "Playing reference", "Referenssi soi");
+        status = tr (lang, "Playing reference, level-matched", "Referenssi soi, tasattu");
         statusCol = dotCol = colours::ref;
+    }
+    else if (st.listeningBefore)
+    {
+        status = st.beforeMissing ? tr (lang, "No before here: mix plays", "Ei ennen-ääntä tässä: miksi soi")
+                                  : tr (lang, "Playing before, level-matched", "Ennen soi, tasattu");
+        statusCol = dotCol = st.beforeMissing ? colours::warn : colours::earlier;
     }
     else if (without)
     {
@@ -388,7 +569,7 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setFont (fonts::body (12.5f));
     g.drawFittedText (tr (lang, "Numbers are advice, not rules. If it sounds good on a phone and in a car, it is good.",
                                 "Luvut ovat neuvoja, eivät sääntöjä. Jos se kuulostaa hyvältä puhelimessa ja autossa, se on hyvä."),
-                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, 360 - earW, footer), juce::Justification::centredLeft, 2, 0.9f);
+                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, editor.footerTextRight - 8 - (margin + 36 + earW + 14), footer), juce::Justification::centredLeft, 2, 0.85f);
 }
 
 void WwmaAudioProcessorEditor::Content::resized()
@@ -402,8 +583,9 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.trackButton.setBounds (494, 12, 66, 32);
     e.targetBox.setBounds (568, 12, 140, 32);
     e.trackBox.setBounds (568, 12, 140, 32);
-    e.mixAButton.setBounds (766, 12, 72, 32);
-    e.refBButton.setBounds (838, 12, 72, 32);
+    e.mixAButton.setBounds (766, 12, 64, 32);
+    e.beforeButton.setBounds (830, 12, 84, 32);
+    e.refBButton.setBounds (914, 12, 64, 32);
     e.langButton.setBounds (baseWidth - margin - 40, 12, 40, 32);
 
     // footer, right to left
@@ -422,9 +604,11 @@ void WwmaAudioProcessorEditor::Content::resized()
         place (e.autoResetToggle, 124, 10);
     place (e.songButton, 66, 0);
     place (e.nowButton, 58, 14);
-    place (e.reportButton, 84, 8);
-    place (e.learnButton, 78, 8);
-    place (e.chainButton, 104, 8);
+    place (e.aiButton, 48, 6);
+    place (e.reportButton, 80, 8);
+    place (e.learnButton, 74, 8);
+    place (e.chainButton, 100, 8);
+    e.footerTextRight = x;
 
     // columns
     const int top = topBar + gap, bottom = baseHeight - footer - gap;
@@ -444,7 +628,10 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.beforeAfter.setBounds (e.findings.getBounds());
     e.lessonBox.setBounds (e.findings.getBounds());
     e.chainPanel.setBounds (e.findings.getBounds());
+    e.versionsPanel.setBounds (e.findings.getBounds());
+    e.sessionOffer.setBounds (0, 0, baseWidth, baseHeight);
     e.refDetail.setBounds (e.tonal.getBounds());
+    e.aiPanel.setBounds (e.tonal.getBounds().getUnion (e.findings.getBounds()));
 
     e.score.setBounds (rx, top, rightWidth, 196);
     e.translation.setBounds (rx, top + 196 + gap, rightWidth, 222);
@@ -536,10 +723,17 @@ void WwmaAudioProcessorEditor::updateTexts()
     autoResetToggle.setButtonText (tr (lang, "Reset on play", "Nollaa playssa"));
     autoResetToggle.setTooltip (tr (lang, "Start a new measurement every time the DAW starts playing, a loop starts over, or you jump to another spot while playing.",
                                           "Aloita uusi mittaus aina, kun DAW alkaa soittaa, looppi alkaa alusta tai hyppäät soiton aikana toiseen kohtaan."));
-    mixAButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("A \xc2\xb7 ")) + ui::upper (tr (lang, "Mix", "Miksi")));
+    mixAButton.setButtonText (ui::upper (tr (lang, "Mix", "Miksi")));
     mixAButton.setTooltip (tr (lang, "Hear your mix. The sound passes through untouched, unless you turned on the EQ or limiter.",
                                      "Kuuntele omaa miksiä. Ääni menee läpi koskemattomana, ellet ole kytkenyt EQ:ta tai limitteriä päälle."));
-    refBButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("B \xc2\xb7 ")) + "REF");
+    refBButton.setButtonText ("REF");
+    beforeButton.setButtonText (ui::upper (tr (lang, "Before", "Ennen")));
+    beforeButton.setTooltip (tr (lang, "Hear your mix as it was at the last snapshot, at the same spot of the song and at the same loudness. "
+                                       "WWMA records its own output while the DAW plays (or exports), so play the part, or export the whole song once, before you save the snapshot. "
+                                       "The strip below shows which parts it has. Nothing is changed in your project.",
+                                       "Kuuntele miksiä sellaisena kuin se oli viimeisessä snapshotissa, samasta kohdasta biisiä ja samalla äänekkyydellä. "
+                                       "WWMA nauhoittaa oman ulostulonsa, kun DAW soittaa (tai exporttaa), joten soita kohta tai exporttaa koko biisi kerran ennen kuin tallennat snapshotin. "
+                                       "Alla oleva palkki näyttää, mitkä kohdat on nauhoitettu. Projektiisi ei kosketa."));
     refBButton.setTooltip (tr (lang, "Hear the active reference track instead of your mix, at the same loudness, so the louder one does not win just by being louder. Follows the song position; click its waveform to jump.",
                                      "Kuuntele aktiivista referenssiraitaa miksin sijaan samalla äänekkyydellä, jottei kovempi voita vain siksi, että se on kovempi. Seuraa kappaleen kohtaa; klikkaa aaltomuotoa hypätäksesi."));
     if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
@@ -552,12 +746,13 @@ void WwmaAudioProcessorEditor::updateTexts()
                                             "Oma biisisi: klikkaa ja valitse tiedosto tai pudota se tähän. Äänikortin sisääntuloa ei käytetä standalone-sovelluksessa. Referenssiraidat menevät alla oleviin laatikoihin."));
         mixPlayButton.setButtonText (mixPlayButton.getToggleState() ? juce::String (juce::CharPointer_UTF8 ("\xe2\x8f\xb8")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb6")));
         mixPlayButton.setEnabled (status == ReferenceTracks::Status::ready);
-        mixPlayButton.setTooltip (tr (lang, "Play / pause your mix (when B · REF is on you hear the reference instead).",
-                                            "Soita / pysäytä miksisi (kun B · REF on päällä, kuulet referenssin)."));
+        mixPlayButton.setTooltip (tr (lang, "Play / pause your mix (when REF is on you hear the reference instead).",
+                                            "Soita / pysäytä miksisi (kun REF on päällä, kuulet referenssin)."));
     }
     langButton.setButtonText (lang == Lang::finnish ? "EN" : "FI");
     langButton.setTooltip (lang == Lang::finnish ? juce::String ("In English") : juce::String (juce::CharPointer_UTF8 ("Suomeksi")));
     progress.updateTexts();
+    score.updateTexts();
     beforeAfter.updateTexts();
     refDetail.updateTexts();
     lessonBox.updateTexts();
@@ -565,6 +760,12 @@ void WwmaAudioProcessorEditor::updateTexts()
     chainButton.setTooltip (tr (lang, "Mastering EQ and limiter. You turn the knobs; WWMA shows suggested values next to them, worked out from your mix and the style. Both are off until you turn them on.",
                                       "Masterointi-EQ ja limitteri. Sinä käännät nupit; WWMA näyttää ehdotetut arvot niiden vieressä miksisi ja tyylin perusteella. Molemmat ovat pois päältä, kunnes kytket ne."));
     chainPanel.updateTexts();
+    aiButton.setButtonText ("AI");
+    aiButton.setTooltip (tr (lang, "Ask an AI assistant (Claude, Gemini or ChatGPT) about this mix. WWMA saves a report and gives it to the AI: numbers and spectrogram pictures, never audio. "
+                                   "Its suggestions get Try buttons, and fixes that fit WWMA's own EQ or limiter can be tried on the master with one click (and undone).",
+                                   "Kysy tekoälyavustajalta (Claude, Gemini tai ChatGPT) tästä miksistä. WWMA tallentaa raportin ja antaa sen tekoälylle: luvut ja spektrogrammikuvat, ei koskaan ääntä. "
+                                   "Ehdotuksista tulee Kokeile-nappeja, ja WWMA:n omaan EQ:hon tai limitteriin sopivia korjauksia voi kokeilla masterissa yhdellä klikkauksella (ja perua)."));
+    aiPanel.updateTexts();
     learnButton.setButtonText (ui::upper (tr (lang, "Learn", "Opettele")));
     learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
                                       "Oppimistila: lyhyitä käytännön tehtäviä (esim. basson duckaus kickin alle). WWMA seuraa viimeisiä 3 sekuntia ja kertoo, kun onnistuit."));
@@ -579,7 +780,8 @@ void WwmaAudioProcessorEditor::updateTexts()
     const bool now = proc.getWindow() == Window::now;
     nowButton.setToggleState (now, juce::dontSendNotification);
     songButton.setToggleState (! now, juce::dontSendNotification);
-    mixAButton.setToggleState (! state.listening, juce::dontSendNotification);
+    mixAButton.setToggleState (! state.listening && ! state.listeningBefore, juce::dontSendNotification);
+    beforeButton.setToggleState (state.listeningBefore, juce::dontSendNotification);
     refBButton.setToggleState (state.listening, juce::dontSendNotification);
     const bool mixing = proc.getStage() == Stage::mixing;
     mixButton.setToggleState (mixing && ! trackMode, juce::dontSendNotification);
@@ -596,8 +798,19 @@ void WwmaAudioProcessorEditor::timerCallback()
     ++ticks;
     proc.updateReferenceState();
     readReferences();
+    readBefore();
+    // a WWMA just added: after a moment (the host may still restore the project), offer earlier sessions
+    if (! offerDone && ticks == 45)
+        offerSessions();
+    if (sessionOffer.isVisible() && ! proc.shouldOfferRestore())
+        sessionOffer.setVisible (false);
+    if (versionsOpen && (proc.versionsGeneration.load() != versionsGenerationShown || proc.diskJobs.load() != diskJobsShown))
+        refreshVersions();
     if (ticks % 15 == 0)
         pushHistory();
+    aiWorker.tick();
+    if (aiWorker.busy() && aiSession.status == ui::AiPanel::View::Status::working && ticks % 15 == 0)
+        refreshAiView(); // shows how long the assistant has been at it
     refresh (ticks % 10 == 0);
 }
 
@@ -738,6 +951,7 @@ void WwmaAudioProcessorEditor::reassess()
         const auto others = bus.others (proc.busId);
         const auto* ref = state.targetRefView();
         state.assessment = assessTrack (state.snap, style, state.trackRole, state.window, state.lang, others, ref != nullptr ? &ref->snap : nullptr);
+        applyEarDecisions (state.assessment, proc.getEarOverruled());
         if (state.assessment.enoughData)
         {
             const auto& fine = state.window == Window::song ? state.snap.lowFineSong : state.snap.lowFineNow;
@@ -756,11 +970,20 @@ void WwmaAudioProcessorEditor::reassess()
     else
     {
         state.assessment = assess (state.snap, state.profile, state.window, state.lang, state.stage);
+        applyEarDecisions (state.assessment, proc.getEarOverruled());
         state.chainAdvice = adviseChain (state.inputSnap, state.profile, state.window, state.lang, state.stage, state.chainSettings);
     }
     chainPanel.refresh();
 
     updateStyleButton();
+    // many changes since the snapshot, judged only by the meter: ask the ears to check
+    if (! state.snapshots.empty() && state.trackRole == TrackRole::mix && ! state.viewingRef())
+    {
+        const auto* ref = state.targetRefView();
+        state.drift = overOptimised (state.snapshots.back(), state.assessment, ref != nullptr ? &ref->assessment : nullptr, state.lang);
+    }
+    else
+        state.drift = {};
     if (state.compareOpen && ! state.snapshots.empty() && state.assessment.enoughData)
         state.changes = compareMetrics (state.snapshots.back().metrics, keyMetrics (state.assessment, state.profile, state.stage));
     else
@@ -810,6 +1033,7 @@ void WwmaAudioProcessorEditor::updatePasses()
             songWide = assessTrack (state.snap, proc.getProfile(), state.trackRole, Window::song, state.lang,
                                     TrackBus::shared().others (proc.busId), ref != nullptr ? &ref->snap : nullptr);
         }
+        applyEarDecisions (songWide, proc.getEarOverruled());
         a = &songWide;
     }
     if (a->enoughData && state.snap.secondsAnalysed >= state.currentPass.seconds)
@@ -819,12 +1043,14 @@ void WwmaAudioProcessorEditor::updatePasses()
     state.passComparable = previous != nullptr;
     state.passVerdict = previous != nullptr ? comparePasses (*previous, state.currentPass, state.lang) : PassVerdict {};
 
-    if (state.trial.active)
+    if (state.trial.active && ! state.trial.decided)
     {
         const bool newPass = passSeen > state.trial.passAtStart;
         const auto& b = state.trial.before;
         const bool samePart = b.start < 0.0 || state.passStartPos < 0.0 || std::abs (b.start - state.passStartPos) <= 2.0;
-        state.trialResult = judgeTrial (state.trial, state.currentPass, newPass, samePart, state.lang);
+        // the meter has its say, then the ears decide
+        state.trialResult = askEars (judgeTrial (state.trial, state.currentPass, newPass, samePart, state.lang, state.showScore),
+                                     state.trial, proc.before.hasBefore(), state.lang);
     }
     progress.syncButtons();
     progress.repaint();
@@ -846,7 +1072,7 @@ void WwmaAudioProcessorEditor::toggleTrial()
         const auto& before = state.currentPass.valid() ? state.currentPass
                            : (! state.passes.empty() ? state.passes.back() : PassRecord {});
         for (const auto& f : state.assessment.findings)
-            if ((f.severity == Severity::fix || f.severity == Severity::watch) && before.valid())
+            if ((f.severity == Severity::fix || f.severity == Severity::watch) && ! f.earOverruled && before.valid())
             {
                 state.trial.active = true;
                 state.trial.findingId = f.id;
@@ -857,10 +1083,43 @@ void WwmaAudioProcessorEditor::toggleTrial()
                 break;
             }
         if (state.trial.active)
-            state.trialResult = judgeTrial (state.trial, state.currentPass, false, true, state.lang);
+        {
+            // what plays now becomes BEFORE, so the ears can compare the change with it
+            proc.before.freeze();
+            readBefore();
+            state.trialResult = judgeTrial (state.trial, state.currentPass, false, true, state.lang, state.showScore);
+        }
     }
     progress.syncButtons();
     progress.repaint();
+}
+
+void WwmaAudioProcessorEditor::answerEar (int ear)
+{
+    if (! state.trial.active || ! state.trialResult.askEar)
+        return;
+    auto overruled = proc.getEarOverruled();
+    state.trial.ear = ear;
+    state.trial.decided = true;
+    state.trialResult = judgeWithEars (state.trialResult, state.trial, (int) overruled.size(), state.lang);
+    if (state.trialResult.overrule)
+    {
+        overruled.insert (state.trial.findingId);
+        proc.setEarOverruled (overruled);
+        reassess();
+    }
+    if (state.listeningBefore)
+        setListeningBefore (false);
+    progress.syncButtons();
+    progress.repaint();
+    findings.refresh();
+}
+
+void WwmaAudioProcessorEditor::clearEarDecisions()
+{
+    proc.setEarOverruled ({});
+    reassess();
+    findings.refresh();
 }
 
 void WwmaAudioProcessorEditor::updateStyleButton()
@@ -940,6 +1199,12 @@ void WwmaAudioProcessorEditor::saveSnapshot()
 {
     if (! state.assessment.enoughData)
         return;
+    // what you hear now becomes "before": the BEFORE button plays it after your next change,
+    // and it is saved in WWMA's own folder, so it is there after the project is closed
+    if (proc.before.freeze())
+        proc.saveBeforeVersion (state.assessment.score);
+    state.listenedSinceSnapshot = false;
+    readBefore();
     SavedSnapshot snap;
     snap.time = juce::Time::getCurrentTime();
     snap.score = state.assessment.score;
@@ -955,6 +1220,7 @@ void WwmaAudioProcessorEditor::saveSnapshot()
 void WwmaAudioProcessorEditor::clearSnapshots()
 {
     proc.clearScoreSnapshots();
+    proc.setEarOverruled ({});   // a fresh start: the findings the ears ruled out count again
     loadSnapshots();
     state.hasBaseline = false;
     state.baselineExcess.clear();
@@ -973,6 +1239,8 @@ void WwmaAudioProcessorEditor::confirmSnapshotSaved()
 
 void WwmaAudioProcessorEditor::setCompareOpen (bool open)
 {
+    if (open)
+        setAiOpen (false);
     state.compareOpen = open && ! state.snapshots.empty();
     if (state.compareOpen && state.learnMode)
         setLearnMode (false);
@@ -984,6 +1252,8 @@ void WwmaAudioProcessorEditor::setCompareOpen (bool open)
 
 void WwmaAudioProcessorEditor::setLearnMode (bool on)
 {
+    if (on)
+        setAiOpen (false);
     state.learnMode = on;
     proc.setLearnMode (on);
     learnButton.setToggleState (on, juce::dontSendNotification);
@@ -1003,10 +1273,14 @@ void WwmaAudioProcessorEditor::setLearnMode (bool on)
 void WwmaAudioProcessorEditor::updatePanels()
 {
     // one panel at a time over the findings: before/after, lesson, or EQ + limiter
+    if (state.compareOpen || state.learnMode || state.chainOpen)
+        versionsOpen = false;
     beforeAfter.setVisible (state.compareOpen);
     lessonBox.setVisible (state.learnMode);
     chainPanel.setVisible (state.chainOpen);
-    findings.setVisible (! state.compareOpen && ! state.learnMode && ! state.chainOpen);
+    versionsPanel.setVisible (versionsOpen);
+    state.versionsOpen = versionsOpen;
+    findings.setVisible (! state.compareOpen && ! state.learnMode && ! state.chainOpen && ! versionsOpen);
     learnButton.setToggleState (state.learnMode, juce::dontSendNotification);
     chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
     progress.syncButtons();
@@ -1014,6 +1288,8 @@ void WwmaAudioProcessorEditor::updatePanels()
 
 void WwmaAudioProcessorEditor::setChainOpen (bool open)
 {
+    if (open)
+        setAiOpen (false); // the AI panel would cover it
     state.chainOpen = open;
     proc.setChainOpen (open);
     proc.inputAnalysisWanted.store (open);
@@ -1091,7 +1367,7 @@ void WwmaAudioProcessorEditor::chooseReportFile()
     shareReportFiles (file);
 }
 
-void WwmaAudioProcessorEditor::shareReportFiles (const juce::File& markdownFile)
+bool WwmaAudioProcessorEditor::shareReportFiles (const juce::File& markdownFile)
 {
     // The files an AI assistant needs: the report and the song part by part (text + pictures).
     const auto folder = markdownFile.getParentDirectory();
@@ -1105,8 +1381,9 @@ void WwmaAudioProcessorEditor::shareReportFiles (const juce::File& markdownFile)
     // copied like Explorer's Copy, so Ctrl+V in the chat attaches them; the folder opens
     // with the report selected, to show where they are and as a fallback
     void* window = getPeer() != nullptr ? getPeer()->getNativeHandle() : nullptr;
-    copyFilesToClipboard (files, window);
+    const bool copied = copyFilesToClipboard (files, window);
     markdownFile.revealToUser();
+    return copied;
 }
 
 juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
@@ -1222,6 +1499,7 @@ void WwmaAudioProcessorEditor::saveListeningData (const juce::File& markdownFile
             li.referenceImageName = refImage.getFileName();
     }
     folder.getChildFile (base + " AI.md").replaceWithText (listeningMarkdown (li, lang));
+    lastListening = li;
 }
 
 void WwmaAudioProcessorEditor::updateBaselineDiff()
@@ -1318,6 +1596,7 @@ void WwmaAudioProcessorEditor::openReferenceDetail (int slot)
 {
     if (proc.refs.getStatus (slot) != ReferenceTracks::Status::ready)
         return;
+    setAiOpen (false);
     proc.refs.setActive (slot);
     readReferences();
     refDetail.setSlot (slot);
@@ -1335,6 +1614,8 @@ void WwmaAudioProcessorEditor::closeReferenceDetail()
 void WwmaAudioProcessorEditor::setListening (bool b)
 {
     b = b && state.activeRefView() != nullptr;
+    if (b)
+        setListeningBefore (false);
     if (! b)
     {
         // A, or pause: the reference's own playback stops too
@@ -1343,7 +1624,7 @@ void WwmaAudioProcessorEditor::setListening (bool b)
     }
     state.listening = b;
     proc.listenToReference.store (b);
-    mixAButton.setToggleState (! b, juce::dontSendNotification);
+    mixAButton.setToggleState (! b && ! state.listeningBefore, juce::dontSendNotification);
     refBButton.setToggleState (b, juce::dontSendNotification);
     // the panels show the reference's numbers while B plays, the mix's otherwise
     findings.refresh();
@@ -1351,6 +1632,154 @@ void WwmaAudioProcessorEditor::setListening (bool b)
         c->repaint();
     content.repaint();
     refBox.repaint();
+}
+
+void WwmaAudioProcessorEditor::setListeningBefore (bool b)
+{
+    b = b && proc.before.hasBefore();
+    if (b && state.listening)
+        setListening (false);
+    state.listeningBefore = b;
+    if (b)
+        state.listenedSinceSnapshot = true;
+    proc.listenToBefore.store (b);
+    mixAButton.setToggleState (! b && ! state.listening, juce::dontSendNotification);
+    beforeButton.setToggleState (b, juce::dontSendNotification);
+    progress.repaint();
+    content.repaint();
+}
+
+void WwmaAudioProcessorEditor::setVersionsOpen (bool open)
+{
+    if (open)
+    {
+        setAiOpen (false);
+        state.compareOpen = false;
+        if (state.learnMode)
+        {
+            state.learnMode = false;
+            proc.setLearnMode (false);
+        }
+        if (state.chainOpen)
+        {
+            state.chainOpen = false;
+            proc.setChainOpen (false);
+            proc.inputAnalysisWanted.store (false);
+        }
+        proc.saveSessionIfChanged();
+        refreshVersions();
+    }
+    versionsOpen = open;
+    updatePanels();
+}
+
+void WwmaAudioProcessorEditor::refreshVersions()
+{
+    ui::VersionsPanel::Data d;
+    d.lang = state.lang;
+    d.sessionName = proc.getSessionName();
+    d.sessionFolder = store::sessionFolder (proc.getSessionId());
+    d.versions = store::listVersions (proc.getSessionId());
+    for (auto& si : store::listSessions())
+        if (si.id != proc.getSessionId())
+            d.others.push_back (std::move (si));
+    d.totalBytes = store::totalBytes();
+    d.beforeSeconds = proc.before.getBeforeSeconds();
+    d.busy = proc.diskJobs.load() > 0;
+    versionsPanel.setData (std::move (d));
+    versionsGenerationShown = proc.versionsGeneration.load();
+    diskJobsShown = proc.diskJobs.load();
+}
+
+void WwmaAudioProcessorEditor::offerSessions()
+{
+    if (offerDone || ! proc.shouldOfferRestore())
+        return;
+    const auto candidates = proc.restoreCandidates();
+    if (candidates.empty())
+    {
+        offerDone = true;
+        return;
+    }
+    sessionOffer.show (candidates, state.lang);
+    sessionOffer.setVisible (true);
+    sessionOffer.toFront (false);
+}
+
+void WwmaAudioProcessorEditor::reloadFromProcessor()
+{
+    state.lang = proc.getLang();
+    state.showScore = proc.getShowScore();
+    autoResetToggle.setToggleState (proc.getAutoReset(), juce::dontSendNotification);
+    state.learnMode = proc.getLearnMode();
+    state.chainOpen = proc.getChainOpen() && ! state.learnMode;
+    state.showSuggestions = proc.getShowSuggestions();
+    state.lessonIndex = juce::jlimit (0, lessonCount() - 1, proc.getLessonIndex());
+    state.lessonsDone = proc.getLessonsDone();
+    tonal.setShowDifference (proc.getShowDifference());
+    proc.inputAnalysisWanted.store (state.chainOpen);
+    state.scoreHistory.clear();
+    loadSnapshots();
+    refGeneration = -1;
+    readReferences();
+    updateTexts();
+    updatePanels();
+    reassess();
+}
+
+void WwmaAudioProcessorEditor::confirm (const juce::String& title, const juce::String& message, const juce::String& ok, std::function<void()> then)
+{
+    juce::Component::SafePointer<WwmaAudioProcessorEditor> self (this);
+    juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                      .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                                      .withTitle (title)
+                                      .withMessage (message)
+                                      .withButton (ok)
+                                      .withButton (tr (state.lang, "Cancel", "Peruuta"))
+                                      .withAssociatedComponent (this),
+                                  [self, then] (int result)
+                                  {
+                                      if (self != nullptr && result == 1 && then)
+                                          then();
+                                  });
+}
+
+void WwmaAudioProcessorEditor::askName (const juce::String& title, const juce::String& current, std::function<void (const juce::String&)> then)
+{
+    auto* w = new juce::AlertWindow (title, {}, juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", current);
+    w->addButton (tr (state.lang, "OK", "OK"), 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton (tr (state.lang, "Cancel", "Peruuta"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<WwmaAudioProcessorEditor> self (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([self, w, then] (int result)
+    {
+        if (self != nullptr && result == 1 && then)
+            then (w->getTextEditorContents ("name").trim().substring (0, 80));
+    }), true);
+}
+
+void WwmaAudioProcessorEditor::readBefore()
+{
+    auto& b = proc.before;
+    const int gen = b.getGeneration();
+    if (gen != beforeGenerationShown || b.getBeforeSeconds() != state.beforeSeconds)
+    {
+        state.beforeCoverage = b.beforeCoverage();
+        beforeGenerationShown = gen;
+    }
+    state.beforeSeconds = b.getBeforeSeconds();
+    state.liveSeconds = b.getLiveSeconds();
+    state.beforeMissing = state.listeningBefore && b.isMissingHere();
+    state.beforeFull = b.isFull();
+    state.beforeMatchDb = b.getMatchDb();
+    const double song = proc.songSeconds.load();
+    const bool moved = std::abs (song - state.songSeconds) > 0.25;
+    state.songSeconds = song;
+    beforeButton.setEnabled (state.beforeSeconds > 0);
+    if (state.listeningBefore && state.beforeSeconds == 0)
+        setListeningBefore (false);
+    if (moved || state.listeningBefore)
+        content.repaint (760, 0, 240, topBar);
 }
 
 void WwmaAudioProcessorEditor::browseReference (int slot)

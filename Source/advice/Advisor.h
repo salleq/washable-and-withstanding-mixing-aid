@@ -4,6 +4,7 @@
 #include "Profiles.h"
 #include "analysis/Snapshot.h"
 #include <array>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -37,7 +38,10 @@ struct Finding
     float excess = 0.0f;     // how far outside the target, 1 = "clearly"
     float penalty = 0.0f;    // points this costs from the score
     int direction = 0;       // +1 too much, -1 too little, 0 something else
+    bool earOverruled = false; // the user's ears decided against the fix: it no longer costs points
     juce::String title, value, why, howTo;
+    juce::String listenFor;  // what the problem sounds like, so it can be heard and not only read
+    juce::String ignoreWhen; // when it is a choice, not a mistake
 };
 
 /** How well the mix should hold up on one kind of playback. */
@@ -91,6 +95,13 @@ struct Assessment
 /** reference = true: the track is a finished, mastered reference. Loudness, peaks, clipping and
     limiting are part of mastering, so they are neither reported nor cost points; only the mix is judged. */
 Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Stage stage = Stage::mastering, bool reference = false);
+
+/** Findings the user's ears ruled against (A/B said the fix made it worse): they cost no points,
+    and go after the others, so "try the top fix" moves on. */
+void applyEarDecisions (Assessment& a, const std::set<std::string>& overruled);
+
+/** Fills in what each finding sounds like and when it is a choice (Listening.cpp). */
+void describeForEars (std::vector<Finding>& findings, Lang lang);
 
 /** "Needs improvement" (0-40), "Not quite there yet" (40-70), "Close enough" (70-90), "Looks perfect" (90-100). */
 juce::String verdictFor (float score, Lang lang);

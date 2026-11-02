@@ -2,7 +2,7 @@
 
 > **Huom: WWMA on 100 % vibe-koodattu**, eli tehty kokonaan tekoälyavustajan kanssa. Asennus ja käyttö omalla vastuulla, eikä takuuta ole. Se on tehty hyvässä uskossa ja siinä toivossa, että siitä on jollekin hyötyä.
 
-WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia itse. Se kuuntelee miksauksesi, kertoo selkokielellä, mitä on selvästi tai vähän liikaa tai liian vähän, ja neuvoo, miten korjaat sen itse. Tavoite on, että ajan mittaan et tarvitse sitä enää.
+WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia ilman klikkaustasi (ja jokaisen sellaisen klikkauksen voi perua). Se kuuntelee miksauksesi, kertoo selkokielellä, mitä on selvästi tai vähän liikaa tai liian vähän, ja neuvoo, miten korjaat sen itse. Tavoite on, että ajan mittaan et tarvitse sitä enää.
 
 **Korva ratkaisee.** Luvut ovat neuvoja, eivät sääntöjä. Jos se kuulostaa hyvältä puhelimessa ja autossa, se on hyvä.
 
@@ -24,13 +24,10 @@ WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia itse. Se k
 - **Tasomittarit**: M, S ja I sekä true peak kanaville L ja R. Vihreä kaista on tavoitealue.
 - **Taajuustasapaino**: miksauksesi (valkoinen) tyylin käytävää (vihreä) vasten. Punainen tarkoittaa liikaa, oranssi liian vähän. Alueiden nimet ovat SUB, BASSO, MUTA, KESKI, SÄRÄHDYS ja ILMA.
 - **Havainnot**: enintään neljä korjattavaa kerrallaan, tärkein ensin. "Kokeile:" kertoo ensimmäisen askeleen. Klikkaa korttia, niin näet syyn, kaikki askeleet ja tyypillisen **sudenkuopan**.
-- **Kuinka lähellä hyvää miksiä**: pisteet 0–100 ja sanallinen taso:
-  - Kaipaa parannusta (0–40)
-  - Ei vielä ihan perillä (40–70)
-  - Riittävän lähellä (70–90)
-  - Näyttää täydelliseltä (90–100)
+- **Kuinka lähellä hyvää miksiä**: sanallinen taso: Kaipaa parannusta, Ei vielä ihan perillä, Riittävän lähellä. Siitä eteenpäin mittari astuu sivuun ja korva päättää loput. **0-100**-nappi näyttää numeron (oletuksena pois, ks. luku 4).
 - **Käännettävyys**: arvio siitä, miten miksaus kestää puhelimessa, autossa, kuulokkeilla ja klubilla.
-- **Edistyminen**: tallenna snapshot ennen muutosta. Kortit näyttävät sen jälkeen, mikä parani tai huononi, ja kaavio näyttää kehityksen. Katso luku 4.
+- **Edistyminen**: tallenna snapshot ennen muutosta. Kortit näyttävät sen jälkeen, mikä parani tai huononi, **Ennen/jälkeen** vertaa jokaista lukemaa, ja **Versiot** listaa levylle tallennetut ENNEN-nauhoitukset. Katso luku 4.
+- **Kuuntele: Miksi · Ennen · Ref**: **Miksi** on miksisi. **Ennen** soittaa miksiä sellaisena kuin se oli viimeisessä snapshotissa, samasta kohdasta biisiä. **Ref** soittaa referenssiraitaa. Molemmat tasataan samaan äänekkyyteen.
 - **Mono-tarkistus**: varoittaa, jos basso tai leveä syna hiljenee, kun miksi summataan monoksi (klubi, puhelin ja moni Bluetooth-kaiutin soittavat monona).
 - **Referenssiraidat**: raahaa ikkunaan kappale, josta pidät (WAV, AIFF, FLAC tai MP3). Plugin analysoi sen kerran, jonka jälkeen:
   - sen käyrä näkyy violettina katkoviivana
@@ -77,6 +74,36 @@ Prosentti jaetaan lähisukulaisten kesken: "House 72 %" tarkoittaa koko house-pe
 4. Tee muutos ja soita sama kohta uudestaan. Taajuustasapainossa näkyy snapshotin käyrä himmeänä turkoosina **haamukäyränä**, ja ero sen ja miksisi välillä on täytetty sinisellä, joten näet heti, kuinka paljon sointi on muuttunut. Selitteen **Ero**-ruudusta saat täytön pois päältä tai takaisin.
 5. Paina **Ennen/jälkeen**: taulukko näyttää jokaisen lukeman ennen ja nyt, merkittynä PAREMPI, HUONOMPI tai =.
 
+### ENNEN: kuule miksi sellaisena kuin se oli, ilman exporttia
+
+VST-, AU- tai CLAP-plugin ei näe DAW:n kumoa-historiaa (ei myöskään Studio Onen Historya), eikä se voi muuttaa projektiasi. Siksi WWMA nauhoittaa oman ulostulonsa: se on masterin viimeisenä, joten se kuulee täsmälleen saman kuin sinä.
+
+- Kun DAW soittaa, WWMA nauhoittaa ulos lähtevän äänen sekunti kerrallaan **biisin kohdan mukaan**. Kun soitat kohdan uudelleen, uusi korvaa vanhan, joten jokaisesta soitetusta kohdasta on aina uusin ääni.
+- **Snapshot** jäädyttää nauhoituksen **ENNEN**-ääneksi.
+- Tee muutos ja paina yläpalkista **ENNEN**: kuulet miksin sellaisena kuin se oli, siitä kohdasta, jossa DAW:n soittopää on. Se seuraa looppeja, hyppyjä ja koko biisiä. **MIKSI** soittaa nykyisen. Molemmat soivat samalla äänekkyydellä, jottei kovempi voita vain kovuudellaan.
+- **Koko biisi**: soita se kerran läpi ennen snapshotia tai **exporttaa kerran**. Export kulkee myös WWMA:n läpi, joten yksi bounce täyttää ENNEN-äänen koko biisille sekunneissa. Sen jälkeen vertailua varten ei tarvitse bouncata.
+- ENNEN-napin alla oleva ohut palkki näyttää, mitkä kohdat biisistä on nauhoitettu (kirkkaampi: uusimmasta snapshotista, himmeämpi: vanhemmasta). Kohdassa, josta ei ole ääntä, miksi soi edelleen ja tila kertoo sen.
+- Oletus on, että sovitus pysyy samana. Jos siirrät osia ajassa, ENNEN soittaa vanhaa sovitusta siitä aikakohdasta.
+- Enintään 15 minuuttia biisiä. Muisti on rajattu noin 230 megatavuun ENNEN-äänelle ja käynnissä olevalle nauhoitukselle yhteensä, joten 96 kHz:llä mahtuu noin puolet vähemmän. ENNEN ei koskaan soi exporttiin.
+
+### Versiot levyllä, ja WWMA lisätty projektiin uudelleen
+
+Jokainen snapshot tallentaa ENNEN-äänen myös 24-bittisenä FLACina WWMA:n omaan kansioon, ei DAW-projektiin:
+
+- Windows: `%APPDATA%\WWMA\Projects`
+- macOS: `~/Library/Application Support/WWMA/Projects`
+- Linux: `~/.config/WWMA/Projects`
+
+**Versiot** (edistymispaneelissa) listaa ne: **Käytä** lataa version ENNEN-ääneksi, **Nimeä** antaa nimen (nimettyjä ei koskaan poisteta automaattisesti), **Poista** siirtää roskakoriin. Istunto säilyttää 10 nimeämätöntä versiota; vanhemmat siirtyvät roskakoriin. Paneeli listaa myös kansion muut istunnot kokoineen jatkettavaksi tai poistettavaksi, ja **Avaa kansio** avaa sen.
+
+WWMA pitää siellä myös koko tilansa (referenssit ja mistä ne ladattiin, loopit, snapshotit, asetukset). Jos poistat WWMA:n projektista ja lisäät sen uudelleen, esimerkiksi päivityksen takia, uusi WWMA alkaa tyhjänä ja kysyy **Jatketaanko aiemmasta istunnosta?**, saman tyypin (master, kick, basso) istunnot ensin. Mitään ei palauteta ennen kuin valitset; **Aloita alusta** jättää vanhan rauhaan. Vinkki: kun päivität projektin ollessa kiinni (sulje DAW, vaihda plugin, avaa projekti), kaikki säilyy ilman tätä vaihetta, koska DAW antaa tallennetun tilan uudelle versiolle.
+
+### Numero on oletuksena piilossa
+
+Pisteiden jahtaaminen voi viedä miksiä väärään suuntaan: mittari näkee vain sen, mitä se mittaa. Siksi mittari näyttää kolme sanallista tasoa, ja "Riittävän lähellä" -tasosta eteenpäin se sanoo, että korva päättää loput. Mittarin **0-100**-nappi tuo numeron, edistymiskaavion ja pisteet bannereihin takaisin. Asetus tallentuu projektiin.
+
+Jos muutoksia kertyy snapshotin jälkeen paljon (kolme taajuusaluetta liikkunut 2 dB, mittari hypännyt 15 pistettä tai noussut samalla kun sävy siirtyi kauemmas referenssistä), edistymisbanneri pyytää kuuntelemaan ENNEN ja MIKSI ennen kuin jatkat.
+
 ### Auttoiko muutos? Soitot ja "Kokeile ylintä vinkkiä"
 
 Vinkeistä on hyötyä vain, jos niiden noudattaminen oikeasti parantaa biisiä. WWMA tarkistaa sen puolestasi.
@@ -85,17 +112,21 @@ Vinkeistä on hyötyä vain, jos niiden noudattaminen oikeasti parantaa biisiä.
 
 **Kokeile ylintä vinkkiä** (nappi edistymispaneelissa) tekee tästä askel askeleelta etenevän oppitunnin omalla biisilläsi:
 
-1. WWMA valitsee tärkeimmän havainnon ja näyttää siitä **yhden konkreettisen askeleen**, esimerkiksi *Pyyhkäise kapeaa korostusta 200–400 Hz:n välillä, etsi laatikkomainen kohta ja leikkaa siitä 2–4 dB.*
+1. WWMA valitsee tärkeimmän havainnon ja näyttää siitä **yhden konkreettisen askeleen**, esimerkiksi *Pyyhkäise kapeaa korostusta 200–400 Hz:n välillä, etsi laatikkomainen kohta ja leikkaa siitä 2–4 dB.* Juuri soitetusta tulee ENNEN-ääni.
 2. Teet muutoksen ja soitat saman kohdan uudelleen.
-3. WWMA vertaa soittoa muutosta edeltävään ja kertoo:
-   - **Auttoi. Pidä muutos**: havainto pieneni selvästi tai katosi, eivätkä pisteet laskeneet. Tallenna DAW-projekti uutena versiona.
-   - **Tämä huononsi: peru muutos**: havainto tai pisteet huononivat. Peru ja kokeile pienempää liikettä tai seuraavaa askelta.
-   - **Ei selvää muutosta vielä**: muutos oli luultavasti liian pieni tai väärällä raidalla. Mene vähän pidemmälle.
-4. **Seuraava vinkki** siirtyy uuteen tärkeimpään havaintoon.
+3. WWMA vertaa soittoa muutosta edeltävään ja kertoo, mitä mittari sanoo: auttoi, huononi tai ei selvää muutosta.
+4. Sitten se kysyy korvaltasi: paina vuorotellen **ENNEN** ja **MIKSI** ja vastaa **Miksi parempi**, **Ennen parempi** tai **Ei eroa**. Korva voittaa:
+   - Molemmat sanovat, että auttoi: **pidä muutos** ja tallenna DAW-projekti uutena versiona.
+   - Mittari piti muutoksesta, mutta ENNEN kuulosti paremmalta: **korva voittaa, peru muutos**. Mittari näkee vain yhden asian; muutos vei luultavasti jotain muuta (lämpöä, iskua, tilaa). Tässä biisissä se voi olla valinta, joten havaintoa ei enää lasketa: ei pisteitä, muiden alapuolella, merkintä **Korvasi päätti**. Toisella kerralla WWMA ehdottaa, että lataat rakastamasi kappaleen ja käytät **Referenssiraita**-presetiä tavoitteena.
+   - Pidit muutoksesta, vaikka mittari ei: pidä se, jos se kuulostaa paremmalta myös hiljaa ja puhelimesta.
+   - **Ei eroa**: jos et itse kuule eroa, ei kukaan muukaan. Älä jatka siihen suuntaan.
+5. **Seuraava vinkki** siirtyy uuteen tärkeimpään havaintoon. Edistymispaneelin **Tyhjennä** unohtaa snapshotit ja korvasi hylkäämät havainnot.
+
+Jokainen havaintokortti kertoo myös **Kuuntele:** miltä ongelma kuulostaa, jotta opit kuulemaan sen, ja avattuna **Milloin voit jättää**: milloin kyse on tyylivalinnasta eikä virheestä.
 
 ![Kokeile ylintä vinkkiä: auttoi](images/wwma-try-fix-fi.png)
 
-Luvut eivät riipu siitä, kuinka kovaa soitat, mutta korvasi riippuvat: kun banneri sanoo, että muutos auttoi, kuuntele vielä kerran tasatulla äänekkyydellä (bouncaa vanha versio **aiempi versio** -paikkaan tai vertaa EQ:n ja limitterin kohdalla **Kuuntele ilman** -napilla).
+Luvut eivät riipu siitä, kuinka kovaa soitat, mutta korvasi riippuvat: siksi ENNEN tasataan samaan äänekkyyteen (ja **Kuuntele ilman** tekee saman EQ:lle ja limitterille).
 
 **Referenssiraidat** arvioidaan valmiina mastereina: niiden äänekkyys, true peak, klipatut huiput ja limitointi ovat masteroinnin valintoja, joten WWMA ei listaa niitä eikä vie niistä pisteitä. Vain miksi arvioidaan (sävy, bassopää, stereo, rummut). Oma **aiempi versiosi** arvioidaan kuten miksisi.
 
@@ -127,11 +158,30 @@ Tekoälyavustaja ei kuule kappalettasi, mutta se osaa lukea lukuja ja kuvia. Sik
 
 Aloita keskustelu tekoälyavustajan kanssa, liitä tiedostot ja liitä kysymys. Kysy sitten lisää, esim. "entä basso toisessa dropissa?". WWMA ei lähetä mitään minnekään: nämä ovat tavallisia tiedostoja koneellasi, ja sinä päätät mihin ne menevät.
 
+### Kysy tekoälyltä suoraan WWMA:sta
+
+Paina alareunan **AI**-nappia. Paneeli aukeaa spektrin ja havaintojen päälle. **Kysy** tallentaa raportin (samat tiedostot kuin **Raportti**) ja antaa sen **Asetuksissa** valitsemallesi avustajalle (Claude, Gemini tai ChatGPT). Tapoja on kolme:
+
+- **Selain (ei avainta):** WWMA avaa palvelun selaimeen. Windowsissa tiedostot ovat leikepöydällä (Ctrl+V keskusteluun); muualla raporttikansio aukeaa ja vedät tiedostot mukaan. **Kopioi kysymys** laittaa kysymyksen leikepöydälle. WWMA ei lähetä itse mitään. Kopioi vastaus ja paina **Liitä vastaus**, niin saat Kokeile-napit.
+- **Sovellus koneella (ei avainta):** WWMA ajaa koneelle asennetun **Claude Coden**, **Gemini CLI:n** tai **Codex CLI:n** omalla tilauksellasi kirjautuneena. Se saa lukea vain raporttikansiota. Asenna sovellus ja kirjaudu kerran päätteessä. Jotkin DAW:t eivät anna pluginien käynnistää muita ohjelmia: käytä silloin selainta tai avainta.
+- **API-avain:** WWMA käyttää palvelun rajapintaa omalla avaimellasi (laskutus API-tilillesi). Paneelissa voi kysyä jatkokysymyksiä.
+
+Claude Pro- tai Max-tilausta ei voi käyttää muista sovelluksista ilman avainta. Avaimettomat tavat Claudelle ovat selain ja Claude Code, joka käyttää tilaustasi.
+
+- Vain raportti lähtee: luvut, kappaleen osat ja spektrogrammikuvat. **Ei koskaan ääntä.** Sovellus- ja API-tavat kysyvät ensin luvan (ruutu Asetuksissa).
+- Asetukset ja avaimet ovat WWMA:n omassa kansiossa tällä koneella, eivät koskaan DAW-projektissa tai raportissa.
+- Vastaus tallentuu raportin viereen (`... AI answer (Claude).md`).
+- Ehdotuksista (enintään kolme) tulee kortteja:
+  - **Kokeile:** tee muutos itse ja soita sama kohta uudelleen. WWMA vertaa soittoa edelliseen ja kysyy sitten korvaltasi (ENNEN vai MIKSI), kuten "Kokeile ylintä vinkkiä".
+  - **Kokeile masterissa** (vain masteroidessa tai kun EQ on jo käytössä, ei raitatilassa): muutos menee suoraan WWMA:n omaan EQ:hon ja limitteriin, esim. vähän lisää bassoa koko masteriin. Muutos pidetään pienenä: enintään 3 dB kaistaa kohti, limitterin gain enintään 6 dB ylös ja katto aina −0,3 dBTP tai alempana. ENNEN-ääni jäädytetään ensin, ja EQ + limitteri -paneeli aukeaa **Pidä**- ja **Peru**-napein. **Peru** palauttaa jokaisen nupin täsmälleen ennalleen.
+- Yhtä raitaa koskeva korjaus ("leikkaa pädeistä 300 Hz") ei onnistu masterista: siitä tulee vain **Kokeile**.
+- Tekoäly ei kuule kappaletta ja voi olla väärässä. Korva ratkaisee.
+
 Jotta mukana on koko kappale, soita se alusta loppuun ennen kuin painat **Raportti** (kun **Nollaa playssa** on päällä, jokainen soitto aloittaa uuden aikajanan). Hiljaisuus jätetään pois. DAW:ssa taulukko näyttää myös, missä kohtaa projektia kukin osa on.
 
 ## 7. Masterointi-EQ ja limitteri
 
-Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ ja true peak -limitteri. Niillä saat masterin valmiiksi ilman muita plugineja. **WWMA ehdottaa lukuja, sinä käännät nupit.** Mikään ei liiku itsestään.
+Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ ja true peak -limitteri. Niillä saat masterin valmiiksi ilman muita plugineja. **WWMA ehdottaa lukuja, sinä käännät nupit.** Mikään ei liiku itsestään, vain klikkauksestasi.
 
 ![Masterointi-EQ ja limitteri](images/wwma-eq-limiter-fi.png)
 
@@ -152,6 +202,7 @@ Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ
 - **Release** on noin 16-osanuotti kappaleen tempossa, jotta limitteri hengittää tahdissa. Ilman selvää tempoa se on 100 ms.
 - **MIX**-tilassa limitteriä ehdotetaan pois päältä: limitointi miksatessa piilottaa tasapaino-ongelmia.
 - **Ehdotukset**-ruudusta piilotat ehdotukset. Valinta tallentuu projektin mukana.
+- **Käytä ehdotusta** asettaa nupit ehdotettuihin arvoihin yhdellä klikkauksella (EQ ja limitteri, vain EQ tai vain limitteri). Sen jälkeen **Pidä** tai **Peru**: Peru palauttaa jokaisen nupin täsmälleen ennalleen. Odotuksen aikana WWMA vertaa saman kohdan seuraavaa soittoa ja kysyy korvaltasi.
 
 **Kuuntele ilman** soittaa miksin ilman EQ:ta ja limitteriä samalla äänekkyydellä kuin niiden kanssa (yläpalkki muuttuu keltaiseksi). Sillä tarkistat, että ketju parantaa soundia eikä vain nosta voimakkuutta. Kovempi kuulostaa aina hetken paremmalta.
 

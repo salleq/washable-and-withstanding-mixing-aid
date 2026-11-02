@@ -7,7 +7,8 @@ namespace wwma::ui
 {
 /** The mastering EQ and limiter: knobs the user turns by hand, each with WWMA's
     suggested value next to it (and a marker on the knob). The suggestions can be hidden.
-    Nothing here ever moves a knob by itself. Shown over the findings. */
+    Nothing moves a knob without the user's click: "Use suggested" sets the suggested values,
+    and Undo puts the knobs back. Shown over the findings. */
 class ChainPanel : public juce::Component
 {
 public:
@@ -20,7 +21,9 @@ public:
     void refresh();
 
     std::function<void (bool)> onShowSuggestions, onListenWithout;
-    std::function<void()> onClose;
+    std::function<void()> onClose, onKeepChange, onUndoChange;
+    /** "Use suggested": eq and/or limiter. */
+    std::function<void (bool eq, bool limiter)> onUseSuggested;
 
 private:
     struct Knob
@@ -43,7 +46,7 @@ private:
     std::array<Knob, 2> q;           // the two bells
     Knob limGain, ceiling, release;
     std::vector<Knob*> all;
-    juce::TextButton eqOn, limOn, withoutButton, closeButton;
+    juce::TextButton eqOn, limOn, withoutButton, closeButton, useButton, keepButton, undoButton;
     juce::ToggleButton showSuggestions;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> eqOnAttachment, limOnAttachment;
 };

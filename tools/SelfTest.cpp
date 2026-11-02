@@ -11,9 +11,14 @@
 #include "advice/Lessons.h"
 #include "advice/ChainAdvice.h"
 #include "advice/ListeningReport.h"
+#include "ai/AiPrompt.h"
+#include "ai/AiClient.h"
 #include <complex>
 #include <functional>
 #include <iostream>
+#if ! JUCE_WINDOWS
+ #include <sys/stat.h>
+#endif
 
 using namespace wwma;
 
@@ -523,6 +528,320 @@ namespace
         }
     }
 
+    /** "Before": WWMA records its own output by song position and plays it back at the same spot. */
+    void beforeTests()
+    {
+        std::cout << "Before / now (WWMA's own recording)" << std::endl;
+        const double sr = 48000.0;
+        const int bl = 512;
+        auto sineBlock = [] (std::vector<float>& l, std::vector<float>& r, int64_t pos, double hz, float amp)
+        {
+            for (size_t i = 0; i < l.size(); ++i)
+                l[i] = r[i] = amp * (float) std::sin (2.0 * pi * hz * (double) (pos + (int64_t) i) / 48000.0);
+        };
+        auto recordSpan = [&] (BeforeTake& t, double fromSec, double toSec, double hz, float amp, bool offline = false)
+        {
+            std::vector<float> l ((size_t) bl), r ((size_t) bl);
+            int k = 0;
+            for (int64_t pos = (int64_t) (fromSec * sr); pos < (int64_t) (toSec * sr); pos += bl, ++k)
+            {
+                sineBlock (l, r, pos, hz, amp);
+                t.record (l.data(), r.data(), bl, pos, offline);
+                if (k % 20 == 0)
+                    t.service (pos / sr);   // the processor's timer does this 10 times a second
+            }
+        };
+
+        {
+            BeforeTake t;
+            t.prepare (sr);
+            t.service();
+            recordSpan (t, 10.0, 14.0, 440.0, 0.25f);
+            check (! t.hasBefore() && t.getLiveSeconds() == 4, "playing 4 s records them, but nothing is 'before' until a snapshot",
+                   juce::String (t.getLiveSeconds()) + " s live");
+            check (t.freeze() && t.hasBefore() && t.getBeforeSeconds() == 4 && t.getLiveSeconds() == 0, "  a snapshot freezes them as 'before'");
+            check (! t.freeze(), "  a second snapshot with nothing played since keeps the before take");
+
+            // the mix is now 6 dB louder at the same spot
+            recordSpan (t, 10.0, 14.0, 440.0, 0.5f);
+            t.service (12.0);
+            check (near (t.getMatchDb(), 6.02, 0.2), "  the before take is level-matched to the mix as it plays now",
+                   juce::String (t.getMatchDb(), 2) + " dB");
+
+            std::vector<float> l ((size_t) bl), r ((size_t) bl), want ((size_t) bl), unused ((size_t) bl);
+            t.setMatchLoudness (false);
+            const int64_t at = (int64_t) (11.3 * sr);
+            const int got = t.render (l.data(), r.data(), bl, at);
+            sineBlock (want, unused, at, 440.0, 0.25f);
+            float err = 0.0f;
+            for (int i = 0; i < bl; ++i)
+                err = juce::jmax (err, std::abs (l[(size_t) i] - want[(size_t) i]));
+            check (got == bl && err < 1.0e-4f, "  playback at 0:11.3 gives exactly what was recorded there (16-bit)", juce::String (err, 6));
+
+            t.setMatchLoudness (true);
+            for (int k = 0; k < 20; ++k)
+                t.render (l.data(), r.data(), bl, at + k * bl);
+            float peak = 0.0f;
+            for (auto v : l)
+                peak = juce::jmax (peak, std::abs (v));
+            check (near (peak, 0.5, 0.02), "  with level matching it plays as loud as the mix now", juce::String (peak, 3));
+
+            std::fill (l.begin(), l.end(), 0.123f);
+            check (t.render (l.data(), r.data(), bl, (int64_t) (30.0 * sr)) == 0 && t.isMissingHere() && l[0] == 0.123f,
+                   "  a spot that was never played: nothing is replaced, and WWMA says so");
+
+            // play only 0:10-0:11 again with a change, then snapshot: that second is replaced, the rest kept
+            recordSpan (t, 14.0, 14.0, 440.0, 0.5f);
+            t.clearAll();
+            recordSpan (t, 10.0, 14.0, 440.0, 0.25f);
+            t.freeze();
+            recordSpan (t, 10.0, 11.0, 880.0, 0.25f);
+            t.freeze();
+            const auto cov = t.beforeCoverage();
+            t.setMatchLoudness (false);
+            for (int k = 0; k < 20; ++k)   // let the level settle (it glides, so switching is click-free)
+                t.render (l.data(), r.data(), bl, (int64_t) (10.5 * sr));
+            sineBlock (want, unused, (int64_t) (10.5 * sr), 880.0, 0.25f);
+            check (cov.size() == 14 && cov[10] == 2 && cov[12] == 1 && std::abs (l[100] - want[100]) < 1.0e-4f,
+                   "a part played again replaces only that part; the rest keeps its older sound (marked as older)",
+                   "covered " + juce::String ((int) cov.size()) + " s, 0:10 " + juce::String (cov.size() > 10 ? cov[10] : 0)
+                       + ", 0:12 " + juce::String (cov.size() > 12 ? cov[12] : 0) + ", error " + juce::String (std::abs (l[100] - want[100]), 5));
+        }
+
+        {
+            // an export records the whole song at once; playing "before" never goes into an export
+            struct Host : juce::AudioPlayHead
+            {
+                bool playing = true;
+                int64_t pos = 0;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying (playing);
+                    info.setTimeInSamples (pos);
+                    return info;
+                }
+            } host;
+            WwmaAudioProcessor p;
+            p.setPlayConfigDetails (2, 2, sr, bl);
+            p.prepareToPlay (sr, bl);
+            p.setPlayHead (&host);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> buf (2, bl);
+            std::vector<float> l ((size_t) bl), r ((size_t) bl);
+            const int64_t at30 = (int64_t) (30.0 * sr) / bl * bl;   // 0:30, on a block boundary
+
+            // an older before take of 0:29-0:31 (a different sound), and BEFORE left on by mistake
+            for (host.pos = at30 - 50 * bl; host.pos < at30 + 50 * bl; host.pos += bl)
+            {
+                sineBlock (l, r, host.pos, 880.0, 0.3f);
+                buf.copyFrom (0, 0, l.data(), bl);
+                buf.copyFrom (1, 0, r.data(), bl);
+                p.processBlock (buf, midi);
+                p.before.service();
+            }
+            p.before.freeze();
+            p.listenToBefore.store (true);
+
+            p.setNonRealtime (true);
+            host.playing = false;   // many hosts don't report "playing" while rendering
+            std::vector<float> exported;   // what went out at 0:30
+            float exportErr = 1.0f;
+            for (host.pos = 0; host.pos < (int64_t) (60.0 * sr); host.pos += bl)
+            {
+                sineBlock (l, r, host.pos, 220.0, 0.3f);
+                buf.copyFrom (0, 0, l.data(), bl);
+                buf.copyFrom (1, 0, r.data(), bl);
+                p.processBlock (buf, midi);
+                if (host.pos == at30)
+                    exported.assign (buf.getReadPointer (0), buf.getReadPointer (0) + bl);
+            }
+            check (p.before.getLiveSeconds() == 60, "one export records the whole song (60 s)", juce::String (p.before.getLiveSeconds()) + " s");
+            p.listenToBefore.store (false);
+            p.setNonRealtime (false);
+            p.before.freeze();
+            p.before.setMatchLoudness (false);
+
+            // later, in real time: the mix is now silent, BEFORE is pressed, and the play head jumps to 0:30
+            host.playing = true;
+            p.listenToBefore.store (true);
+            float lastErr = 1.0f;
+            for (host.pos = at30 - 20 * bl; host.pos <= at30; host.pos += bl)
+            {
+                buf.clear();
+                p.processBlock (buf, midi);
+                if (host.pos == at30 && exported.size() == (size_t) bl)
+                {
+                    lastErr = 0.0f;
+                    for (int i = 0; i < bl; ++i)
+                        lastErr = juce::jmax (lastErr, std::abs (buf.getSample (0, i) - exported[(size_t) i]));
+                }
+            }
+            check (lastErr < 1.0e-4f, "  BEFORE plays the exported sound at the DAW's play head (a jump to 0:30)", juce::String (lastErr, 6));
+            {
+                // the export is the mix (the 220 Hz input delayed by the latency), not the older 880 Hz before take
+                std::vector<float> mixL ((size_t) bl), mixR ((size_t) bl);
+                sineBlock (mixL, mixR, at30 - p.getLatencySamples(), 220.0, 0.3f);
+                float err = exported.empty() ? 1.0f : 0.0f;
+                for (size_t i = 0; i < exported.size(); ++i)
+                    err = juce::jmax (err, std::abs (exported[i] - mixL[i]));
+                exportErr = err;
+            }
+            check (exportErr < 1.0e-5f, "  and BEFORE left on is not mixed into the export", juce::String (exportErr, 6));
+            p.setPlayHead (nullptr);
+        }
+
+        {
+            // saved at one sample rate, put back at another
+            BeforeTake a;
+            a.prepare (sr);
+            recordSpan (a, 5.0, 8.0, 440.0, 0.25f, true);
+            a.freeze();
+            const auto saved = a.exportBefore();
+            BeforeTake b;
+            b.prepare (44100.0);
+            b.importBefore (saved);
+            check (saved.firstSecond == 5 && saved.covered.size() >= 3 && b.getBeforeSeconds() == (int) saved.covered.size(),
+                   "a before take saved at 48 kHz is put back at 44.1 kHz, same spots of the song",
+                   juce::String (b.getBeforeSeconds()) + " s, saved from " + juce::String (saved.firstSecond) + " for " + juce::String ((int) saved.covered.size()) + " s");
+        }
+    }
+
+    /** WWMA's own folder: sessions survive WWMA being removed and added again; before versions on disk. */
+    void storeTests()
+    {
+        std::cout << "Sessions and versions on disk" << std::endl;
+        const double sr = 48000.0;
+        const auto sessionsNow = [] { return (int) store::listSessions().size(); };
+        const int atStart = sessionsNow();
+
+        juce::String id;
+        {
+            WwmaAudioProcessor a;
+            a.prepareToPlay (sr, 512);
+            a.setLang (Lang::finnish);
+            a.setProfileIndex (3);
+            SavedSnapshot snap;
+            snap.time = juce::Time::getCurrentTime();
+            snap.score = 64.0f;
+            a.addSnapshot (snap);
+            a.saveSessionIfChanged();
+            id = a.getSessionId();
+            check (store::sessionFolder (id).getChildFile ("state.xml").existsAsFile(), "a used WWMA writes its session to its own folder", id);
+        }
+        {
+            WwmaAudioProcessor untouched;
+            check (untouched.shouldOfferRestore(), "a WWMA just added (nothing restored, nothing changed) offers earlier sessions");
+        }
+        check (sessionsNow() == atStart + 1, "  and one added and removed without being used leaves nothing behind",
+               juce::String (sessionsNow() - atStart) + " new");
+        {
+            WwmaAudioProcessor b;
+            b.prepareToPlay (sr, 512);
+            const auto c = b.restoreCandidates();
+            const bool offered = ! c.empty() && c.front().id == id;
+            check (offered, "  the session of the WWMA taken out is offered first");
+            const bool ok = offered && b.restoreSession (c.front().folder);
+            check (ok && b.getSessionId() == id && b.getLang() == Lang::finnish && b.getProfileIndex() == 3 && b.getSnapshots().size() == 1,
+                   "  'continue' brings back its settings, snapshots and session id");
+            check (! b.shouldOfferRestore(), "  and no longer offers anything");
+        }
+        {
+            // a project the DAW restores itself is never offered anything
+            WwmaAudioProcessor a, b;
+            a.setLang (Lang::finnish);
+            juce::MemoryBlock mb;
+            a.getStateInformation (mb);
+            b.setStateInformation (mb.getData(), (int) mb.getSize());
+            check (! b.shouldOfferRestore() && b.getSessionId() == a.getSessionId(), "a WWMA restored by the DAW keeps its session and offers nothing");
+        }
+
+        {
+            // before versions: save, list, load back, rename, prune, remove
+            BeforeTake t;
+            t.prepare (sr);
+            std::vector<float> l (512), r (512);
+            for (int64_t pos = (int64_t) (20 * sr); pos < (int64_t) (23 * sr); pos += 512)
+            {
+                for (int i = 0; i < 512; ++i)
+                    l[(size_t) i] = r[(size_t) i] = 0.25f * (float) std::sin (2.0 * pi * 330.0 * (double) (pos + i) / sr);
+                t.record (l.data(), r.data(), 512, pos, true);
+            }
+            t.freeze();
+            const auto v = store::saveVersion (id, t, {}, 71.0f, 0);
+            const auto list = store::listVersions (id);
+            check (v.audio.existsAsFile() && list.size() == 1 && list[0].firstSecond == 20 && list[0].coveredSeconds >= 3,
+                   "the before take is saved as a FLAC in the session's Versions folder",
+                   v.audio.getFileName() + ", " + store::sizeText (v.bytes));
+
+            BeforeTake back;
+            back.prepare (sr);
+            const bool loaded = store::loadVersion (list[0], back);
+            std::vector<float> a (512), b (512), x (512), y (512);
+            t.setMatchLoudness (false);
+            back.setMatchLoudness (false);
+            const int64_t at = (int64_t) (21.5 * sr);
+            t.render (a.data(), b.data(), 512, at);
+            back.render (x.data(), y.data(), 512, at);
+            float err = 0.0f;
+            for (int i = 0; i < 512; ++i)
+                err = juce::jmax (err, std::abs (a[(size_t) i] - x[(size_t) i]));
+            check (loaded && back.getBeforeSeconds() == t.getBeforeSeconds() && err < 1.0e-4f,
+                   "  loading it back gives the same sound at the same spot", juce::String (err, 6));
+
+            BeforeTake slow;
+            slow.prepare (44100.0);
+            check (store::loadVersion (list[0], slow) && slow.beforeSpan().first == 20, "  and at another sample rate, at the same spot of the song");
+
+            check (store::renameVersion (list[0], "v3 before mud cut") && store::listVersions (id)[0].named, "  a version can be named");
+            for (int k = 0; k < 3; ++k)
+            {
+                juce::Thread::sleep (1100);   // file names have one-second resolution
+                store::saveVersion (id, t, {}, 70.0f, 0);
+            }
+            const int removed = store::prune (id, 2);
+            const auto after = store::listVersions (id);
+            const bool namedKept = std::any_of (after.begin(), after.end(), [] (const store::VersionInfo& i) { return i.named; });
+            check (removed == 1 && after.size() == 3 && namedKept, "  keeping 2: the oldest unnamed one goes, the named one stays",
+                   juce::String (removed) + " removed, " + juce::String ((int) after.size()) + " left");
+            check (store::removeVersion (after.back()) && store::listVersions (id).size() == 2, "  a version can be removed");
+        }
+        {
+            const auto folder = store::sessionFolder (id);
+            check (store::removeSession (folder) && ! folder.exists(), "a whole session can be removed");
+            check (! store::removeSession (juce::File::getSpecialLocation (juce::File::tempDirectory)),
+                   "  nothing outside WWMA's own folder can be removed from the plugin");
+        }
+    }
+
+    /** Every finding says what it sounds like, in English and Finnish. */
+    void listeningTextTests()
+    {
+        std::cout << "What each finding sounds like" << std::endl;
+        juce::StringArray ids { "range0+", "range0-", "range1+", "range1-", "range2+", "range2-", "range3+", "range3-", "range4+", "range4-", "range5+", "range5-",
+                                "loud", "quiet", "peak", "squashed", "dynamic", "lra", "phonebass", "lowwidth", "phase", "monoloss", "wide", "narrow",
+                                "balance", "dcoffset", "clipping", "headroom", "hotmix", "kickbass", "flatdrums", "spikydrums", "boomnote", "piercing",
+                                "sibilance", "notch", "rumble", "sidehigh", "kick-low", "kick-high", "kick-long", "kick-short", "kick-noclick",
+                                "kick-clicky", "kick-mud", "kick-squashed", "bass-noharm", "bass-fizzy", "bass-sub+", "bass-uneven", "bus-sub+",
+                                "bus-sub-", "bus-squashed", "clash", "kick-tune", "track-hot" };
+        juce::StringArray missing;
+        for (auto lang : { Lang::english, Lang::finnish })
+        {
+            std::vector<Finding> fs;
+            for (const auto& id : ids)
+            {
+                Finding f;
+                f.id = id.toStdString();
+                fs.push_back (f);
+            }
+            describeForEars (fs, lang);
+            for (const auto& f : fs)
+                if (f.listenFor.isEmpty())
+                    missing.addIfNotAlreadyThere (juce::String (f.id));
+        }
+        check (missing.isEmpty(), "every finding has a 'what you hear' line in English and Finnish", missing.joinIntoString (" "));
+    }
+
     /** References are judged without mastering; every pass is compared with the previous pass of the
         same part; "try the top fix" tells whether the change helped. */
     void passTests()
@@ -566,6 +885,18 @@ namespace
 
         struct Session
         {
+            /** The DAW's play head: each pass starts playing at its spot (a new pass, as when you press play or a loop starts over). */
+            struct Host : juce::AudioPlayHead
+            {
+                int64_t pos = 0;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying (true);
+                    info.setTimeInSamples (pos);
+                    return info;
+                }
+            } host;
             WwmaAudioProcessor p;
             std::unique_ptr<juce::AudioProcessorEditor> ed;
             WwmaAudioProcessorEditor* editor = nullptr;
@@ -573,16 +904,18 @@ namespace
             {
                 p.setPlayConfigDetails (2, 2, 48000.0, 512);
                 p.prepareToPlay (48000.0, 512);
+                p.setPlayHead (&host);
                 p.setProfileIndex (0);
                 p.setWindow (Window::song);
                 p.setStage (Stage::mixing);
                 ed.reset (p.createEditor());
                 editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
             }
+            ~Session() { p.setPlayHead (nullptr); }
             /** Press play at the given song position and play this version for 12 s. */
             void pass (double at, synth::SongParams sp)
             {
-                p.beginPass (at);
+                host.pos = (int64_t) (at * 48000.0);   // the play head jumps there: WWMA starts a new pass
                 sp.seconds = 12.0;
                 const auto x = synth::renderSong (sp);
                 juce::AudioBuffer<float> buf (2, 512);
@@ -594,9 +927,11 @@ namespace
                     buf.copyFrom (0, 0, x.l.data() + i, 512);
                     buf.copyFrom (1, 0, x.r.data() + i, 512);
                     p.processBlock (buf, midi);
+                    host.pos += 512;
                     if ((since += 512) >= 24000)
                     {
                         since = 0;
+                        p.before.service (host.pos / 48000.0);   // the processor's timer
                         editor->refresh (true);
                     }
                 }
@@ -630,9 +965,65 @@ namespace
                    "'try the top fix' picks the muddy low mids and gives one concrete step", juce::String (t.findingId) + ": " + t.step);
             check (s.editor->getTrialResult().kind == TrialResult::Kind::waiting, "  and waits for the next pass");
             s.pass (30.0, clean);
-            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped, "  cutting the mud: 'it helped, keep it'",
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped, "  cutting the mud: the meter says it helped",
                    s.editor->getTrialResult().headline + " / " + s.editor->getTrialResult().detail);
+            check (s.editor->getTrialResult().askEar && s.p.before.hasBefore(),
+                   "  then the ears are asked, with BEFORE holding the pass before the change", s.editor->getTrialResult().headline);
+            s.editor->answerEar (-1);
+            const auto& er = s.editor->getTrialResult();
+            const auto& fs = s.editor->getAssessment().findings;
+            const auto mud = std::find_if (fs.begin(), fs.end(), [] (const Finding& f) { return f.id == "range2+"; });
+            check (er.kind == TrialResult::Kind::worse && er.overrule && s.p.getEarOverruled().count ("range2+") == 1,
+                   "  BEFORE sounded better: 'your ears win, undo it', and the finding stops counting", er.headline);
+            check (mud == fs.end() || (mud->earOverruled && mud->penalty == 0.0f && mud == std::find_if (fs.begin(), fs.end(), [] (const Finding& f) { return f.earOverruled; })),
+                   "  it costs no points and goes below the others");
             s.editor->toggleTrial(); // next fix
+            check (! s.editor->getTrial().active || s.editor->getTrial().findingId != "range2+", "  'try the top fix' moves on to something else",
+                   juce::String (s.editor->getTrial().findingId));
+            s.editor->clearEarDecisions();
+            check (s.p.getEarOverruled().empty(), "  and the ears' decisions can be cleared");
+        }
+        {
+            // "many changes since the snapshot": ask the ears before going on
+            SavedSnapshot snap;
+            snap.score = 50.0f;
+            snap.spectrum.assign ((size_t) Bands::count, 0.0f);
+            auto nowWith = [] (float score, std::initializer_list<std::pair<Range, float>> moves)
+            {
+                Assessment a;
+                a.enoughData = true;
+                a.measures.valid = true;
+                a.score = score;
+                a.measures.spectrum.fill (0.0f);
+                for (const auto& [range, db] : moves)
+                {
+                    const auto info = rangeBands (range);
+                    for (int b = info.firstBand; b <= info.lastBand; ++b)
+                        a.measures.spectrum[(size_t) b] += db;
+                }
+                return a;
+            };
+            const auto small = overOptimised (snap, nowWith (55.0f, { { Range::lowMid, -3.0f } }), nullptr, Lang::english);
+            const auto many = overOptimised (snap, nowWith (58.0f, { { Range::sub, -3.0f }, { Range::lowMid, -3.0f }, { Range::presence, 3.0f } }), nullptr, Lang::english);
+            const auto jump = overOptimised (snap, nowWith (70.0f, {}), nullptr, Lang::english);
+            Assessment ref = nowWith (60.0f, {});
+            const auto away = overOptimised (snap, nowWith (57.0f, { { Range::air, 8.0f } }), &ref, Lang::english);
+            check (! small.warn, "one change at a time: no warning");
+            check (many.warn && many.rangesMoved == 3, "the tone moved in three ranges at once: 'listen before you go on'", many.detail);
+            check (jump.warn, "  the meter jumped 20 points: the same", jump.detail);
+            check (away.warn && away.refDistanceChange > 1.0f, "  the meter rose while the tone moved away from the reference: the same", away.detail);
+            {
+                Trial t;
+                t.title = "Muddy low mids";
+                TrialResult meterSaysWorse;
+                meterSaysWorse.kind = TrialResult::Kind::worse;
+                t.ear = 1;
+                const auto keep = judgeWithEars (meterSaysWorse, t, 0, Lang::english);
+                t.ear = 2;
+                const auto same = judgeWithEars (meterSaysWorse, t, 0, Lang::english);
+                check (keep.kind == TrialResult::Kind::helped && ! keep.overrule && same.kind == TrialResult::Kind::noChange,
+                       "  the ears win the other way too: liked it -> keep it; no difference -> don't go further");
+            }
             Session w;
             w.pass (30.0, muddy);
             w.editor->toggleTrial();
@@ -641,11 +1032,402 @@ namespace
                    w.editor->getTrialResult().headline);
         }
     }
+
+    // ------------------------------------------------------------------ the AI assistant
+    void aiTests (const juce::File& shots = {})
+    {
+        std::cout << "The AI assistant (Claude, Gemini, ChatGPT)" << std::endl;
+        const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-ai-test-" + juce::Uuid().toDashedString());
+        tmp.createDirectory();
+        struct Cleanup { juce::File f; ~Cleanup() { f.deleteRecursively(); } } cleanup { tmp };
+
+        // ---- settings: on this computer only, never in the project
+        {
+            ai::setSettingsFileForTests (tmp.getChildFile ("ai-settings.xml"));
+            ai::Settings st;
+            st.provider = ai::Provider::gemini;
+            st.consent = true;
+            st.of (ai::Provider::gemini).mode = ai::Mode::api;
+            st.of (ai::Provider::gemini).apiKey = "secret-key-123";
+            st.of (ai::Provider::claude).mode = ai::Mode::cli;
+            ai::saveSettings (st);
+            const auto back = ai::loadSettings();
+            check (back.provider == ai::Provider::gemini && back.consent && back.of (ai::Provider::gemini).apiKey == "secret-key-123"
+                       && back.of (ai::Provider::gemini).mode == ai::Mode::api && back.of (ai::Provider::claude).mode == ai::Mode::cli,
+                   "AI settings are saved and read back (service, way, key, consent)");
+           #if JUCE_LINUX || JUCE_MAC
+            struct stat info {};
+            ::stat (ai::settingsFile().getFullPathName().toRawUTF8(), &info);
+            check ((info.st_mode & 0777) == 0600, "  the settings file (it holds API keys) is readable by the user only",
+                   juce::String::formatted ("%o", (unsigned) (info.st_mode & 0777)));
+           #endif
+            ai::saveSettings (st); // again: still in place, still private
+            WwmaAudioProcessor p;
+            juce::MemoryBlock mb;
+            p.getStateInformation (mb);
+            check (! mb.toString().contains ("secret-key-123") && ! juce::String::fromUTF8 ((const char*) mb.getData(), (int) mb.getSize()).contains ("secret-key"),
+                   "  the API key is never in the DAW project");
+            check (ai::loadSettings().of (ai::Provider::chatgpt).mode == ai::Mode::browser && ai::defaultModel (ai::Provider::claude) == "claude-opus-5-5",
+                   "  the browser (no key) is the default way; Claude's default model is set");
+        }
+
+        // ---- the question
+        ai::PromptInput in;
+        in.question = "I'm working on a House track.";
+        in.findings = { { "range2+", "Too much mud" }, { "kickbass", "Kick drowns in the bass" } };
+        in.stage = Stage::mastering;
+        in.masterChanges = true;
+        const auto prompt = ai::buildPrompt (in);
+        check (prompt.startsWith (in.question) && prompt.contains ("```json") && prompt.contains ("range2+") && prompt.contains ("kickbass")
+                   && prompt.contains ("\"chain\"") && prompt.contains ("band 0, low shelf") && prompt.contains ("-0.3 dBTP"),
+               "the AI question asks for a block WWMA can read, names its findings and its EQ bands");
+        in.masterChanges = false;
+        in.stage = Stage::mixing;
+        check (ai::buildPrompt (in).contains ("still being mixed") && ! ai::buildPrompt (in).contains ("band 0, low shelf"),
+               "  while mixing it asks for no master changes");
+
+        // ---- reading the answer
+        const juce::String answer =
+            "Here is what I hear in the numbers.\n\n1. The low mids are heavy.\n\n"
+            "```json\n{\"suggestions\": [\n"
+            " {\"finding_id\": \"range2+\", \"part\": \"B\", \"at\": \"1:05\", \"title\": \"Cut the mud\", \"step\": \"Cut 300 Hz on the pads by 3 dB.\", \"listen_for\": \"Clearer kick.\"},\n"
+            " {\"finding_id\": null, \"part\": null, \"at\": null, \"title\": \"A little more low end\", \"step\": \"Raise the low shelf.\", \"listen_for\": \"Fuller bass on a phone.\",\n"
+            "  \"chain\": {\"eq\": [{\"band\": 0, \"freq_hz\": 80, \"gain_db\": 6.0}, {\"band\": 9, \"gain_db\": 3}], \"limiter\": {\"ceiling_dbtp\": 0.0}}},\n"
+            " {\"title\": \"Third\", \"step\": \"x\"}, {\"title\": \"Fourth\", \"step\": \"y\"}\n]}\n```\n";
+        juce::String shown;
+        const auto sugg = ai::parseSuggestions (answer, &shown);
+        check (sugg.size() == 3 && sugg[0].findingId == "range2+" && sugg[0].part == "B" && sugg[0].at == "1:05" && sugg[0].chain.empty()
+                   && sugg[1].findingId.empty() && sugg[1].part.isEmpty() && ! sugg[1].chain.empty(),
+               "the answer's block becomes at most 3 suggestions, with where in the song and a master change when there is one",
+               juce::String ((int) sugg.size()));
+        check (shown.contains ("low mids are heavy") && ! shown.contains ("suggestions") && ! shown.contains ("```"),
+               "  the answer is shown without the block");
+        check (! sugg[1].chain.gain[0].has_value() || (sugg[1].chain.gain[0].has_value() && ! sugg[1].chain.freq[3].has_value()),
+               "  a band that does not exist is ignored");
+        juce::String keep;
+        check (ai::parseSuggestions ("No block here.", &keep).empty() && keep == "No block here."
+                   && ai::parseSuggestions ("text ```json {broken ``` more", nullptr).empty(),
+               "  an answer without a block, or with a broken one, gives no suggestions and keeps the text");
+        check (ai::parseSuggestions ("Sure! {\"suggestions\": [{\"title\": \"A\", \"step\": \"B\"}]}", nullptr).size() == 1,
+               "  a block without the code fence is read too");
+
+        // ---- master changes are kept small and safe
+        {
+            ChainSettings now;
+            juce::StringArray notes;
+            const auto target = ai::applyChange (now, sugg[1].chain, ai::aiLimits(), &notes, Lang::english);
+            check (target.eqOn && near (target.gain[0], 3.0, 0.01) && near (target.freq[0], 80.0, 0.01) && target.limiterOn && near (target.ceiling, -0.3, 0.01),
+                   "an AI master change: +6 dB is limited to +3 dB, the ceiling to -0.3 dBTP, and the stages it uses are turned on",
+                   juce::String (target.gain[0], 1) + " dB, " + juce::String (target.ceiling, 1) + " dBTP");
+            check (notes.size() == 2, "  and every limited value is told", notes.joinIntoString (" | "));
+            const auto lines = ai::describeChange (now, target, Lang::english);
+            check (lines.joinIntoString ("\n").contains ("Low shelf") && lines.joinIntoString ("\n").contains ("more bass") && lines.contains ("EQ on"),
+                   "  the change is told knob by knob", lines.joinIntoString (" | "));
+            ai::ChainChange big;
+            big.gain[1] = 9.0f;
+            big.freq[2] = 50000.0f;
+            const auto own = ai::applyChange (now, big, ai::ownLimits(), nullptr, Lang::english);
+            check (near (own.gain[1], 9.0, 0.01) && near (own.freq[2], 12000.0, 0.01),
+                   "  WWMA's own suggested values are used as they are, within the knobs' ranges");
+            check (ai::describeChange (now, now, Lang::english).isEmpty(), "  no change, nothing to tell");
+        }
+
+        // ---- the API calls (built and read without the network)
+        {
+            ai::ApiRequest r;
+            r.provider = ai::Provider::claude;
+            r.apiKey = "k";
+            r.context = "DATA";
+            r.images.push_back (juce::MemoryBlock ("\x89PNG", 4));
+            r.turns = { { true, "Q1" }, { false, "A1" }, { true, "Q2" } };
+            const auto body = juce::JSON::toString (ai::requestBody (r), true);
+            const auto json = ai::requestBody (r);
+            const auto first = json.getProperty ("messages", {})[0].getProperty ("content", {});
+            check (json.getProperty ("model", {}).toString() == "claude-opus-5-5" && json.getProperty ("thinking", {}).getProperty ("type", {}).toString() == "adaptive"
+                       && json.getProperty ("fallbacks", {}).toString() == "default" && first[0].getProperty ("type", {}).toString() == "image"
+                       && first[1].getProperty ("text", {}).toString() == "DATA" && first[2].getProperty ("text", {}).toString() == "Q1"
+                       && json.getProperty ("messages", {})[1].getProperty ("role", {}).toString() == "assistant"
+                       && json.getProperty ("messages", {})[2].getProperty ("content", {}).toString() == "Q2",
+                   "Claude: the model, adaptive thinking, the picture, the data and the question, then the conversation", body.substring (0, 200));
+            const auto h = ai::headers (ai::Provider::claude, "k", "claude-opus-5-5");
+            check (h.contains ("x-api-key: k") && h.contains ("anthropic-version: 2023-06-01") && h.contains ("server-side-fallback"),
+                   "  with the key and the API version in the headers");
+            r.model = "claude-haiku-4-5";
+            check (! ai::requestBody (r).hasProperty ("thinking") && ! ai::requestBody (r).hasProperty ("fallbacks") && ! ai::headers (ai::Provider::claude, "k", r.model).contains ("beta"),
+                   "  an older model gets no settings it doesn't know");
+
+            r.provider = ai::Provider::chatgpt;
+            r.model = "gpt-x";
+            const auto o = ai::requestBody (r);
+            check (ai::endpoint (r).endsWith ("/v1/responses") && o.getProperty ("input", {})[0].getProperty ("content", {})[0].getProperty ("image_url", {}).toString().startsWith ("data:image/png;base64,")
+                       && ai::headers (ai::Provider::chatgpt, "k", {}).contains ("Authorization: Bearer k"),
+                   "ChatGPT: the Responses API with the picture as a data URL and a bearer key");
+            r.provider = ai::Provider::gemini;
+            r.model = "gemini-x";
+            const auto g = ai::requestBody (r);
+            check (ai::endpoint (r).contains ("/models/gemini-x:generateContent") && g.getProperty ("contents", {})[0].getProperty ("parts", {})[0].hasProperty ("inline_data")
+                       && g.getProperty ("contents", {})[1].getProperty ("role", {}).toString() == "model" && ai::headers (ai::Provider::gemini, "k", {}).contains ("x-goog-api-key: k"),
+                   "Gemini: generateContent with the picture inline, the model's turns as 'model'");
+
+            auto ok = ai::parseReply (ai::Provider::claude, 200, R"({"model":"claude-opus-5-5","stop_reason":"end_turn","content":[{"type":"thinking","thinking":""},{"type":"text","text":"Hello"},{"type":"text","text":" there"}]})");
+            check (ok.ok && ok.text == "Hello there" && ok.model == "claude-opus-5-5", "answers are read: Claude's text blocks", ok.text);
+            auto refusal = ai::parseReply (ai::Provider::claude, 200, R"({"stop_reason":"refusal","content":[]})");
+            auto cut = ai::parseReply (ai::Provider::claude, 200, R"({"stop_reason":"max_tokens","content":[{"type":"text","text":"Part"}]})");
+            check (! refusal.ok && refusal.error.isNotEmpty() && cut.ok && cut.text.contains ("cut short"), "  a refusal is an error, a cut answer says so");
+            auto bad = ai::parseReply (ai::Provider::claude, 401, R"({"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}})");
+            check (! bad.ok && bad.error.contains ("API key") && bad.error.contains ("invalid x-api-key"), "  a wrong key says so in plain words, with the service's message", bad.error);
+            check (ai::parseReply (ai::Provider::claude, 0, {}).error.contains ("No connection"), "  no network: says so");
+            auto oa = ai::parseReply (ai::Provider::chatgpt, 200, R"({"model":"gpt-x","status":"completed","output":[{"type":"reasoning"},{"type":"message","content":[{"type":"output_text","text":"Hi"}]}]})");
+            auto gm = ai::parseReply (ai::Provider::gemini, 200, R"({"candidates":[{"content":{"parts":[{"text":"think","thought":true},{"text":"Moi"}]},"finishReason":"STOP"}]})");
+            auto gb = ai::parseReply (ai::Provider::gemini, 200, R"({"promptFeedback":{"blockReason":"SAFETY"}})");
+            check (oa.ok && oa.text == "Hi" && gm.ok && gm.text == "Moi" && ! gb.ok, "  ChatGPT's output text, Gemini's parts (not its thoughts), and a blocked Gemini answer",
+                   oa.text + " | " + gm.text);
+
+            const auto gemModels = ai::parseModels (ai::Provider::gemini, 200, R"({"models":[
+                {"name":"models/gemini-2.5-flash","supportedGenerationMethods":["generateContent"]},
+                {"name":"models/gemini-2.5-pro","supportedGenerationMethods":["generateContent","countTokens"]},
+                {"name":"models/gemini-3-pro-preview","supportedGenerationMethods":["generateContent"]},
+                {"name":"models/text-embedding-004","supportedGenerationMethods":["embedContent"]}]})");
+            check (gemModels.ok && gemModels.models.size() == 3 && ai::pickModel (ai::Provider::gemini, gemModels.models) == "gemini-2.5-pro",
+                   "model lists are read; for Gemini a released Pro model is picked", gemModels.models.joinIntoString (", ") + " -> " + ai::pickModel (ai::Provider::gemini, gemModels.models));
+            const auto oaModels = ai::parseModels (ai::Provider::chatgpt, 200, R"({"data":[{"id":"gpt-5-mini"},{"id":"gpt-5"},{"id":"gpt-5.1"},{"id":"gpt-5.1-2025-11-13"},{"id":"gpt-realtime"},{"id":"dall-e-3"}]})");
+            check (ai::pickModel (ai::Provider::chatgpt, oaModels.models) == "gpt-5.1", "  for ChatGPT the newest full model",
+                   oaModels.models.joinIntoString (", ") + " -> " + ai::pickModel (ai::Provider::chatgpt, oaModels.models));
+            check (ai::pickModel (ai::Provider::claude, { "claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5" }) == "claude-opus-5-5",
+                   "  for Claude the default model when the account has it");
+        }
+
+        // ---- the assistant's own app (Claude Code, Gemini CLI, Codex CLI)
+        {
+            ai::CliRequest r;
+            r.provider = ai::Provider::claude;
+            r.exe = juce::File ("/usr/local/bin/claude");
+            r.folder = tmp;
+            r.prompt = "Read the file \"x\".";
+            const auto args = ai::cliArguments (r);
+            check (args.contains ("-p") && args.contains (r.prompt) && args.contains ("--add-dir") && args.contains (tmp.getFullPathName())
+                       && args.contains ("--allowedTools") && args.contains ("Read"),
+                   "Claude Code runs with the prompt, may read only the report folder", args.joinIntoString (" | ").substring (0, 300));
+           #if ! JUCE_WINDOWS
+            check (args[0] == "/bin/sh" && args[2].contains ("/opt/homebrew/bin") && args[3] == r.exe.getFullPathName(),
+                   "  started through sh with the usual places on the PATH (a DAW's PATH often has no node)");
+           #endif
+            r.provider = ai::Provider::chatgpt;
+            r.image = tmp.getChildFile ("pic.png");
+            r.image.replaceWithText ("x");
+            r.lastMessage = tmp.getChildFile ("last.txt");
+            const auto codex = ai::cliArguments (r);
+            check (codex.contains ("exec") && codex.contains ("read-only") && codex.indexOf ("--image") < codex.indexOf ("--output-last-message")
+                       && codex[codex.size() - 1] == r.prompt,
+                   "  Codex runs read-only, with the picture, and its last message to a file", codex.joinIntoString (" | ").substring (0, 300));
+
+           #if ! JUCE_WINDOWS
+            // a stand-in app: prints an answer, like the real ones do
+            auto fake = tmp.getChildFile ("claude");
+            fake.replaceWithText (juce::String ("#!/bin/sh\nif [ \"$1\" = \"-p\" ]; then echo \"Answer to: $2\"; echo '```json'; echo '{\"suggestions\":[{\"title\":\"T\",\"step\":\"S\"}]}'; echo '```'; exit 0; fi\nexit 3\n"), false, false, "\n");
+            fake.setExecutePermission (true);
+            ai::Worker w;
+            w.deliverOnWorkerThreadForTests();
+            juce::WaitableEvent got;
+            ai::Reply reply;
+            ai::CliRequest cr;
+            cr.provider = ai::Provider::claude;
+            cr.exe = fake;
+            cr.folder = tmp;
+            cr.prompt = "Read the file \"my prompt.md\" and answer.";
+            w.runCli (cr, [&] (const ai::Reply& rr) { reply = rr; got.signal(); });
+            const bool came = got.wait (10000);
+            check (came && reply.ok && reply.text.contains ("Answer to: Read the file \"my prompt.md\"") && ai::parseSuggestions (reply.text).size() == 1,
+                   "an installed app is run and its answer read (the prompt arrives whole, quotes and spaces included)", reply.text.substring (0, 80) + reply.error);
+            while (w.busy()) juce::Thread::sleep (5);
+
+            fake.replaceWithText ("#!/bin/sh\necho 'Please log in'\nexit 1\n", false, false, "\n");
+            fake.setExecutePermission (true);
+            got.reset();
+            const bool started = w.runCli (cr, [&] (const ai::Reply& rr) { reply = rr; got.signal(); });
+            const bool failedAnswer = started && got.wait (10000);
+            check (failedAnswer && ! reply.ok && reply.error.contains ("exit code 1") && reply.error.contains ("Please log in"),
+                   "  an app that fails: its own words are shown", reply.error.replace ("\n", " / "));
+            while (w.busy()) juce::Thread::sleep (5);
+
+            fake.replaceWithText ("#!/bin/sh\nsleep 30\necho late\n", false, false, "\n");
+            fake.setExecutePermission (true);
+            got.reset();
+            bool called = false;
+            w.runCli (cr, [&] (const ai::Reply&) { called = true; got.signal(); });
+            juce::Thread::sleep (300);
+            const auto t0 = juce::Time::getMillisecondCounter();
+            w.cancel();
+            while (w.busy() && juce::Time::getMillisecondCounter() - t0 < 5000) juce::Thread::sleep (5);
+            check (! w.busy() && ! called && juce::Time::getMillisecondCounter() - t0 < 3000, "  Cancel stops the app at once, and no answer comes",
+                   juce::String ((int) (juce::Time::getMillisecondCounter() - t0)) + " ms");
+
+            cr.exe = tmp.getChildFile ("nothing-here");
+            got.reset();
+            w.runCli (cr, [&] (const ai::Reply& rr) { reply = rr; got.signal(); });
+            check (got.wait (5000) && ! reply.ok && reply.error.contains ("not found"), "  an app that is not installed: says so");
+            while (w.busy()) juce::Thread::sleep (5);
+           #endif
+        }
+
+        // ---- in the plugin: Try, Try on master, Keep and Undo
+        {
+            struct Session
+            {
+                struct Host : juce::AudioPlayHead
+                {
+                    int64_t pos = 0;
+                    juce::Optional<PositionInfo> getPosition() const override
+                    {
+                        PositionInfo info;
+                        info.setIsPlaying (true);
+                        info.setTimeInSamples (pos);
+                        return info;
+                    }
+                } host;
+                WwmaAudioProcessor p;
+                std::unique_ptr<juce::AudioProcessorEditor> ed;
+                WwmaAudioProcessorEditor* editor = nullptr;
+                Session()
+                {
+                    p.setPlayConfigDetails (2, 2, 48000.0, 512);
+                    p.prepareToPlay (48000.0, 512);
+                    p.setPlayHead (&host);
+                    p.setProfileIndex (0);
+                    p.setWindow (Window::song);
+                    p.setStage (Stage::mastering);
+                    ed.reset (p.createEditor());
+                    editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+                }
+                ~Session() { p.setPlayHead (nullptr); }
+                void pass (double at, synth::SongParams sp)
+                {
+                    host.pos = (int64_t) (at * 48000.0);
+                    sp.seconds = 12.0;
+                    const auto x = synth::renderSong (sp);
+                    juce::AudioBuffer<float> buf (2, 512);
+                    juce::MidiBuffer midi;
+                    size_t since = 0;
+                    editor->refresh (true);
+                    for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                    {
+                        buf.copyFrom (0, 0, x.l.data() + i, 512);
+                        buf.copyFrom (1, 0, x.r.data() + i, 512);
+                        p.processBlock (buf, midi);
+                        host.pos += 512;
+                        if ((since += 512) >= 24000)
+                        {
+                            since = 0;
+                            p.before.service (host.pos / 48000.0);
+                            editor->refresh (true);
+                        }
+                    }
+                    editor->refresh (true);
+                }
+            };
+
+            synth::SongParams muddy, clean;
+            muddy.mudDb = 8.0;
+            Session s;
+            s.pass (30.0, muddy);
+            s.editor->showAiAnswer (answer);
+            check (s.editor->getAiSuggestions().size() == 3, "an answer in the plugin gives its suggestions as cards");
+            const bool hasMud = std::any_of (s.editor->getAssessment().findings.begin(), s.editor->getAssessment().findings.end(),
+                                             [] (const Finding& f) { return f.id == "range2+"; });
+            check (s.editor->tryAiSuggestion (0) && s.editor->getTrial().active && s.editor->getTrial().title == "Cut the mud"
+                       && (s.editor->getTrial().findingId == "range2+") == hasMud && s.p.before.hasBefore(),
+                   "  Try: a trial with the AI's step, tied to WWMA's own finding, with BEFORE frozen", juce::String (s.editor->getTrial().findingId));
+            check (s.editor->tryAiSuggestion (1) && s.editor->getTrial().findingId.empty(), "  a suggestion without a finding of its own: judged on the whole pass");
+            s.pass (30.0, clean);
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped && s.editor->getTrialResult().askEar,
+                   "  after the change the meter has its say, then the ears", s.editor->getTrialResult().headline);
+
+            auto shot = [&] (const char* name)
+            {
+                if (shots == juce::File())
+                    return;
+                shots.createDirectory();
+                for (int k = 0; k < 40; ++k)
+                    s.editor->refresh (true);
+                s.editor->settleDisplay();
+                s.editor->setSize (WwmaAudioProcessorEditor::baseWidth, WwmaAudioProcessorEditor::baseHeight);
+                const auto img = s.editor->createComponentSnapshot (s.editor->getLocalBounds(), true, 1.0f);
+                juce::FileOutputStream out (shots.getChildFile (name));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (img, out);
+                std::cout << "  wrote " << name << std::endl;
+            };
+            s.editor->setAiOpen (true);
+            shot ("ai-answer.png");
+            const auto before = s.p.getChainSettings();
+            check (s.editor->masterChangesAllowed() && s.editor->tryAiSuggestionOnMaster (1), "Try on master is offered while mastering");
+            shot ("ai-master-pending.png");
+            const auto after = s.p.getChainSettings();
+            check (after.eqOn && near (after.gain[0], 3.0, 0.05) && near (after.freq[0], 80.0, 1.0) && after.limiterOn && after.ceiling <= -0.29f
+                       && s.editor->isChainChangePending() && s.editor->getTrial().undoText.isNotEmpty(),
+                   "  it sets WWMA's own EQ and limiter (kept small and safe), and waits for Keep or Undo",
+                   juce::String (after.gain[0], 2) + " dB @ " + juce::String (after.freq[0], 0) + " Hz, ceiling " + juce::String (after.ceiling, 2));
+            check (s.editor->isChainOpen() && ! s.editor->isAiOpen(), "  and shows the knobs that moved");
+            s.editor->undoChainChange();
+            check (s.p.getChainSettings().sameAs (before) && ! s.editor->isChainChangePending() && ! s.editor->getTrial().active,
+                   "  Undo puts every knob back exactly as it was");
+            if (shots != juce::File())
+            {
+                s.editor->showAiSettings (true);
+                shot ("ai-settings.png");
+                s.editor->showAiSettings (false);
+                s.editor->setAiOpen (false);
+            }
+
+            s.editor->refresh (true);
+            if (s.editor->getChainAdvice().ready && s.editor->useSuggestedChain (true, true))
+            {
+                check (s.editor->isChainChangePending() && ! s.p.getChainSettings().sameAs (before), "Use suggested: WWMA's own values with one click");
+                s.editor->keepChainChange();
+                check (! s.editor->isChainChangePending() && ! s.p.getChainSettings().sameAs (before), "  Keep keeps them");
+                s.editor->setChainOpen (false);
+            }
+            else
+                check (false, "Use suggested: WWMA's own values with one click", "no chain advice");
+
+            Session mixing;
+            mixing.p.setStage (Stage::mixing);
+            mixing.pass (30.0, muddy);
+            mixing.editor->showAiAnswer (answer);
+            const auto untouched = mixing.p.getChainSettings();
+            check (! mixing.editor->masterChangesAllowed() && ! mixing.editor->tryAiSuggestionOnMaster (1) && mixing.p.getChainSettings().sameAs (untouched),
+                   "while mixing, AI suggestions never change the master");
+        }
+        ai::setSettingsFileForTests ({});
+    }
 }
 
 int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    // never touch the user's own WWMA folder from the tests
+    const auto storeRoot = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-selftest-" + juce::Uuid().toDashedString());
+    store::setRootForTests (storeRoot);
+    struct Cleanup { juce::File f; ~Cleanup() { f.deleteRecursively(); } } cleanup { storeRoot };
+    if (argc > 1 && juce::String (argv[1]) == "store")
+    {
+        storeTests();
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "before")
+    {
+        beforeTests();
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "ai")
+    {
+        aiTests (argc > 2 ? juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) : juce::File());
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
     if (argc > 1 && juce::String (argv[1]) == "passes")
     {
         passTests();
@@ -1563,6 +2345,10 @@ int main (int argc, char* argv[])
     // ------------------------------------------------------------------ track mode
     trackTests (false);
     passTests();
+    aiTests();
+    beforeTests();
+    storeTests();
+    listeningTextTests();
 
     // ------------------------------------------------------------------ snapshots, lessons, report
     std::cout << "Snapshots, lessons and the mix report" << std::endl;
@@ -1881,7 +2667,7 @@ int main (int argc, char* argv[])
         dir.createDirectory();
         std::cout << "Screenshots -> " << dir.getFullPathName() << std::endl;
 
-        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson, 4 reference loop, 5 EQ + limiter, 6 earlier version
+        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson, 4 reference loop, 5 EQ + limiter, 6 earlier version, 7 before + versions, 8 continue a session
         const auto refA = writeWav (refAudio, 44100.0, "Favourite club track.wav");
         const auto refB = writeWav (profileMix (house, 48000.0, [] (double f) { return f < 90.0 ? 2.0 : 0.0; }, -14.0, monoBass, -10.0, 33),
                                     48000.0, "Night drive loop.wav");
@@ -1904,6 +2690,10 @@ int main (int argc, char* argv[])
             { "wwma-eq-limiter-fi.png", {}, Lang::finnish, false, false, false, 5 },
             { "wwma-earlier-version-en.png", {}, Lang::english, false, true, false, 6 },
             { "wwma-earlier-version-fi.png", {}, Lang::finnish, false, true, false, 6 },
+            { "wwma-versions-en.png", balanced, Lang::english, true, false, false, 7 },
+            { "wwma-versions-fi.png", balanced, Lang::finnish, true, false, false, 7 },
+            { "wwma-continue-en.png", balanced, Lang::english, false, false, false, 8 },
+            { "wwma-continue-fi.png", balanced, Lang::finnish, false, false, false, 8 },
         };
         const auto earlierBounce = writeWav (messy, sr, "My track v3.wav");
         {
@@ -1939,9 +2729,36 @@ int main (int argc, char* argv[])
 
         for (const auto& shot : shots)
         {
+            if (shot.view == 8)
+            {
+                // a session left on disk by a WWMA that was taken out of the project
+                WwmaAudioProcessor old;
+                old.prepareToPlay (sr, 512);
+                old.setLang (shot.lang);
+                old.refs.loadNow (0, refA);
+                old.setSessionName (shot.lang == Lang::finnish ? juce::String (juce::CharPointer_UTF8 ("Yöajo v4 (master)")) : juce::String ("Night drive v4 (master)"));
+                SavedSnapshot snap;
+                snap.time = juce::Time::getCurrentTime();
+                snap.score = 66.0f;
+                old.addSnapshot (snap);
+                old.saveSessionIfChanged();
+            }
+            struct Host : juce::AudioPlayHead
+            {
+                int64_t pos = 0;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying (true);
+                    info.setTimeInSamples (pos);
+                    return info;
+                }
+            } host;
             WwmaAudioProcessor p;
             p.setPlayConfigDetails (2, 2, sr, 512);
             p.prepareToPlay (sr, 512);
+            if (shot.view == 7)
+                p.setPlayHead (&host);
             p.setLang (shot.lang);
             p.setWindow (Window::song);
             if (shot.withRef)
@@ -1995,6 +2812,9 @@ int main (int argc, char* argv[])
                     buf.copyFrom (0, 0, x.l.data() + i, 512);
                     buf.copyFrom (1, 0, x.r.data() + i, 512);
                     p.processBlock (buf, midi);
+                    host.pos += 512;
+                    if (host.pos % (512 * 20) == 0)
+                        p.before.service (host.pos / sr);
                     sinceHistory += 512;
                     if (sinceHistory >= halfSecond)
                     {
@@ -2016,9 +2836,30 @@ int main (int argc, char* argv[])
                 if (shot.view != 1)
                     editor->confirmSnapshotSaved();
                 p.analyzer.requestReset();
+                if (shot.view == 7)
+                    host.pos = 0;   // the same part again, after the change
                 feed (balanced);
                 if (shot.view == 2)
                     editor->setCompareOpen (true);
+                if (shot.view == 7)
+                {
+                    for (int k = 0; k < 200 && p.diskJobs.load() > 0; ++k)
+                        juce::Thread::sleep (20);   // the version is written in the background
+                    editor->setListeningBefore (true);
+                    host.pos = (int64_t) (3.0 * sr);
+                    juce::AudioBuffer<float> buf (2, 512);
+                    for (int k = 0; k < 40; ++k, host.pos += 512)
+                    {
+                        buf.clear();
+                        p.processBlock (buf, midi);
+                    }
+                    editor->setVersionsOpen (true);
+                }
+            }
+            else if (shot.view == 8)
+            {
+                editor->offerSessions();
+                check (editor->isSessionOfferShown(), "a WWMA just added offers the session left behind by the one taken out");
             }
             else
                 feed (shot.audio);
@@ -2033,6 +2874,7 @@ int main (int argc, char* argv[])
             out.truncate();
             juce::PNGImageFormat().writeImageToStream (img, out);
             std::cout << "  wrote " << shot.name << std::endl;
+            p.setPlayHead (nullptr);
         }
     }
 

@@ -88,6 +88,27 @@ ChainPanel::ChainPanel (const ViewState& s, juce::AudioProcessorValueTreeState& 
 
     closeButton.onClick = [this] { if (onClose) onClose(); };
     addAndMakeVisible (closeButton);
+
+    useButton.getProperties().set ("onColour", (juce::int64) colours::suggest.getARGB());
+    useButton.onClick = [this]
+    {
+        const auto lang = state.lang;
+        juce::PopupMenu menu;
+        menu.addItem (1, t (lang, "EQ and limiter", "EQ ja limitteri"));
+        menu.addItem (2, t (lang, "EQ only", "Vain EQ"));
+        menu.addItem (3, t (lang, "Limiter only", "Vain limitteri"));
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&useButton), [this] (int r)
+        {
+            if (r > 0 && onUseSuggested)
+                onUseSuggested (r != 3, r != 2);
+        });
+    };
+    keepButton.getProperties().set ("primary", true);
+    keepButton.onClick = [this] { if (onKeepChange) onKeepChange(); };
+    undoButton.onClick = [this] { if (onUndoChange) onUndoChange(); };
+    addChildComponent (useButton);
+    addChildComponent (keepButton);
+    addChildComponent (undoButton);
     updateTexts();
 }
 
@@ -117,6 +138,13 @@ void ChainPanel::updateTexts()
                                          "Näytä WWMA:n ehdottamat arvot nuppien vieressä. Ne ovat vain ehdotuksia: sinä käännät nupit, korva ratkaisee."));
     closeButton.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xc3\x97")));
     closeButton.setTooltip (t (lang, "Close (the EQ and limiter keep their settings)", "Sulje (EQ ja limitteri pitävät asetuksensa)"));
+    useButton.setButtonText (upper (t (lang, "Use suggested", "Käytä ehdotusta")));
+    useButton.setTooltip (t (lang, "Sets the knobs to WWMA's suggested values, with one click. Then compare with BEFORE (or Hear without), and keep or undo: Undo puts every knob back.",
+                                   "Asettaa nupit WWMA:n ehdottamiin arvoihin yhdellä klikkauksella. Vertaa sitten ENNEN-ääneen (tai Kuuntele ilman) ja pidä tai peru: Peru palauttaa jokaisen nupin."));
+    keepButton.setButtonText (upper (t (lang, "Keep", "Pidä")));
+    keepButton.setTooltip (t (lang, "Keep the change.", "Pidä muutos."));
+    undoButton.setButtonText (upper (t (lang, "Undo", "Peru")));
+    undoButton.setTooltip (t (lang, "Puts the knobs back exactly as they were before the change.", "Palauttaa nupit täsmälleen sellaisiksi kuin ne olivat ennen muutosta."));
     refresh();
 }
 
@@ -139,6 +167,17 @@ void ChainPanel::refresh()
     showSuggestions.setToggleState (state.showSuggestions, juce::dontSendNotification);
     withoutButton.setToggleState (state.listeningWithout, juce::dontSendNotification);
     withoutButton.setEnabled (state.chainSettings.anyOn());
+    const bool pending = state.chainChangePending;
+    keepButton.setVisible (pending);
+    undoButton.setVisible (pending);
+    useButton.setVisible (! pending && state.showSuggestions);
+    useButton.setEnabled (state.chainAdvice.ready);
+    if (pending)
+    {
+        auto tip = t (state.lang, "Changed: ", "Muutettu: ") + state.chainChangeLines.joinIntoString ("; ");
+        keepButton.setTooltip (tip);
+        undoButton.setTooltip (tip);
+    }
 
     const auto lang = state.lang;
     for (auto* k : all)
@@ -184,9 +223,13 @@ void ChainPanel::resized()
     auto head = r.removeFromTop (16).withSizeKeepingCentre (r.getWidth(), 22);
     closeButton.setBounds (head.removeFromRight (24));
     head.removeFromRight (8);
-    withoutButton.setBounds (head.removeFromRight (124));
+    withoutButton.setBounds (head.removeFromRight (118));
     head.removeFromRight (8);
-    showSuggestions.setBounds (head.removeFromRight (112));
+    showSuggestions.setBounds (head.removeFromRight (104));
+    head.removeFromRight (6);
+    useButton.setBounds (head.removeFromRight (124));
+    undoButton.setBounds (useButton.getBounds().removeFromRight (60));
+    keepButton.setBounds (useButton.getBounds().removeFromLeft (60));
 
     auto knobAt = [] (Knob& k, juce::Rectangle<int> row, int size)
     {

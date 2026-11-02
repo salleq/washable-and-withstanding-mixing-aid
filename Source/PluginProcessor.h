@@ -7,6 +7,8 @@
 #include "advice/Profiles.h"
 #include "advice/TrackAdvice.h"
 #include "reference/ReferenceTracks.h"
+#include "reference/BeforeTake.h"
+#include "reference/VersionStore.h"
 #include "dsp/MasterChain.h"
 #include <atomic>
 #include <optional>
@@ -20,7 +22,7 @@ class WwmaAudioProcessor : public juce::AudioProcessor
 {
 public:
     WwmaAudioProcessor();
-    ~WwmaAudioProcessor() override { wwma::TrackBus::shared().leave (busId); }
+    ~WwmaAudioProcessor() override;
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -45,6 +47,7 @@ public:
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
+    void updateTrackProperties (const TrackProperties& properties) override;
 
     // ---- used by the editor (message thread)
     juce::AudioProcessorValueTreeState apvts;
@@ -139,8 +142,19 @@ public:
         chain produces, so you judge the sound and not the volume. Never on unless the user turns it on. */
     std::atomic<bool> listenWithoutChain { false };
     std::atomic<float> withoutChainGainDb { 0.0f };
+    /** A change WWMA made to the EQ / limiter on the user's click (an AI suggestion or its own
+        suggested values), waiting for Keep or Undo: the knobs as they were, and what changed.
+        Kept while the window is closed, not saved with the project. */
+    std::optional<wwma::ChainSettings> chainUndo;
+    juce::StringArray chainUndoLines;
     bool getShowSuggestions() const;
     void setShowSuggestions (bool on);
+    /** The 0-100 number on the meters. Off by default: the meter is a hint, the ears decide. */
+    bool getShowScore() const;
+    void setShowScore (bool on);
+    /** Findings the user's ears ruled against in A/B (ids). Kept with the project. */
+    std::set<std::string> getEarOverruled() const;
+    void setEarOverruled (const std::set<std::string>& ids);
     bool getChainOpen() const;
     void setChainOpen (bool on);
 
@@ -152,6 +166,44 @@ public:
     std::atomic<float> referenceGainDb { 0.0f };
     void loadReference (int slot, const juce::File& file);
     void removeReference (int slot);
+
+    // ---- "before": WWMA's own output recorded by song position, for A/B against an earlier state
+    /** The recording. Fills while the DAW plays or exports; a snapshot freezes it as "before". */
+    wwma::BeforeTake before;
+    /** True plays the before take instead of the mix, following the DAW's play head. Never on unless the user turns it on. */
+    std::atomic<bool> listenToBefore { false };
+    /** Song position of the last block, seconds (-1: unknown). */
+    std::atomic<double> songSeconds { -1.0 };
+
+    // ---- WWMA's own folder: the session survives WWMA being taken out of the project and put back
+    /** This session's id: the folder under WWMA/Projects. Kept with the project. */
+    juce::String getSessionId() const;
+    /** True for a WWMA just added to a project: the host restored nothing, nothing was changed yet,
+        and the user hasn't chosen to continue or start fresh. The editor then offers earlier sessions. */
+    bool shouldOfferRestore() const;
+    /** Earlier sessions to offer (with saved state), the best match first: the same role, then newest. */
+    std::vector<wwma::store::SessionInfo> restoreCandidates() const;
+    /** Continues a saved session: its state, its references, its before versions. */
+    bool restoreSession (const juce::File& sessionFolder);
+    /** The user chose to start fresh: no more offers for this instance. */
+    void declineRestore() { restoreAnswered = true; }
+    /** Writes the session to disk now if it changed (also done every 2 s by a timer). */
+    void saveSessionIfChanged();
+    /** Session name shown in the list (the user can rename it). */
+    juce::String getSessionName() const;
+    void setSessionName (const juce::String& name);
+
+    /** Saves the current before take as a version on disk, in the background. */
+    void saveBeforeVersion (float score);
+    /** Loads a saved version as the before take, in the background. */
+    void loadBeforeVersion (const wwma::store::VersionInfo& v);
+    /** Background disk work: running jobs, and a short note about the last one (message thread). */
+    std::atomic<int> diskJobs { 0 };
+    juce::String getDiskNote() const;
+    /** How many unnamed versions a session keeps (older ones go to the trash). */
+    static constexpr int keepVersions = 10;
+    /** Bumps when versions on disk change, so the panel knows to reread them. */
+    std::atomic<int> versionsGeneration { 0 };
     /** Message thread: keeps the saved state in step with the slots, and finishes restoring them. */
     void updateReferenceState();
 
@@ -172,6 +224,22 @@ private:
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void restoreReference();
     void restoreReferenceTracks();
+    void applyState (const juce::XmlElement& xml);
+    void ensureSessionId();
+    void loadLatestVersionIfEmpty();
+    juce::String usedStateXml() const;   // the state without preferences, to tell "untouched" from "used"
+
+    bool stateRestored = false;    // the host (or the user, from disk) restored a saved state
+    bool restoreAnswered = false;  // the user chose to continue a session or to start fresh
+    juce::String defaultStateXml;  // the state of a WWMA just added, to tell "untouched" from "used"
+    juce::String lastSavedXml;     // what was written to disk last
+    juce::String trackName;        // from the host, when it tells
+    mutable juce::CriticalSection noteLock;
+    juce::String diskNote;
+    void setDiskNote (const juce::String& n);
+    std::atomic<bool> closing { false };
+    std::shared_ptr<std::atomic<bool>> alive = std::make_shared<std::atomic<bool>> (true);
+    juce::ThreadPool diskPool { juce::ThreadPoolOptions{}.withNumberOfThreads (1).withThreadName ("WWMA disk") };
 
     std::optional<wwma::Profile> reference;
     std::atomic<bool> autoReset { true };
@@ -196,6 +264,21 @@ private:
 
     juce::AudioBuffer<float> refScratch;
     float abMix = 0.0f, abStep = 0.0f;
+    float beforeMix = 0.0f;
+
+    /** Keeps the before take's spare memory ready and its level match current, editor open or not. */
+    struct BeforeService : public juce::Timer
+    {
+        explicit BeforeService (WwmaAudioProcessor& p) : proc (p) {}
+        void timerCallback() override
+        {
+            proc.before.service (proc.songSeconds.load());
+            if (++ticks % 20 == 0)
+                proc.saveSessionIfChanged();
+        }
+        WwmaAudioProcessor& proc;
+        int ticks = 0;
+    } beforeService { *this };
     int wantedActiveRef = -1, savedRefGeneration = -1;
     std::array<std::pair<double, double>, wwma::ReferenceTracks::numSlots> wantedLoops {}; // loops saved with the project, set once the file is loaded
     std::array<bool, wwma::ReferenceTracks::numSlots> wantedEarlier {};                     // "my earlier version" marks, the same way

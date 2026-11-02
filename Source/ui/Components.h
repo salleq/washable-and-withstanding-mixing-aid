@@ -93,6 +93,20 @@ struct ViewState
     bool refPlaying = false;         // WWMA's own play button runs the reference (not the DAW)
     bool dragOver = false;
 
+    // "before": WWMA's own recording of the mix at the last snapshot, played by song position
+    bool listeningBefore = false;    // the before take plays instead of the mix
+    int beforeSeconds = 0;           // how much of the song it covers
+    int liveSeconds = 0;             // recorded since the last snapshot
+    bool beforeMissing = false;      // the play head is at a spot the before take does not have
+    bool beforeFull = false;         // the memory cap was reached
+    float beforeMatchDb = 0.0f;      // level matching applied to it
+    double songSeconds = -1.0;       // the DAW's play head
+    std::vector<uint8_t> beforeCoverage;   // per second: 0 none, 1 older, 2 newest snapshot
+    bool versionsOpen = false;       // the versions panel is shown over the findings
+    bool showScore = false;          // the 0-100 number is shown (off by default: the ears decide)
+    DriftCheck drift;                // many changes since the snapshot, judged only by the meter
+    bool listenedSinceSnapshot = false; // BEFORE was played since the newest snapshot
+
     // mastering EQ and limiter
     bool chainOpen = false;              // the EQ + limiter panel is shown over the findings
     bool showSuggestions = true;         // suggested values next to the knobs (can be hidden)
@@ -101,6 +115,10 @@ struct ViewState
     Snapshot inputSnap;                  // the input, before the EQ and limiter
     float gainReduction = 0.0f;          // dB, for the meter (falls back slowly)
     bool listeningWithout = false;       // level-matched bypass is on
+    /** A change WWMA made to the EQ / limiter on the user's click (an AI suggestion, or its own
+        suggested values) that waits for "Keep" or "Undo". */
+    bool chainChangePending = false;
+    juce::StringArray chainChangeLines;  // what changed, one line per knob
 
     /** The active, analysed reference, or nullptr. */
     const RefView* activeRefView() const
@@ -311,10 +329,15 @@ private:
 class ScoreBox : public juce::Component
 {
 public:
-    explicit ScoreBox (const ViewState& s) : state (s) {}
+    explicit ScoreBox (const ViewState& s);
     void paint (juce::Graphics&) override;
+    void resized() override;
+    void updateTexts();
+    /** The user turned the number on or off. */
+    std::function<void (bool)> onShowScore;
 private:
     const ViewState& state;
+    juce::TextButton numberButton;
 };
 
 /** Phone, car, headphones and club: how well the mix should hold up on each. */
@@ -336,13 +359,16 @@ public:
     void resized() override;
     void updateTexts();
 
-    std::function<void()> onSave, onClear, onCompare, onConfirm, onTry;
+    std::function<void()> onSave, onClear, onCompare, onConfirm, onTry, onVersions;
+    /** The ears' answer after a trial: +1 the mix now, -1 BEFORE, 2 no difference. */
+    std::function<void (int)> onEar;
     /** Shows the confirm button while a snapshot waits for its DAW save, and enables Before/after. */
     void syncButtons();
 
 private:
     const ViewState& state;
-    juce::TextButton saveButton, compareButton, clearButton, confirmButton, tryButton;
+    juce::TextButton saveButton, compareButton, clearButton, confirmButton, tryButton, versionsButton;
+    juce::TextButton earNowButton, earBeforeButton, earSameButton;
     juce::Rectangle<int> plotArea() const;
     static constexpr int bannerHeight = 66;
     void paintBanner (juce::Graphics& g, juce::Rectangle<float> r);

@@ -55,6 +55,7 @@ juce_add_plugin(WWMA
     NEEDS_MIDI_OUTPUT FALSE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+    NEEDS_CURL TRUE   # Linux: HTTPS for the AI assistants' APIs (macOS and Windows use the system's own)
     COPY_PLUGIN_AFTER_BUILD FALSE)
 
 # CLAP (Bitwig, Reaper, FL Studio...) through clap-juce-extensions
@@ -80,6 +81,7 @@ set(WWMA_CORE_SOURCES
     Source/analysis/Analyzer.cpp
     Source/advice/Profiles.cpp
     Source/advice/Advisor.cpp
+    Source/advice/Listening.cpp
     Source/advice/StyleGuess.cpp
     Source/advice/MixReport.cpp
     Source/advice/ListeningReport.cpp
@@ -88,15 +90,23 @@ set(WWMA_CORE_SOURCES
     Source/advice/TrackAdvice.cpp
     Source/advice/Passes.cpp
     Source/dsp/MasterChain.cpp
-    Source/reference/ReferenceTracks.cpp)
+    Source/reference/ReferenceTracks.cpp
+    Source/reference/BeforeTake.cpp
+    Source/reference/VersionStore.cpp)
 
 set(WWMA_UI_SOURCES
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp
+    Source/PluginEditorAi.cpp
     Source/ui/Theme.cpp
     Source/ui/Components.cpp
     Source/ui/ChainPanel.cpp
-    Source/ui/TimelineImage.cpp)
+    Source/ui/TimelineImage.cpp
+    Source/ui/VersionsPanel.cpp
+    Source/ui/AiPanel.cpp
+    Source/ai/AiSettings.cpp
+    Source/ai/AiPrompt.cpp
+    Source/ai/AiClient.cpp)
 
 # Fonts (SIL Open Font License), compiled into the plugin
 juce_add_binary_data(WWMAAssets SOURCES
@@ -113,7 +123,6 @@ target_include_directories(WWMA PRIVATE Source)
 
 target_compile_definitions(WWMA PUBLIC
     JUCE_WEB_BROWSER=0
-    JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_USE_MP3AUDIOFORMAT=1)
@@ -132,11 +141,11 @@ target_link_libraries(WWMA
 # Developer tool: measurement accuracy tests, advice scenarios and UI screenshots
 option(WWMA_BUILD_TOOLS "Build the self test / screenshot tool" OFF)
 if(WWMA_BUILD_TOOLS)
-    juce_add_console_app(wwma_selftest PRODUCT_NAME "wwma_selftest")
+    juce_add_console_app(wwma_selftest PRODUCT_NAME "wwma_selftest" NEEDS_CURL TRUE)
     target_sources(wwma_selftest PRIVATE tools/SelfTest.cpp ${WWMA_CORE_SOURCES} ${WWMA_UI_SOURCES})
     target_include_directories(wwma_selftest PRIVATE Source tools)
     target_compile_definitions(wwma_selftest PRIVATE
-        JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JucePlugin_Name="WWMA" JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_USE_MP3AUDIOFORMAT=1)
+        JUCE_WEB_BROWSER=0 JucePlugin_Name="WWMA" JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_USE_MP3AUDIOFORMAT=1)
     target_link_libraries(wwma_selftest PRIVATE
         WWMAAssets juce::juce_audio_utils juce::juce_dsp juce::juce_opengl
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)

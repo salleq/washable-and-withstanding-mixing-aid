@@ -401,33 +401,9 @@ std::vector<juce::String> sectionNotes (const std::vector<SongSection>& sections
 }
 
 // ------------------------------------------------------------------------------------------
-juce::String listeningMarkdown (const ListeningInput& in, Lang lang)
+juce::String listeningQuestion (const ListeningInput& in, Lang lang)
 {
     const auto& rep = in.report;
-    const auto& a = rep.assessment;
-    const auto& t = in.timeline;
-    const auto sections = findSections (t);
-    const auto refSections = findSections (in.referenceTimeline);
-    juce::String md;
-
-    md << "# " << tr (lang, "WWMA listening data", "WWMA-kuunteludata") << nl() << nl();
-    md << tr (lang, "This file describes how your song behaves from start to end, in numbers. An AI assistant can't hear audio, "
-                    "but it can read these numbers and the spectrogram picture and help you find where in the song a problem is and what to try. "
-                    "Nothing was sent anywhere: this is a plain text file on your computer.",
-                    "Tämä tiedosto kertoo numeroina, miten kappaleesi käyttäytyy alusta loppuun. Tekoälyavustaja ei kuule ääntä, "
-                    "mutta se osaa lukea nämä luvut ja spektrogrammikuvan ja auttaa löytämään, missä kohtaa kappaletta ongelma on ja mitä kokeilla. "
-                    "Mitään ei lähetetty minnekään: tämä on tavallinen tekstitiedosto koneellasi.") << nl() << nl();
-    md << "**" << tr (lang, "How to use:", "Käyttö:") << "** "
-       << tr (lang, "start a chat with an AI assistant, attach this file", "aloita keskustelu tekoälyavustajan kanssa, liitä tämä tiedosto");
-    if (in.imageName.isNotEmpty())
-        md << tr (lang, " and the picture `", " ja kuva `") << in.imageName << "`";
-    if (in.referenceImageName.isNotEmpty())
-        md << tr (lang, " (and `", " (ja `") << in.referenceImageName << "`)";
-    md << tr (lang, ", and paste the question below. Then ask more: \"what about the bass in the second drop?\"",
-                    ", ja liitä alla oleva kysymys. Kysy sitten lisää: \"entä basso toisessa dropissa?\"") << nl() << nl();
-
-    // ---- the question
-    md << "## " << tr (lang, "Question to paste", "Liitettävä kysymys") << nl() << nl();
     juce::String q;
     q << tr (lang, "I'm working on a ", "Työstän ") << (rep.presetName.isNotEmpty() ? rep.presetName : juce::String ("electronic"))
       << tr (lang, " track", " -kappaletta");
@@ -456,6 +432,38 @@ juce::String listeningMarkdown (const ListeningInput& in, Lang lang)
                    "Älä luota yksittäiseen lukuun, kerro kun olet epävarma, ja muista että korvani ratkaisevat.");
     if (lang == Lang::finnish)
         q << " Vastaa suomeksi.";
+    return q;
+}
+
+// ------------------------------------------------------------------------------------------
+juce::String listeningMarkdown (const ListeningInput& in, Lang lang)
+{
+    const auto& rep = in.report;
+    const auto& a = rep.assessment;
+    const auto& t = in.timeline;
+    const auto sections = findSections (t);
+    const auto refSections = findSections (in.referenceTimeline);
+    juce::String md;
+
+    md << "# " << tr (lang, "WWMA listening data", "WWMA-kuunteludata") << nl() << nl();
+    md << tr (lang, "This file describes how your song behaves from start to end, in numbers. An AI assistant can't hear audio, "
+                    "but it can read these numbers and the spectrogram picture and help you find where in the song a problem is and what to try. "
+                    "Nothing was sent anywhere: this is a plain text file on your computer.",
+                    "Tämä tiedosto kertoo numeroina, miten kappaleesi käyttäytyy alusta loppuun. Tekoälyavustaja ei kuule ääntä, "
+                    "mutta se osaa lukea nämä luvut ja spektrogrammikuvan ja auttaa löytämään, missä kohtaa kappaletta ongelma on ja mitä kokeilla. "
+                    "Mitään ei lähetetty minnekään: tämä on tavallinen tekstitiedosto koneellasi.") << nl() << nl();
+    md << "**" << tr (lang, "How to use:", "Käyttö:") << "** "
+       << tr (lang, "start a chat with an AI assistant, attach this file", "aloita keskustelu tekoälyavustajan kanssa, liitä tämä tiedosto");
+    if (in.imageName.isNotEmpty())
+        md << tr (lang, " and the picture `", " ja kuva `") << in.imageName << "`";
+    if (in.referenceImageName.isNotEmpty())
+        md << tr (lang, " (and `", " (ja `") << in.referenceImageName << "`)";
+    md << tr (lang, ", and paste the question below. Then ask more: \"what about the bass in the second drop?\"",
+                    ", ja liitä alla oleva kysymys. Kysy sitten lisää: \"entä basso toisessa dropissa?\"") << nl() << nl();
+
+    // ---- the question
+    md << "## " << tr (lang, "Question to paste", "Liitettävä kysymys") << nl() << nl();
+    const auto q = listeningQuestion (in, lang);
     md << "> " << q << nl() << nl();
 
     // ---- overview
@@ -499,7 +507,11 @@ juce::String listeningMarkdown (const ListeningInput& in, Lang lang)
         int count = 0;
         for (const auto& f : a.findings)
             if (f.id != "tip" && f.severity != Severity::good)
-                md << ++count << ". " << f.title << (f.value.isNotEmpty() ? " (" + f.value + ")" : juce::String()) << nl();
+                md << ++count << ". " << f.title << (f.value.isNotEmpty() ? " (" + f.value + ")" : juce::String())
+                   << (f.earOverruled ? tr (lang, " - the user compared BEFORE and MIX and preferred it without this fix: treat it as a deliberate choice",
+                                              " - käyttäjä vertasi ENNEN- ja MIKSI-versioita ja piti enemmän versiosta ilman tätä korjausta: pidä sitä tietoisena valintana")
+                                      : juce::String())
+                   << nl();
         if (count == 0)
             md << tr (lang, "- none", "- ei yhtään") << nl();
         md << nl();
