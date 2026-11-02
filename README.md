@@ -30,6 +30,7 @@ Put it last on your master bus (or on a single kick, bass or kick + bass track, 
 - **Learning mode.** Eight short, hands-on tasks, like "Duck the bass under the kick" or "Make it mono-safe". A bar fills up as you get closer, and WWMA tells you when you've made it.
 - **Mix report.** Save a Markdown report (with a JSON copy) of the score, the findings, every number and your snapshots. A later report in the same folder shows what got better or worse since the previous one. See the [example](docs/example-report.md).
 - **Listening data for an AI assistant.** The report also saves the song part by part (intro, build-up, drop, breakdown...) with loudness, tone and width for each part, a timeline, a spectrogram picture and a ready question. Attach them to a chat with an AI assistant and ask where the mix falls short. Nothing is sent anywhere by WWMA. See the [example](docs/example-ai-report.md).
+- **Report of a reference track alone.** Open a reference (click its box) and press Report: the same report and listening data, but only about that track, e.g. an older version of your song. Your current mix is not part of it, and it never counts as an earlier report of the mix.
 - **Reference tracks.** Drag up to two tracks (WAV, AIFF, FLAC, MP3, OGG; macOS and Windows also read M4A) onto the window. Each one is analysed once in the background. You then see:
   - its tonal curve as a dashed line
   - a live "mix vs reference" table

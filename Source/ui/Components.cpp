@@ -2216,9 +2216,10 @@ RefDetailBox::RefDetailBox (const ViewState& s) : state (s)
     loopButton.onClick = [this] { if (onPlayLoop) onPlayLoop(); };
     clearButton.onClick = [this] { if (onClearLoop) onClearLoop(); };
     earlierButton.onClick = [this] { if (onToggleEarlier) onToggleEarlier(); };
+    reportButton.onClick = [this] { if (onReport) onReport(); };
     earlierButton.setClickingTogglesState (false);
     earlierButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
-    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton, &earlierButton })
+    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton, &earlierButton, &reportButton })
         addAndMakeVisible (b);
     updateTexts();
 }
@@ -2240,6 +2241,10 @@ void RefDetailBox::updateTexts()
     const bool loop = v != nullptr && v->hasLoop();
     loopButton.setEnabled (loop);
     clearButton.setEnabled (loop);
+    reportButton.setButtonText (upper (t (lang, "Report", "Raportti")));
+    reportButton.setEnabled (v != nullptr);
+    reportButton.setTooltip (t (lang, "Save a report of this track alone (Markdown + JSON, and the song part by part for an AI assistant), e.g. an older version of your song. Your mix is not part of it.",
+                                      "Tallenna raportti pelkästä tästä raidasta (Markdown + JSON, ja kappale osa kerrallaan tekoälyavustajalle), esim. biisisi vanhemmasta versiosta. Miksisi ei ole mukana."));
     earlierButton.setButtonText (upper (t (lang, "My earlier version", "Oma aiempi versio")));
     earlierButton.setToggleState (v != nullptr && v->earlier, juce::dontSendNotification);
     earlierButton.setEnabled (v != nullptr);
@@ -2251,6 +2256,7 @@ void RefDetailBox::resized()
 {
     const auto r = content (*this);
     closeButton.setBounds (r.getRight() - 70, r.getY() - 2, 70, 22);
+    reportButton.setBounds (r.getRight() - 70 - 8 - 96, r.getY() - 2, 96, 22);
     auto row = juce::Rectangle<int> (r.getX(), r.getBottom() - 26, r.getWidth(), 26);
     playButton.setBounds (row.removeFromLeft (96));
     row.removeFromLeft (8);

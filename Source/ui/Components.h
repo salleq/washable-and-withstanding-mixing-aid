@@ -227,7 +227,7 @@ public:
     int getSlot() const noexcept { return slot; }
     juce::Rectangle<int> waveArea() const;
 
-    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop, onToggleEarlier;
+    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop, onToggleEarlier, onReport;
     std::function<void (double fraction)> onCue;
     std::function<void (double start, double end)> onLoop;
 
@@ -236,7 +236,7 @@ private:
     double fractionAt (float x) const;
     const ViewState& state;
     int slot = 0;
-    juce::TextButton closeButton, playButton, loopButton, clearButton, earlierButton;
+    juce::TextButton closeButton, playButton, loopButton, clearButton, earlierButton, reportButton;
     enum class Drag { none, pending, select, startEdge, endEdge } drag = Drag::none;
     double dragFrom = 0.0, selA = 0.0, selB = 0.0;
 };

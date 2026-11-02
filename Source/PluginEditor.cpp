@@ -138,6 +138,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     refBox.onToggleEarlier = [this] (int slot) { proc.refs.setEarlier (slot, ! proc.refs.isEarlier (slot)); readReferences(); reassess(); };
     refDetail.onToggleEarlier = [this] { refBox.onToggleEarlier (refDetail.getSlot()); };
     refDetail.onClose = [this] { closeReferenceDetail(); };
+    refDetail.onReport = [this] { saveReferenceReport (refDetail.getSlot()); };
     refDetail.onPlayPause = [this] { toggleReferencePlay (refDetail.getSlot()); };
     refDetail.onCue = [this] (double f)
     {
@@ -1118,8 +1119,12 @@ juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
     juce::File previous;
     for (const auto& f : folder.findChildFiles (juce::File::findFiles, false, "*.json"))
         if (f != jsonFile && (previous == juce::File() || f.getLastModificationTime() > previous.getLastModificationTime()))
-            if (juce::JSON::parse (f).getProperty ("format", {}).toString() == "wwma-report-1")
+        {
+            const auto json = juce::JSON::parse (f);
+            // reports of a reference track alone are not earlier reports of the mix
+            if (json.getProperty ("format", {}).toString() == "wwma-report-1" && ! json.hasProperty ("subject"))
                 previous = f;
+        }
 
     ReportInput in;
     in.time = juce::Time::getCurrentTime();
@@ -1150,15 +1155,49 @@ juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
     return previous == juce::File() ? previous : previous.withFileExtension ("md");
 }
 
-void WwmaAudioProcessorEditor::saveListeningData (const juce::File& markdownFile, const ReportInput& report)
+void WwmaAudioProcessorEditor::saveReferenceReport (int slot)
+{
+    if (! juce::isPositiveAndBelow (slot, (int) state.refs.size()) || ! state.refs[(size_t) slot].ready())
+        return;
+    const auto& view = state.refs[(size_t) slot];
+    const auto info = proc.refs.getInfo (slot);
+    if (info == nullptr)
+        return;
+
+    // the track alone: its own measurements and parts, nothing of the mix being played
+    ReportInput in;
+    in.time = juce::Time::getCurrentTime();
+    in.subjectFile = view.name;
+    in.presetName = state.profileName;
+    in.stage = state.stage;
+    in.window = Window::song;
+    in.secondsAnalysed = view.snap.secondsAnalysed;
+    in.assessment = view.assessment;
+    in.profile = state.profile;
+
+    auto folder = proc.getReportFolder();
+    folder.createDirectory();
+    const auto stem = juce::File::createLegalFileName (juce::File (view.name).getFileNameWithoutExtension()).substring (0, 60);
+    const auto file = folder.getChildFile ("WWMA report " + stem + " " + in.time.formatted ("%Y-%m-%d %H%M") + ".md");
+    file.replaceWithText (reportMarkdown (in, state.lang));
+    file.withFileExtension ("json").replaceWithText (juce::JSON::toString (reportJson (in)));
+    saveListeningData (file, in, &info->timeline);
+    proc.setReportFolder (folder);
+    shareReportFiles (file);
+}
+
+void WwmaAudioProcessorEditor::saveListeningData (const juce::File& markdownFile, const ReportInput& report, const Timeline* subjectTimeline)
 {
     // The song part by part, for an AI assistant (or for reading yourself): a text file and a
     // spectrogram picture next to the report. Nothing is sent anywhere.
     ListeningInput li;
     li.report = report;
-    proc.analyzer.readTimeline (li.timeline);
+    if (subjectTimeline != nullptr)
+        li.timeline = *subjectTimeline;
+    else
+        proc.analyzer.readTimeline (li.timeline);
     li.report.referenceName = {};
-    for (size_t slot = 0; slot < state.refs.size(); ++slot)
+    for (size_t slot = 0; slot < state.refs.size() && subjectTimeline == nullptr; ++slot)
         if (&state.refs[slot] == state.targetRefView())
         {
             li.report.referenceName = state.refs[slot].name;
@@ -1172,7 +1211,8 @@ void WwmaAudioProcessorEditor::saveListeningData (const juce::File& markdownFile
     const auto lang = state.lang;
     const auto image = folder.getChildFile (base + " AI.png");
     const auto when = report.time.formatted ("%Y-%m-%d %H:%M");
-    if (ui::saveTimelineImage (image, li.timeline, findSections (li.timeline), state.profileName + "  " + when, lang))
+    if (ui::saveTimelineImage (image, li.timeline, findSections (li.timeline),
+                              (report.subjectFile.isNotEmpty() ? report.subjectFile : state.profileName) + "  " + when, lang))
         li.imageName = image.getFileName();
     if (! li.referenceTimeline.empty())
     {

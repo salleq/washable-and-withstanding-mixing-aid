@@ -56,7 +56,9 @@ public:
         report in the same folder. Returns the earlier report it compared with, if any. */
     juce::File saveReport (const juce::File& markdownFile);
     /** "<report> AI.md" and "<report> AI.png" next to the report: the song part by part, for an AI assistant. */
-    void saveListeningData (const juce::File& markdownFile, const wwma::ReportInput& report);
+    void saveListeningData (const juce::File& markdownFile, const wwma::ReportInput& report, const wwma::Timeline* subjectTimeline = nullptr);
+    /** A report of one reference slot alone (e.g. an older version of the song), saved like the mix report. */
+    void saveReferenceReport (int slot);
     /** The reference's own play/pause (plays it without the DAW's transport, loop included). */
     void toggleReferencePlay (int slot);
     /** The big reference view, where a loop is chosen. */

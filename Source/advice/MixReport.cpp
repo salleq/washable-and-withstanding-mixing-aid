@@ -135,6 +135,8 @@ juce::var reportJson (const ReportInput& in)
     root->setProperty ("format", "wwma-report-1");
     root->setProperty ("time", in.time.toISO8601 (true));
     root->setProperty ("preset", in.presetName);
+    if (in.subjectFile.isNotEmpty())
+        root->setProperty ("subject", in.subjectFile);
     root->setProperty ("stage", in.stage == Stage::mixing ? "mix" : "master");
     root->setProperty ("window", in.window == Window::song ? "song" : "now");
     root->setProperty ("secondsAnalysed", in.secondsAnalysed);
@@ -194,7 +196,8 @@ juce::String reportMarkdown (const ReportInput& in, Lang lang, const juce::var& 
     juce::String md;
     const auto nl = juce::String ("\n");
 
-    md << "# " << tr (lang, "WWMA mix report", "WWMA-miksausraportti") << nl << nl;
+    md << "# " << (in.subjectFile.isNotEmpty() ? tr (lang, "WWMA report of a track: ", "WWMA-raportti raidasta: ") + in.subjectFile
+                                                : tr (lang, "WWMA mix report", "WWMA-miksausraportti")) << nl << nl;
     md << "- " << tr (lang, "Date: ", "Päivä: ") << in.time.formatted ("%Y-%m-%d %H:%M") << nl;
     md << "- " << tr (lang, "Preset: ", "Preset: ") << in.presetName << nl;
     md << "- " << tr (lang, "Stage: ", "Vaihe: ") << (in.stage == Stage::mixing ? tr (lang, "mixing", "miksaus") : tr (lang, "mastering", "masterointi")) << nl;
@@ -263,36 +266,39 @@ juce::String reportMarkdown (const ReportInput& in, Lang lang, const juce::var& 
     }
     md << nl;
 
-    md << "## " << tr (lang, "Mastering EQ and limiter", "Masterointi-EQ ja limitteri") << nl << nl;
-    if (! in.chain.anyOn())
-        md << tr (lang, "Both off: WWMA only measured.", "Molemmat pois päältä: WWMA vain mittasi.") << nl << nl;
-    else
+    if (in.subjectFile.isEmpty())
     {
-        const auto& adv = in.chainAdvice;
-        md << "| " << tr (lang, "Knob", "Nuppi") << " | " << tr (lang, "Your setting", "Sinun asetus") << " | " << tr (lang, "Suggested", "Ehdotus") << " |" << nl
-           << "|---|---|---|" << nl;
-        auto row = [&] (const juce::String& name, const juce::String& yours, const Suggestion& s)
+        md << "## " << tr (lang, "Mastering EQ and limiter", "Masterointi-EQ ja limitteri") << nl << nl;
+        if (! in.chain.anyOn())
+            md << tr (lang, "Both off: WWMA only measured.", "Molemmat pois päältä: WWMA vain mittasi.") << nl << nl;
+        else
         {
-            md << "| " << name << " | " << yours << " | " << (adv.ready && s.shown ? s.text : juce::String ("-")) << " |" << nl;
-        };
-        auto db = [&] (float v) { return number (v, 1, lang, true) + " dB"; };
-        if (in.chain.eqOn)
-            for (size_t b = 0; b < (size_t) ChainSettings::numBands; ++b)
+            const auto& adv = in.chainAdvice;
+            md << "| " << tr (lang, "Knob", "Nuppi") << " | " << tr (lang, "Your setting", "Sinun asetus") << " | " << tr (lang, "Suggested", "Ehdotus") << " |" << nl
+               << "|---|---|---|" << nl;
+            auto row = [&] (const juce::String& name, const juce::String& yours, const Suggestion& s)
             {
-                const auto name = eqBandName ((int) b, lang);
-                row (name, db (in.chain.gain[b]), adv.gain[b]);
-                row (name + " Hz", number (in.chain.freq[b], 0, lang) + " Hz", adv.freq[b]);
-                if (b == ChainSettings::lowMid || b == ChainSettings::highMid)
-                    row (name + " Q", number (in.chain.q[b], 2, lang), adv.q[b]);
+                md << "| " << name << " | " << yours << " | " << (adv.ready && s.shown ? s.text : juce::String ("-")) << " |" << nl;
+            };
+            auto db = [&] (float v) { return number (v, 1, lang, true) + " dB"; };
+            if (in.chain.eqOn)
+                for (size_t b = 0; b < (size_t) ChainSettings::numBands; ++b)
+                {
+                    const auto name = eqBandName ((int) b, lang);
+                    row (name, db (in.chain.gain[b]), adv.gain[b]);
+                    row (name + " Hz", number (in.chain.freq[b], 0, lang) + " Hz", adv.freq[b]);
+                    if (b == ChainSettings::lowMid || b == ChainSettings::highMid)
+                        row (name + " Q", number (in.chain.q[b], 2, lang), adv.q[b]);
+                }
+            if (in.chain.limiterOn)
+            {
+                row (tr (lang, "Limiter gain", "Limitterin gain"), db (in.chain.limiterGain), adv.limiterGain);
+                row (tr (lang, "Ceiling", "Katto"), number (in.chain.ceiling, 1, lang) + " dBTP", adv.ceiling);
+                row ("Release", number (in.chain.releaseMs, 0, lang) + " ms", adv.release);
             }
-        if (in.chain.limiterOn)
-        {
-            row (tr (lang, "Limiter gain", "Limitterin gain"), db (in.chain.limiterGain), adv.limiterGain);
-            row (tr (lang, "Ceiling", "Katto"), number (in.chain.ceiling, 1, lang) + " dBTP", adv.ceiling);
-            row ("Release", number (in.chain.releaseMs, 0, lang) + " ms", adv.release);
+            md << nl << tr (lang, "The suggestions were only shown; every value above was set by hand.",
+                                  "Ehdotukset vain näytettiin; jokainen arvo yllä on säädetty käsin.") << nl << nl;
         }
-        md << nl << tr (lang, "The suggestions were only shown; every value above was set by hand.",
-                              "Ehdotukset vain näytettiin; jokainen arvo yllä on säädetty käsin.") << nl << nl;
     }
 
     if (! in.snapshots.empty())
@@ -307,7 +313,7 @@ juce::String reportMarkdown (const ReportInput& in, Lang lang, const juce::var& 
         md << nl;
     }
 
-    if (! previous.isVoid())
+    if (! previous.isVoid() && in.subjectFile.isEmpty())
     {
         const auto changes = compareMetrics (metricsFromJson (previous), metrics);
         md << "## " << tr (lang, "Since the previous report", "Edellisen raportin jälkeen") << nl << nl;
