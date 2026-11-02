@@ -2185,7 +2185,7 @@ int main (int argc, char* argv[])
         dir.createDirectory();
         std::cout << "Screenshots -> " << dir.getFullPathName() << std::endl;
 
-        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson, 4 reference loop, 5 EQ + limiter, 6 earlier version
+        struct Shot { const char* name; Stereo audio; Lang lang; bool baseline; bool withRef = false; bool listen = false; int view = 0; }; // view: 1 save reminder, 2 before/after, 3 lesson, 4 reference loop, 5 EQ + limiter, 6 earlier version, 7 before + versions, 8 continue a session
         const auto refA = writeWav (refAudio, 44100.0, "Favourite club track.wav");
         const auto refB = writeWav (profileMix (house, 48000.0, [] (double f) { return f < 90.0 ? 2.0 : 0.0; }, -14.0, monoBass, -10.0, 33),
                                     48000.0, "Night drive loop.wav");
@@ -2208,6 +2208,10 @@ int main (int argc, char* argv[])
             { "wwma-eq-limiter-fi.png", {}, Lang::finnish, false, false, false, 5 },
             { "wwma-earlier-version-en.png", {}, Lang::english, false, true, false, 6 },
             { "wwma-earlier-version-fi.png", {}, Lang::finnish, false, true, false, 6 },
+            { "wwma-versions-en.png", balanced, Lang::english, true, false, false, 7 },
+            { "wwma-versions-fi.png", balanced, Lang::finnish, true, false, false, 7 },
+            { "wwma-continue-en.png", balanced, Lang::english, false, false, false, 8 },
+            { "wwma-continue-fi.png", balanced, Lang::finnish, false, false, false, 8 },
         };
         const auto earlierBounce = writeWav (messy, sr, "My track v3.wav");
         {
@@ -2243,9 +2247,36 @@ int main (int argc, char* argv[])
 
         for (const auto& shot : shots)
         {
+            if (shot.view == 8)
+            {
+                // a session left on disk by a WWMA that was taken out of the project
+                WwmaAudioProcessor old;
+                old.prepareToPlay (sr, 512);
+                old.setLang (shot.lang);
+                old.refs.loadNow (0, refA);
+                old.setSessionName (shot.lang == Lang::finnish ? juce::String (juce::CharPointer_UTF8 ("Yöajo v4 (master)")) : juce::String ("Night drive v4 (master)"));
+                SavedSnapshot snap;
+                snap.time = juce::Time::getCurrentTime();
+                snap.score = 66.0f;
+                old.addSnapshot (snap);
+                old.saveSessionIfChanged();
+            }
+            struct Host : juce::AudioPlayHead
+            {
+                int64_t pos = 0;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying (true);
+                    info.setTimeInSamples (pos);
+                    return info;
+                }
+            } host;
             WwmaAudioProcessor p;
             p.setPlayConfigDetails (2, 2, sr, 512);
             p.prepareToPlay (sr, 512);
+            if (shot.view == 7)
+                p.setPlayHead (&host);
             p.setLang (shot.lang);
             p.setWindow (Window::song);
             if (shot.withRef)
@@ -2299,6 +2330,9 @@ int main (int argc, char* argv[])
                     buf.copyFrom (0, 0, x.l.data() + i, 512);
                     buf.copyFrom (1, 0, x.r.data() + i, 512);
                     p.processBlock (buf, midi);
+                    host.pos += 512;
+                    if (host.pos % (512 * 20) == 0)
+                        p.before.service (host.pos / sr);
                     sinceHistory += 512;
                     if (sinceHistory >= halfSecond)
                     {
@@ -2320,9 +2354,30 @@ int main (int argc, char* argv[])
                 if (shot.view != 1)
                     editor->confirmSnapshotSaved();
                 p.analyzer.requestReset();
+                if (shot.view == 7)
+                    host.pos = 0;   // the same part again, after the change
                 feed (balanced);
                 if (shot.view == 2)
                     editor->setCompareOpen (true);
+                if (shot.view == 7)
+                {
+                    for (int k = 0; k < 200 && p.diskJobs.load() > 0; ++k)
+                        juce::Thread::sleep (20);   // the version is written in the background
+                    editor->setListeningBefore (true);
+                    host.pos = (int64_t) (3.0 * sr);
+                    juce::AudioBuffer<float> buf (2, 512);
+                    for (int k = 0; k < 40; ++k, host.pos += 512)
+                    {
+                        buf.clear();
+                        p.processBlock (buf, midi);
+                    }
+                    editor->setVersionsOpen (true);
+                }
+            }
+            else if (shot.view == 8)
+            {
+                editor->offerSessions();
+                check (editor->isSessionOfferShown(), "a WWMA just added offers the session left behind by the one taken out");
             }
             else
                 feed (shot.audio);
@@ -2337,6 +2392,7 @@ int main (int argc, char* argv[])
             out.truncate();
             juce::PNGImageFormat().writeImageToStream (img, out);
             std::cout << "  wrote " << shot.name << std::endl;
+            p.setPlayHead (nullptr);
         }
     }
 

@@ -1138,8 +1138,10 @@ ProgressBox::ProgressBox (const ViewState& s) : state (s)
     compareButton.onClick = [this] { if (onCompare) onCompare(); };
     confirmButton.onClick = [this] { if (onConfirm) onConfirm(); };
     tryButton.onClick = [this] { if (onTry) onTry(); };
+    versionsButton.onClick = [this] { if (onVersions) onVersions(); };
+    versionsButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
     compareButton.setClickingTogglesState (false);
-    for (auto* b : { &saveButton, &compareButton, &clearButton, &tryButton })
+    for (auto* b : { &saveButton, &compareButton, &clearButton, &tryButton, &versionsButton })
         addAndMakeVisible (b);
     addChildComponent (confirmButton);
     updateTexts();
@@ -1150,6 +1152,7 @@ void ProgressBox::syncButtons()
     confirmButton.setVisible (state.awaitingSaveConfirm);
     compareButton.setEnabled (! state.snapshots.empty());
     compareButton.setToggleState (state.compareOpen, juce::dontSendNotification);
+    versionsButton.setToggleState (state.versionsOpen, juce::dontSendNotification);
     const auto lang = state.lang;
     const bool done = state.trial.active && state.trialResult.kind != TrialResult::Kind::waiting;
     tryButton.setButtonText (upper (! state.trial.active ? t (lang, "Try the top fix", "Kokeile ylintä vinkkiä")
@@ -1182,6 +1185,9 @@ void ProgressBox::updateTexts()
     compareButton.setButtonText (upper (t (lang, "Before/after", "Ennen/jälkeen")));
     compareButton.setTooltip (t (lang, "Compare the newest snapshot with now: which numbers got better, which got worse.",
                                        "Vertaa uusinta snapshotia nykyhetkeen: mitkä luvut paranivat, mitkä huononivat."));
+    versionsButton.setButtonText (upper (t (lang, "Versions", "Versiot")));
+    versionsButton.setTooltip (t (lang, "Every snapshot also saves what BEFORE plays, in WWMA's own folder. Use, name or remove the versions, and the sessions kept there.",
+                                        "Jokainen snapshot tallentaa myös sen, mitä ENNEN soittaa, WWMA:n omaan kansioon. Käytä, nimeä tai poista versioita ja siellä olevia istuntoja."));
     confirmButton.setButtonText (upper (t (lang, "I saved it", "Tallensin")));
     confirmButton.setTooltip (t (lang, "Click after you have saved the DAW project under a new name.",
                                        "Klikkaa, kun olet tallentanut DAW-projektin uudella nimellä."));
@@ -1196,6 +1202,7 @@ void ProgressBox::resized()
     compareButton.setBounds (buttons.removeFromLeft (98));
     buttons.removeFromLeft (6);
     clearButton.setBounds (buttons);
+    versionsButton.setBounds (r.getRight() - 72, r.getY() - 3, 72, 20);
     r.removeFromTop (16);
     tryButton.setBounds (r.removeFromTop (22));
     const auto plot = plotArea();
@@ -1291,7 +1298,7 @@ void ProgressBox::paint (juce::Graphics& g)
         const float d = state.displayScore - snaps.back().score;
         g.setFont (fonts::num (12.0f));
         g.setColour (d >= 1.0f ? colours::good : (d <= -1.0f ? colours::bad : colours::dim));
-        g.drawText (fmt (lang, d, 0, true) + t (lang, " since snapshot", " snapshotista"), head, juce::Justification::centredRight);
+        g.drawText (fmt (lang, d, 0, true) + t (lang, " since snapshot", " snapshotista"), head.withTrimmedRight (80), juce::Justification::centredRight);
     }
 
     r.removeFromBottom (32);

@@ -216,6 +216,7 @@ private:
     void applyState (const juce::XmlElement& xml);
     void ensureSessionId();
     void loadLatestVersionIfEmpty();
+    juce::String usedStateXml() const;   // the state without preferences, to tell "untouched" from "used"
 
     bool stateRestored = false;    // the host (or the user, from disk) restored a saved state
     bool restoreAnswered = false;  // the user chose to continue a session or to start fresh

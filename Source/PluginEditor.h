@@ -5,6 +5,7 @@
 #include "PluginProcessor.h"
 #include "ui/Components.h"
 #include "ui/ChainPanel.h"
+#include "ui/VersionsPanel.h"
 #include "ui/Theme.h"
 #include "advice/StyleGuess.h"
 
@@ -69,6 +70,14 @@ public:
     void setListening (bool b);
     /** True plays the "before" recording (the mix as it was at the last snapshot) instead of the mix. */
     void setListeningBefore (bool b);
+    /** The saved before versions and the other sessions (shown over the findings). */
+    void setVersionsOpen (bool open);
+    bool isVersionsOpen() const noexcept { return versionsOpen; }
+    /** WWMA was just added: offers earlier sessions from WWMA's own folder (also used by the self test). */
+    void offerSessions();
+    bool isSessionOfferShown() const noexcept { return sessionOffer.isVisible(); }
+    /** Rereads everything from the processor, after a session was restored from disk. */
+    void reloadFromProcessor();
     void referencesChanged() { refGeneration = -1; readReferences(); reassess(); }
     /** The mastering EQ + limiter panel (shown over the findings). */
     void setChainOpen (bool open);
@@ -137,6 +146,11 @@ private:
     /** Reads the before take's state for the BEFORE button and its strip. */
     void readBefore();
     int beforeGenerationShown = -1;
+    void refreshVersions();
+    void confirm (const juce::String& title, const juce::String& message, const juce::String& ok, std::function<void()> then);
+    void askName (const juce::String& title, const juce::String& current, std::function<void (const juce::String&)> then);
+    bool versionsOpen = false, offerDone = false;
+    int versionsGenerationShown = -1, diskJobsShown = 0;
 
     WwmaAudioProcessor& proc;
     wwma::ui::LookAndFeel lnf;
@@ -158,6 +172,8 @@ private:
     wwma::ui::LessonBox lessonBox { state };
     wwma::ui::RefDetailBox refDetail { state };
     wwma::ui::ChainPanel chainPanel { state, proc.apvts };
+    wwma::ui::VersionsPanel versionsPanel;
+    wwma::ui::SessionOffer sessionOffer;
     juce::TextButton learnButton, reportButton, chainButton;
     float lessonSeconds = -1.0f; // music time when the lesson goal was last checked
     void updateLesson();

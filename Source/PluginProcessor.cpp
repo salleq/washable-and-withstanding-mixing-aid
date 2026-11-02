@@ -45,8 +45,8 @@ WwmaAudioProcessor::WwmaAudioProcessor()
     setLatencySamples (chain.latency());
     before.prepare (48000.0);
     ensureSessionId();
-    defaultStateXml = apvts.copyState().toXmlString();
-    lastSavedXml = defaultStateXml;
+    defaultStateXml = usedStateXml();
+    lastSavedXml = apvts.copyState().toXmlString();
     beforeService.startTimerHz (10);
 }
 
@@ -90,9 +90,17 @@ void WwmaAudioProcessor::updateTrackProperties (const TrackProperties& propertie
     trackName = properties.name;
 }
 
+juce::String WwmaAudioProcessor::usedStateXml() const
+{
+    // the language is a preference, not use: switching it right away still offers earlier sessions
+    auto st = const_cast<juce::AudioProcessorValueTreeState&> (apvts).copyState();
+    st.removeProperty (langId, nullptr);
+    return st.toXmlString();
+}
+
 bool WwmaAudioProcessor::shouldOfferRestore() const
 {
-    return ! stateRestored && ! restoreAnswered && const_cast<juce::AudioProcessorValueTreeState&> (apvts).copyState().toXmlString() == defaultStateXml;
+    return ! stateRestored && ! restoreAnswered && usedStateXml() == defaultStateXml;
 }
 
 std::vector<store::SessionInfo> WwmaAudioProcessor::restoreCandidates() const
@@ -128,7 +136,7 @@ void WwmaAudioProcessor::saveSessionIfChanged()
 {
     const auto xml = apvts.copyState().toXmlString();
     // a WWMA just added and not used yet leaves nothing behind
-    if (xml == lastSavedXml || (! stateRestored && ! restoreAnswered && xml == defaultStateXml))
+    if (xml == lastSavedXml || (! stateRestored && ! restoreAnswered && usedStateXml() == defaultStateXml))
         return;
     store::SessionInfo info;
     info.name = apvts.state.getProperty (sessionNameId).toString();

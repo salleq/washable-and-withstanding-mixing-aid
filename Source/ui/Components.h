@@ -102,6 +102,7 @@ struct ViewState
     float beforeMatchDb = 0.0f;      // level matching applied to it
     double songSeconds = -1.0;       // the DAW's play head
     std::vector<uint8_t> beforeCoverage;   // per second: 0 none, 1 older, 2 newest snapshot
+    bool versionsOpen = false;       // the versions panel is shown over the findings
 
     // mastering EQ and limiter
     bool chainOpen = false;              // the EQ + limiter panel is shown over the findings
@@ -346,13 +347,13 @@ public:
     void resized() override;
     void updateTexts();
 
-    std::function<void()> onSave, onClear, onCompare, onConfirm, onTry;
+    std::function<void()> onSave, onClear, onCompare, onConfirm, onTry, onVersions;
     /** Shows the confirm button while a snapshot waits for its DAW save, and enables Before/after. */
     void syncButtons();
 
 private:
     const ViewState& state;
-    juce::TextButton saveButton, compareButton, clearButton, confirmButton, tryButton;
+    juce::TextButton saveButton, compareButton, clearButton, confirmButton, tryButton, versionsButton;
     juce::Rectangle<int> plotArea() const;
     static constexpr int bannerHeight = 66;
     void paintBanner (juce::Graphics& g, juce::Rectangle<float> r);

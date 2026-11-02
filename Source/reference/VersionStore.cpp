@@ -344,7 +344,10 @@ juce::String sizeText (juce::int64 bytes)
     if (bytes >= 1024LL * 1024 * 1024)
         return juce::String ((double) bytes / (1024.0 * 1024.0 * 1024.0), 1) + " GB";
     if (bytes >= 1024LL * 1024)
-        return juce::String ((double) bytes / (1024.0 * 1024.0), 0) + " MB";
+    {
+        const double mb = (double) bytes / (1024.0 * 1024.0);
+        return (mb < 10.0 ? juce::String (mb, 1) : juce::String (juce::roundToInt (mb))) + " MB";
+    }
     return juce::String (juce::jmax ((juce::int64) 1, bytes / 1024)) + " kB";
 }
 } // namespace wwma::store

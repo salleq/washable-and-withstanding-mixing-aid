@@ -98,7 +98,8 @@ set(WWMA_UI_SOURCES
     Source/ui/Theme.cpp
     Source/ui/Components.cpp
     Source/ui/ChainPanel.cpp
-    Source/ui/TimelineImage.cpp)
+    Source/ui/TimelineImage.cpp
+    Source/ui/VersionsPanel.cpp)
 
 # Fonts (SIL Open Font License), compiled into the plugin
 juce_add_binary_data(WWMAAssets SOURCES

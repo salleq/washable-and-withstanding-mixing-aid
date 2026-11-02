@@ -80,6 +80,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
              &profileBox, &targetBox, &trackBox, &mixButton, &masterButton, &trackButton, &nowButton, &songButton, &mixAButton, &beforeButton, &refBButton,
              &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton })
         content.addAndMakeVisible (c);
+    content.addChildComponent (versionsPanel);
     content.addChildComponent (beforeAfter);
     content.addChildComponent (chainPanel);
     content.addChildComponent (lessonBox);
@@ -244,6 +245,88 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     state.chainSettings = proc.getChainSettings();
     chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
     reportButton.onClick = [this] { chooseReportFile(); };
+    progress.onVersions = [this] { setVersionsOpen (! versionsOpen); };
+    versionsPanel.onClose = [this] { setVersionsOpen (false); };
+    versionsPanel.onUse = [this] (const store::VersionInfo& v)
+    {
+        proc.loadBeforeVersion (v);
+        refreshVersions();
+    };
+    versionsPanel.onRename = [this] (const store::VersionInfo& v)
+    {
+        askName (tr (state.lang, "Name this version", "Nimeä versio"), v.name, [this, v] (const juce::String& name)
+        {
+            store::renameVersion (v, name);
+            refreshVersions();
+        });
+    };
+    versionsPanel.onRemove = [this] (const store::VersionInfo& v)
+    {
+        confirm (tr (state.lang, "Remove this version?", "Poistetaanko versio?"),
+                 (v.named ? v.name : ui::whenText (v.time, state.lang)) + tr (state.lang, " goes to the trash.", " siirretään roskakoriin."),
+                 tr (state.lang, "Remove", "Poista"), [this, v] { store::removeVersion (v); refreshVersions(); });
+    };
+    versionsPanel.onRemoveAll = [this]
+    {
+        confirm (tr (state.lang, "Remove all versions?", "Poistetaanko kaikki versiot?"),
+                 tr (state.lang, "Every before version of this session goes to the trash. BEFORE keeps what it holds now until you close the project.",
+                                 "Tämän istunnon kaikki ennen-versiot siirretään roskakoriin. ENNEN pitää nykyisen sisältönsä, kunnes suljet projektin."),
+                 tr (state.lang, "Remove all", "Poista kaikki"), [this]
+                 {
+                     for (const auto& v : store::listVersions (proc.getSessionId()))
+                         store::removeVersion (v);
+                     refreshVersions();
+                 });
+    };
+    versionsPanel.onOpenFolder = [this]
+    {
+        auto folder = store::sessionFolder (proc.getSessionId());
+        if (! folder.isDirectory())
+            folder = store::root();
+        folder.startAsProcess();
+    };
+    versionsPanel.onRenameSession = [this]
+    {
+        askName (tr (state.lang, "Name this session", "Nimeä istunto"), proc.getSessionName(), [this] (const juce::String& name)
+        {
+            proc.setSessionName (name);
+            refreshVersions();
+        });
+    };
+    versionsPanel.onContinueSession = [this] (const store::SessionInfo& si)
+    {
+        confirm (tr (state.lang, "Continue that session?", "Jatketaanko sitä istuntoa?"),
+                 tr (state.lang, "This WWMA's settings, references and snapshots are replaced with those of \"", "Tämän WWMA:n asetukset, referenssit ja snapshotit korvataan istunnon \"")
+                     + si.name + tr (state.lang, "\". The current session stays in the list.", "\" tiedoilla. Nykyinen istunto jää listaan."),
+                 tr (state.lang, "Continue", "Jatka"), [this, folder = si.folder]
+                 {
+                     proc.saveSessionIfChanged();
+                     if (proc.restoreSession (folder))
+                         reloadFromProcessor();
+                     refreshVersions();
+                 });
+    };
+    versionsPanel.onRemoveSession = [this] (const store::SessionInfo& si)
+    {
+        confirm (tr (state.lang, "Remove that session?", "Poistetaanko istunto?"),
+                 tr (state.lang, "The whole session \"", "Koko istunto \"") + si.name
+                     + tr (state.lang, "\", its versions included, goes to the trash.", "\" versioineen siirretään roskakoriin."),
+                 tr (state.lang, "Remove", "Poista"), [this, folder = si.folder] { store::removeSession (folder); refreshVersions(); });
+    };
+    content.addChildComponent (sessionOffer);
+    sessionOffer.onContinue = [this] (const juce::File& folder)
+    {
+        offerDone = true;
+        sessionOffer.setVisible (false);
+        if (proc.restoreSession (folder))
+            reloadFromProcessor();
+    };
+    sessionOffer.onFresh = [this]
+    {
+        offerDone = true;
+        proc.declineRestore();
+        sessionOffer.setVisible (false);
+    };
     state.learnMode = proc.getLearnMode();
     tonal.setShowDifference (proc.getShowDifference());
     tonal.onShowDifferenceChanged = [this] (bool b) { proc.setShowDifference (b); };
@@ -469,6 +552,8 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.beforeAfter.setBounds (e.findings.getBounds());
     e.lessonBox.setBounds (e.findings.getBounds());
     e.chainPanel.setBounds (e.findings.getBounds());
+    e.versionsPanel.setBounds (e.findings.getBounds());
+    e.sessionOffer.setBounds (0, 0, baseWidth, baseHeight);
     e.refDetail.setBounds (e.tonal.getBounds());
 
     e.score.setBounds (rx, top, rightWidth, 196);
@@ -630,6 +715,13 @@ void WwmaAudioProcessorEditor::timerCallback()
     proc.updateReferenceState();
     readReferences();
     readBefore();
+    // a WWMA just added: after a moment (the host may still restore the project), offer earlier sessions
+    if (! offerDone && ticks == 45)
+        offerSessions();
+    if (sessionOffer.isVisible() && ! proc.shouldOfferRestore())
+        sessionOffer.setVisible (false);
+    if (versionsOpen && (proc.versionsGeneration.load() != versionsGenerationShown || proc.diskJobs.load() != diskJobsShown))
+        refreshVersions();
     if (ticks % 15 == 0)
         pushHistory();
     refresh (ticks % 10 == 0);
@@ -974,8 +1066,10 @@ void WwmaAudioProcessorEditor::saveSnapshot()
 {
     if (! state.assessment.enoughData)
         return;
-    // what you hear now becomes "before": the BEFORE button plays it after your next change
-    proc.before.freeze();
+    // what you hear now becomes "before": the BEFORE button plays it after your next change,
+    // and it is saved in WWMA's own folder, so it is there after the project is closed
+    if (proc.before.freeze())
+        proc.saveBeforeVersion (state.assessment.score);
     readBefore();
     SavedSnapshot snap;
     snap.time = juce::Time::getCurrentTime();
@@ -1040,10 +1134,14 @@ void WwmaAudioProcessorEditor::setLearnMode (bool on)
 void WwmaAudioProcessorEditor::updatePanels()
 {
     // one panel at a time over the findings: before/after, lesson, or EQ + limiter
+    if (state.compareOpen || state.learnMode || state.chainOpen)
+        versionsOpen = false;
     beforeAfter.setVisible (state.compareOpen);
     lessonBox.setVisible (state.learnMode);
     chainPanel.setVisible (state.chainOpen);
-    findings.setVisible (! state.compareOpen && ! state.learnMode && ! state.chainOpen);
+    versionsPanel.setVisible (versionsOpen);
+    state.versionsOpen = versionsOpen;
+    findings.setVisible (! state.compareOpen && ! state.learnMode && ! state.chainOpen && ! versionsOpen);
     learnButton.setToggleState (state.learnMode, juce::dontSendNotification);
     chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
     progress.syncButtons();
@@ -1403,6 +1501,113 @@ void WwmaAudioProcessorEditor::setListeningBefore (bool b)
     beforeButton.setToggleState (b, juce::dontSendNotification);
     progress.repaint();
     content.repaint();
+}
+
+void WwmaAudioProcessorEditor::setVersionsOpen (bool open)
+{
+    if (open)
+    {
+        state.compareOpen = false;
+        if (state.learnMode)
+        {
+            state.learnMode = false;
+            proc.setLearnMode (false);
+        }
+        if (state.chainOpen)
+        {
+            state.chainOpen = false;
+            proc.setChainOpen (false);
+            proc.inputAnalysisWanted.store (false);
+        }
+        proc.saveSessionIfChanged();
+        refreshVersions();
+    }
+    versionsOpen = open;
+    updatePanels();
+}
+
+void WwmaAudioProcessorEditor::refreshVersions()
+{
+    ui::VersionsPanel::Data d;
+    d.lang = state.lang;
+    d.sessionName = proc.getSessionName();
+    d.sessionFolder = store::sessionFolder (proc.getSessionId());
+    d.versions = store::listVersions (proc.getSessionId());
+    for (auto& si : store::listSessions())
+        if (si.id != proc.getSessionId())
+            d.others.push_back (std::move (si));
+    d.totalBytes = store::totalBytes();
+    d.beforeSeconds = proc.before.getBeforeSeconds();
+    d.busy = proc.diskJobs.load() > 0;
+    versionsPanel.setData (std::move (d));
+    versionsGenerationShown = proc.versionsGeneration.load();
+    diskJobsShown = proc.diskJobs.load();
+}
+
+void WwmaAudioProcessorEditor::offerSessions()
+{
+    if (offerDone || ! proc.shouldOfferRestore())
+        return;
+    const auto candidates = proc.restoreCandidates();
+    if (candidates.empty())
+    {
+        offerDone = true;
+        return;
+    }
+    sessionOffer.show (candidates, state.lang);
+    sessionOffer.setVisible (true);
+    sessionOffer.toFront (false);
+}
+
+void WwmaAudioProcessorEditor::reloadFromProcessor()
+{
+    state.lang = proc.getLang();
+    autoResetToggle.setToggleState (proc.getAutoReset(), juce::dontSendNotification);
+    state.learnMode = proc.getLearnMode();
+    state.chainOpen = proc.getChainOpen() && ! state.learnMode;
+    state.showSuggestions = proc.getShowSuggestions();
+    state.lessonIndex = juce::jlimit (0, lessonCount() - 1, proc.getLessonIndex());
+    state.lessonsDone = proc.getLessonsDone();
+    tonal.setShowDifference (proc.getShowDifference());
+    proc.inputAnalysisWanted.store (state.chainOpen);
+    state.scoreHistory.clear();
+    loadSnapshots();
+    refGeneration = -1;
+    readReferences();
+    updateTexts();
+    updatePanels();
+    reassess();
+}
+
+void WwmaAudioProcessorEditor::confirm (const juce::String& title, const juce::String& message, const juce::String& ok, std::function<void()> then)
+{
+    juce::Component::SafePointer<WwmaAudioProcessorEditor> self (this);
+    juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                      .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                                      .withTitle (title)
+                                      .withMessage (message)
+                                      .withButton (ok)
+                                      .withButton (tr (state.lang, "Cancel", "Peruuta"))
+                                      .withAssociatedComponent (this),
+                                  [self, then] (int result)
+                                  {
+                                      if (self != nullptr && result == 1 && then)
+                                          then();
+                                  });
+}
+
+void WwmaAudioProcessorEditor::askName (const juce::String& title, const juce::String& current, std::function<void (const juce::String&)> then)
+{
+    auto* w = new juce::AlertWindow (title, {}, juce::MessageBoxIconType::NoIcon, this);
+    w->addTextEditor ("name", current);
+    w->addButton (tr (state.lang, "OK", "OK"), 1, juce::KeyPress (juce::KeyPress::returnKey));
+    w->addButton (tr (state.lang, "Cancel", "Peruuta"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<WwmaAudioProcessorEditor> self (this);
+    w->enterModalState (true, juce::ModalCallbackFunction::create ([self, w, then] (int result)
+    {
+        if (self != nullptr && result == 1 && then)
+            then (w->getTextEditorContents ("name").trim().substring (0, 80));
+    }), true);
 }
 
 void WwmaAudioProcessorEditor::readBefore()
