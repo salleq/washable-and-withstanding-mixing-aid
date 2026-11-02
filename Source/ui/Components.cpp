@@ -1307,7 +1307,8 @@ void ProgressBox::updateTexts()
     saveButton.setTooltip (t (lang, "Save the current score. The cards then show what got better or worse since, and the chart shows your progress. Then listen: did it really get better?",
                                     "Tallenna nykyiset pisteet. Kortit näyttävät sen jälkeen, mikä parani tai huononi, ja kaavio näyttää edistymisen. Kuuntele sitten: parani oikeasti?"));
     clearButton.setButtonText (upper (t (lang, "Clear", "Tyhjennä")));
-    clearButton.setTooltip (t (lang, "Forget the saved snapshots.", "Unohda tallennetut snapshotit."));
+    clearButton.setTooltip (t (lang, "Forget the saved snapshots, and the findings your ears ruled out (they count again).",
+                                     "Unohda tallennetut snapshotit ja korvasi hylkäämät havainnot (ne lasketaan taas)."));
     saveButton.setButtonText (upper (t (lang, "Snapshot", "Snapshot")));
     compareButton.setButtonText (upper (t (lang, "Before/after", "Ennen/jälkeen")));
     compareButton.setTooltip (t (lang, "Compare the newest snapshot with now: which numbers got better, which got worse.",
@@ -1380,6 +1381,12 @@ void ProgressBox::paintBanner (juce::Graphics& g, juce::Rectangle<float> r)
             headline = res.headline;
             detail = res.detail;
         }
+    }
+    else if (state.drift.warn && ! state.listenedSinceSnapshot)
+    {
+        col = colours::warn;
+        headline = state.drift.headline;
+        detail = state.drift.detail;
     }
     else if (! state.passesOn)
     {

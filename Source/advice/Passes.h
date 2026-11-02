@@ -60,6 +60,18 @@ struct TrialResult
     bool overrule = false;     // the ears went against the meter: the finding stops counting
 };
 
+/** "Too much, too fast": many changes since the snapshot, judged only by the meter. Then the
+    ears should check before going on. Never shown once BEFORE was listened to since the snapshot. */
+struct DriftCheck
+{
+    bool warn = false;
+    juce::String headline, detail;
+    int rangesMoved = 0;          // tonal ranges that moved 2 dB or more
+    float scoreGain = 0.0f;       // score since the snapshot
+    float refDistanceChange = 0.0f; // dB: > 0 the mix moved away from the reference
+};
+DriftCheck overOptimised (const SavedSnapshot& snap, const Assessment& now, const Assessment* reference, Lang lang);
+
 /** Once the meter has judged a trial, hand it to the ears: compare BEFORE and MIX.
     beforeReady: the BEFORE take has this part (otherwise the DAW's undo is the A/B). */
 TrialResult askEars (TrialResult meter, const Trial& t, bool beforeReady, Lang lang);

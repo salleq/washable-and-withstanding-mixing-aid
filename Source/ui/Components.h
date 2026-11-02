@@ -104,6 +104,8 @@ struct ViewState
     std::vector<uint8_t> beforeCoverage;   // per second: 0 none, 1 older, 2 newest snapshot
     bool versionsOpen = false;       // the versions panel is shown over the findings
     bool showScore = false;          // the 0-100 number is shown (off by default: the ears decide)
+    DriftCheck drift;                // many changes since the snapshot, judged only by the meter
+    bool listenedSinceSnapshot = false; // BEFORE was played since the newest snapshot
 
     // mastering EQ and limiter
     bool chainOpen = false;              // the EQ + limiter panel is shown over the findings

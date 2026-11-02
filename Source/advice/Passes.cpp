@@ -212,4 +212,72 @@ TrialResult judgeWithEars (const TrialResult& meter, const Trial& t, int overrul
     }
     return r;
 }
+namespace
+{
+    std::array<float, numRanges> rangeLevels (const std::array<float, Bands::count>& spectrum)
+    {
+        std::array<float, numRanges> out {};
+        for (int r = 0; r < numRanges; ++r)
+        {
+            const auto info = rangeBands ((Range) r);
+            out[(size_t) r] = sumBands (spectrum, info.firstBand, info.lastBand);
+        }
+        return out;
+    }
+
+    float distance (const std::array<float, numRanges>& a, const std::array<float, numRanges>& b)
+    {
+        float d = 0.0f;
+        for (int r = 0; r < numRanges; ++r)
+            d += std::abs (a[(size_t) r] - b[(size_t) r]);
+        return d / (float) numRanges;
+    }
+}
+
+DriftCheck overOptimised (const SavedSnapshot& snap, const Assessment& now, const Assessment* reference, Lang lang)
+{
+    DriftCheck c;
+    if (! now.enoughData)
+        return c;
+    c.scoreGain = now.score - snap.score;
+
+    juce::StringArray moved;
+    std::array<float, numRanges> before {}, after = rangeLevels (now.measures.spectrum);
+    const bool haveCurve = snap.spectrum.size() == (size_t) Bands::count;
+    if (haveCurve)
+    {
+        std::array<float, Bands::count> spec {};
+        std::copy (snap.spectrum.begin(), snap.spectrum.end(), spec.begin());
+        before = rangeLevels (spec);
+        for (int r = 0; r < numRanges; ++r)
+            if (std::abs (after[(size_t) r] - before[(size_t) r]) >= 2.0f)
+            {
+                ++c.rangesMoved;
+                moved.add (rangeNickname ((Range) r, lang).toLowerCase());
+            }
+        if (reference != nullptr && reference->measures.valid)
+        {
+            const auto ref = rangeLevels (reference->measures.spectrum);
+            c.refDistanceChange = distance (after, ref) - distance (before, ref);
+        }
+    }
+
+    juce::String why;
+    if (reference != nullptr && c.refDistanceChange >= 1.0f && c.scoreGain >= 5.0f)
+        why = tr (lang, "The meter likes it more, but the tone moved away from your reference track.",
+                        "Mittari pitää tästä enemmän, mutta sävy siirtyi kauemmas referenssiraidastasi.");
+    else if (c.rangesMoved >= 3)
+        why = tr (lang, "The tone changed in ", "Sävy muuttui ") + juce::String (c.rangesMoved)
+              + tr (lang, " ranges at once (", " alueella kerralla (") + moved.joinIntoString (", ") + ").";
+    else if (c.scoreGain >= 15.0f)
+        why = tr (lang, "The meter jumped a whole lot since the snapshot.", "Mittari hyppäsi paljon snapshotin jälkeen.");
+    if (why.isEmpty())
+        return c;
+
+    c.warn = true;
+    c.headline = tr (lang, "Many changes since the snapshot: listen before you go on", "Paljon muutoksia snapshotin jälkeen: kuuntele ennen kuin jatkat");
+    c.detail = why + tr (lang, " Press BEFORE and MIX in turn at the same loudness. The meter can't hear music; you can.",
+                               " Paina vuorotellen ENNEN ja MIKSI samalla äänekkyydellä. Mittari ei kuule musiikkia, sinä kuulet.");
+    return c;
+}
 } // namespace wwma

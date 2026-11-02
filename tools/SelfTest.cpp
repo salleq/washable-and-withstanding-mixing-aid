@@ -949,6 +949,36 @@ namespace
                    juce::String (s.editor->getTrial().findingId));
             s.editor->clearEarDecisions();
             check (s.p.getEarOverruled().empty(), "  and the ears' decisions can be cleared");
+        }
+        {
+            // "many changes since the snapshot": ask the ears before going on
+            SavedSnapshot snap;
+            snap.score = 50.0f;
+            snap.spectrum.assign ((size_t) Bands::count, 0.0f);
+            auto nowWith = [] (float score, std::initializer_list<std::pair<Range, float>> moves)
+            {
+                Assessment a;
+                a.enoughData = true;
+                a.measures.valid = true;
+                a.score = score;
+                a.measures.spectrum.fill (0.0f);
+                for (const auto& [range, db] : moves)
+                {
+                    const auto info = rangeBands (range);
+                    for (int b = info.firstBand; b <= info.lastBand; ++b)
+                        a.measures.spectrum[(size_t) b] += db;
+                }
+                return a;
+            };
+            const auto small = overOptimised (snap, nowWith (55.0f, { { Range::lowMid, -3.0f } }), nullptr, Lang::english);
+            const auto many = overOptimised (snap, nowWith (58.0f, { { Range::sub, -3.0f }, { Range::lowMid, -3.0f }, { Range::presence, 3.0f } }), nullptr, Lang::english);
+            const auto jump = overOptimised (snap, nowWith (70.0f, {}), nullptr, Lang::english);
+            Assessment ref = nowWith (60.0f, {});
+            const auto away = overOptimised (snap, nowWith (57.0f, { { Range::air, 8.0f } }), &ref, Lang::english);
+            check (! small.warn, "one change at a time: no warning");
+            check (many.warn && many.rangesMoved == 3, "the tone moved in three ranges at once: 'listen before you go on'", many.detail);
+            check (jump.warn, "  the meter jumped 20 points: the same", jump.detail);
+            check (away.warn && away.refDistanceChange > 1.0f, "  the meter rose while the tone moved away from the reference: the same", away.detail);
             {
                 Trial t;
                 t.title = "Muddy low mids";

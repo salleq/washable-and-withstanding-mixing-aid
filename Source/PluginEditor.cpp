@@ -900,6 +900,14 @@ void WwmaAudioProcessorEditor::reassess()
     chainPanel.refresh();
 
     updateStyleButton();
+    // many changes since the snapshot, judged only by the meter: ask the ears to check
+    if (! state.snapshots.empty() && state.trackRole == TrackRole::mix && ! state.viewingRef())
+    {
+        const auto* ref = state.targetRefView();
+        state.drift = overOptimised (state.snapshots.back(), state.assessment, ref != nullptr ? &ref->assessment : nullptr, state.lang);
+    }
+    else
+        state.drift = {};
     if (state.compareOpen && ! state.snapshots.empty() && state.assessment.enoughData)
         state.changes = compareMetrics (state.snapshots.back().metrics, keyMetrics (state.assessment, state.profile, state.stage));
     else
@@ -1119,6 +1127,7 @@ void WwmaAudioProcessorEditor::saveSnapshot()
     // and it is saved in WWMA's own folder, so it is there after the project is closed
     if (proc.before.freeze())
         proc.saveBeforeVersion (state.assessment.score);
+    state.listenedSinceSnapshot = false;
     readBefore();
     SavedSnapshot snap;
     snap.time = juce::Time::getCurrentTime();
@@ -1135,6 +1144,7 @@ void WwmaAudioProcessorEditor::saveSnapshot()
 void WwmaAudioProcessorEditor::clearSnapshots()
 {
     proc.clearScoreSnapshots();
+    proc.setEarOverruled ({});   // a fresh start: the findings the ears ruled out count again
     loadSnapshots();
     state.hasBaseline = false;
     state.baselineExcess.clear();
@@ -1545,6 +1555,8 @@ void WwmaAudioProcessorEditor::setListeningBefore (bool b)
     if (b && state.listening)
         setListening (false);
     state.listeningBefore = b;
+    if (b)
+        state.listenedSinceSnapshot = true;
     proc.listenToBefore.store (b);
     mixAButton.setToggleState (! b && ! state.listening, juce::dontSendNotification);
     beforeButton.setToggleState (b, juce::dontSendNotification);
