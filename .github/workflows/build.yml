@@ -61,7 +61,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev xvfb
+            libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DWWMA_BUILD_TOOLS=${{ matrix.selftest && 'ON' || 'OFF' }}
@@ -191,7 +191,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev \
-            libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev xvfb
+            libxcursor-dev libxext-dev libxcomposite-dev libfreetype-dev libfontconfig1-dev libgl1-mesa-dev xvfb
       - name: Build tools
         run: |
           cmake -B build -DCMAKE_BUILD_TYPE=Release -DWWMA_BUILD_TOOLS=ON
