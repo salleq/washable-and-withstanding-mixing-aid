@@ -66,7 +66,7 @@ juce::String firstStep (const juce::String& howTo)
     return line;
 }
 
-TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, bool samePart, Lang lang)
+TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, bool samePart, Lang lang, bool showPoints)
 {
     TrialResult r;
     const auto it = t.before.excess.find (t.findingId);
@@ -103,12 +103,13 @@ TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, boo
     const float d = r.overall.scoreDelta;
     const auto points = juce::String (juce::roundToInt (d)) ;
     const auto signedPoints = (d >= 0.0f ? "+" : "") + points;
+    const auto scoreText = showPoints ? tr (lang, "Score ", "Pisteet ") + signedPoints + ". " : juce::String();
 
     if (findingWorse || d <= -3.0f || (! findingBetter && r.overall.verdict < 0))
     {
         r.kind = TrialResult::Kind::worse;
         r.headline = tr (lang, "That made it worse: undo it", "Tämä huononsi: peru muutos");
-        r.detail = tr (lang, "Score ", "Pisteet ") + signedPoints + ". "
+        r.detail = scoreText
                    + (r.overall.worseNames.isEmpty() ? juce::String()
                                                      : tr (lang, "Worse: ", "Huonompi: ") + r.overall.worseNames.joinIntoString (", ") + ". ")
                    + tr (lang, "Undo (Ctrl/Cmd+Z), then try a smaller move, or the next step of the fix.",
@@ -119,7 +120,7 @@ TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, boo
         r.kind = TrialResult::Kind::helped;
         r.headline = gone ? tr (lang, "It helped: fixed. Keep it", "Auttoi: korjattu. Pidä muutos")
                                            : tr (lang, "It helped. Keep it", "Auttoi. Pidä muutos");
-        r.detail = tr (lang, "Score ", "Pisteet ") + signedPoints + ". "
+        r.detail = scoreText
                    + (r.overall.betterNames.isEmpty() ? juce::String()
                                                       : tr (lang, "Better: ", "Parempi: ") + r.overall.betterNames.joinIntoString (", ") + ". ")
                    + (r.overall.worseNames.isEmpty() ? juce::String()
@@ -131,7 +132,7 @@ TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, boo
     {
         r.kind = TrialResult::Kind::noChange;
         r.headline = tr (lang, "No clear change yet", "Ei selvää muutosta vielä");
-        r.detail = tr (lang, "Score ", "Pisteet ") + signedPoints + ". "
+        r.detail = scoreText
                    + tr (lang, "The change was probably too small, or on the wrong track. Go a bit further (e.g. 2 dB more), or check you changed the sound named in the step.",
                                "Muutos oli luultavasti liian pieni tai väärällä raidalla. Mene vähän pidemmälle (esim. 2 dB lisää) tai tarkista, että muutit askeleessa mainittua ääntä.");
     }

@@ -7,7 +7,8 @@ namespace
 {
     const juce::Identifier windowId ("window"), langId ("lang"), autoResetId ("autoReset"), referenceId ("Reference"),
                            stageId ("stage"), trackId ("track"), trackKindId ("trackKind"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
-                           refsId ("ReferenceTracks"), slotId ("Slot"), sessionIdId ("sessionId"), sessionNameId ("sessionName");
+                           refsId ("ReferenceTracks"), slotId ("Slot"), sessionIdId ("sessionId"), sessionNameId ("sessionName"),
+                           showScoreId ("showScore");
 
     Lang defaultLang() { return Lang::english; } // Finnish is one click away
 }
@@ -62,6 +63,9 @@ WwmaAudioProcessor::~WwmaAudioProcessor()
     wwma::TrackBus::shared().leave (busId);
 }
 
+bool WwmaAudioProcessor::getShowScore() const { return (bool) apvts.state.getProperty (showScoreId, false); }
+void WwmaAudioProcessor::setShowScore (bool on) { apvts.state.setProperty (showScoreId, on, nullptr); }
+
 // ---- WWMA's own folder
 
 void WwmaAudioProcessor::ensureSessionId()
@@ -95,6 +99,7 @@ juce::String WwmaAudioProcessor::usedStateXml() const
     // the language is a preference, not use: switching it right away still offers earlier sessions
     auto st = const_cast<juce::AudioProcessorValueTreeState&> (apvts).copyState();
     st.removeProperty (langId, nullptr);
+    st.removeProperty (showScoreId, nullptr);
     return st.toXmlString();
 }
 

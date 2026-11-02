@@ -144,6 +144,9 @@ public:
     std::atomic<float> withoutChainGainDb { 0.0f };
     bool getShowSuggestions() const;
     void setShowSuggestions (bool on);
+    /** The 0-100 number on the meters. Off by default: the meter is a hint, the ears decide. */
+    bool getShowScore() const;
+    void setShowScore (bool on);
     bool getChainOpen() const;
     void setChainOpen (bool on);
 

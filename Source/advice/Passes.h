@@ -59,5 +59,5 @@ struct TrialResult
 juce::String firstStep (const juce::String& howTo);
 
 /** Judges a trial once a new pass of the same part has played long enough. */
-TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, bool samePart, Lang lang);
+TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, bool samePart, Lang lang, bool showPoints = true);
 } // namespace wwma

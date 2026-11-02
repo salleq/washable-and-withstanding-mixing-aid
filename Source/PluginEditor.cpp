@@ -246,6 +246,15 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
     reportButton.onClick = [this] { chooseReportFile(); };
     progress.onVersions = [this] { setVersionsOpen (! versionsOpen); };
+    state.showScore = proc.getShowScore();
+    score.onShowScore = [this] (bool on)
+    {
+        proc.setShowScore (on);
+        state.showScore = on;
+        score.updateTexts();
+        reassess();
+        content.repaint();
+    };
     versionsPanel.onClose = [this] { setVersionsOpen (false); };
     versionsPanel.onUse = [this] (const store::VersionInfo& v)
     {
@@ -675,6 +684,7 @@ void WwmaAudioProcessorEditor::updateTexts()
     langButton.setButtonText (lang == Lang::finnish ? "EN" : "FI");
     langButton.setTooltip (lang == Lang::finnish ? juce::String ("In English") : juce::String (juce::CharPointer_UTF8 ("Suomeksi")));
     progress.updateTexts();
+    score.updateTexts();
     beforeAfter.updateTexts();
     refDetail.updateTexts();
     lessonBox.updateTexts();
@@ -950,7 +960,7 @@ void WwmaAudioProcessorEditor::updatePasses()
         const bool newPass = passSeen > state.trial.passAtStart;
         const auto& b = state.trial.before;
         const bool samePart = b.start < 0.0 || state.passStartPos < 0.0 || std::abs (b.start - state.passStartPos) <= 2.0;
-        state.trialResult = judgeTrial (state.trial, state.currentPass, newPass, samePart, state.lang);
+        state.trialResult = judgeTrial (state.trial, state.currentPass, newPass, samePart, state.lang, state.showScore);
     }
     progress.syncButtons();
     progress.repaint();
@@ -983,7 +993,7 @@ void WwmaAudioProcessorEditor::toggleTrial()
                 break;
             }
         if (state.trial.active)
-            state.trialResult = judgeTrial (state.trial, state.currentPass, false, true, state.lang);
+            state.trialResult = judgeTrial (state.trial, state.currentPass, false, true, state.lang, state.showScore);
     }
     progress.syncButtons();
     progress.repaint();
@@ -1562,6 +1572,7 @@ void WwmaAudioProcessorEditor::offerSessions()
 void WwmaAudioProcessorEditor::reloadFromProcessor()
 {
     state.lang = proc.getLang();
+    state.showScore = proc.getShowScore();
     autoResetToggle.setToggleState (proc.getAutoReset(), juce::dontSendNotification);
     state.learnMode = proc.getLearnMode();
     state.chainOpen = proc.getChainOpen() && ! state.learnMode;

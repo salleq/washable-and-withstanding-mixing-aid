@@ -103,6 +103,7 @@ struct ViewState
     double songSeconds = -1.0;       // the DAW's play head
     std::vector<uint8_t> beforeCoverage;   // per second: 0 none, 1 older, 2 newest snapshot
     bool versionsOpen = false;       // the versions panel is shown over the findings
+    bool showScore = false;          // the 0-100 number is shown (off by default: the ears decide)
 
     // mastering EQ and limiter
     bool chainOpen = false;              // the EQ + limiter panel is shown over the findings
@@ -322,10 +323,15 @@ private:
 class ScoreBox : public juce::Component
 {
 public:
-    explicit ScoreBox (const ViewState& s) : state (s) {}
+    explicit ScoreBox (const ViewState& s);
     void paint (juce::Graphics&) override;
+    void resized() override;
+    void updateTexts();
+    /** The user turned the number on or off. */
+    std::function<void (bool)> onShowScore;
 private:
     const ViewState& state;
+    juce::TextButton numberButton;
 };
 
 /** Phone, car, headphones and club: how well the mix should hold up on each. */

@@ -53,6 +53,14 @@ namespace
 
     juce::Rectangle<int> content (const juce::Component& c) { return c.getLocalBounds().reduced (12, 10); }
 
+    /** Without the number: three plain levels, and above 70 the meter steps back. */
+    juce::String plainVerdict (float score, Lang lang)
+    {
+        if (score >= 70.0f)
+            return t (lang, "Close enough", "Riittävän lähellä");
+        return verdictFor (score, lang);
+    }
+
     /** Number in Plex Mono with a small unit after it. */
     void numberWithUnit (juce::Graphics& g, const juce::String& value, const juce::String& unit, juce::Rectangle<int> r,
                          float size, juce::Colour col)
@@ -927,25 +935,59 @@ void FindingsPanel::List::mouseUp (const juce::MouseEvent& e)
 }
 
 // =====================================================================================
+ScoreBox::ScoreBox (const ViewState& s) : state (s)
+{
+    numberButton.setClickingTogglesState (true);
+    numberButton.onClick = [this] { if (onShowScore) onShowScore (numberButton.getToggleState()); };
+    addAndMakeVisible (numberButton);
+    updateTexts();
+}
+
+void ScoreBox::updateTexts()
+{
+    const auto lang = state.lang;
+    numberButton.setButtonText ("0-100");
+    numberButton.setToggleState (state.showScore, juce::dontSendNotification);
+    numberButton.setTooltip (t (lang, "Show the score as a number. It is off by default: chasing the number can lead a mix the wrong way. The meter only sees what it measures; your ears hear the music.",
+                                      "Näytä pisteet numerona. Oletuksena pois: numeron jahtaaminen voi viedä miksiä väärään suuntaan. Mittari näkee vain sen, mitä se mittaa; korva kuulee musiikin."));
+}
+
+void ScoreBox::resized()
+{
+    const auto r = content (*this);
+    numberButton.setBounds (r.getRight() - 52, r.getY() - 3, 52, 20);
+}
+
 void ScoreBox::paint (juce::Graphics& g)
 {
     const auto lang = state.lang;
+    const bool numbers = state.showScore;
     drawBox (g, getLocalBounds().toFloat());
     auto r = content (*this);
-    drawLabel (g, t (lang, "How close to a good mix", "Kuinka lähellä hyvää miksiä"), r.removeFromTop (16));
+    drawLabel (g, t (lang, "How close to a good mix", "Kuinka lähellä hyvää miksiä"), r.removeFromTop (16).withTrimmedRight (56));
 
     const bool valid = state.shownAssessment().enoughData;
     const float score = state.viewingRef() ? state.shownAssessment().score : state.displayScore;
     const auto col = valid ? scoreColour (score) : colours::faint;
 
     auto row = r.removeFromTop (52);
-    g.setColour (col);
-    g.setFont (fonts::numBold (44.0f));
-    g.drawText (valid ? juce::String (juce::roundToInt (score)) : dash + dash, row.removeFromLeft (90), juce::Justification::centredLeft);
-    g.setFont (fonts::labelBold (20.0f));
-    g.drawFittedText (valid ? verdictFor (score, lang) : t (lang, "Listening...", "Kuuntelen..."), row, juce::Justification::centredRight, 2);
+    if (numbers)
+    {
+        g.setColour (col);
+        g.setFont (fonts::numBold (44.0f));
+        g.drawText (valid ? juce::String (juce::roundToInt (score)) : dash + dash, row.removeFromLeft (90), juce::Justification::centredLeft);
+        g.setFont (fonts::labelBold (20.0f));
+        g.drawFittedText (valid ? verdictFor (score, lang) : t (lang, "Listening...", "Kuuntelen..."), row, juce::Justification::centredRight, 2);
+    }
+    else
+    {
+        g.setColour (col);
+        g.setFont (fonts::labelBold (24.0f));
+        g.drawFittedText (valid ? upper (plainVerdict (score, lang)) : t (lang, "Listening...", "Kuuntelen..."), row, juce::Justification::centredLeft, 1, 0.8f);
+    }
 
     auto bar = r.removeFromTop (30).toFloat().withSizeKeepingCentre ((float) r.getWidth(), 14.0f);
+    if (numbers)
     {
         juce::ColourGradient grad (colours::bad, bar.getX(), 0.0f, colours::great, bar.getRight(), 0.0f, false);
         grad.addColour (0.32, colours::warn);
@@ -980,38 +1022,80 @@ void ScoreBox::paint (juce::Graphics& g)
             g.fillRoundedRectangle (mk, 2.0f);
         }
     }
+    else
+    {
+        // three plain zones, the current one lit: no needle to chase
+        const float edges[] = { 0.0f, 40.0f, 70.0f, 100.0f };
+        const juce::Colour zoneCols[] = { colours::bad, colours::mid, colours::good };
+        for (int i = 0; i < 3; ++i)
+        {
+            auto z = juce::Rectangle<float>::leftTopRightBottom (bar.getX() + bar.getWidth() * edges[i] / 100.0f + (i > 0 ? 2.0f : 0.0f), bar.getY(),
+                                                                 bar.getX() + bar.getWidth() * edges[i + 1] / 100.0f, bar.getBottom());
+            const bool current = valid && score >= edges[i] && (score < edges[i + 1] || i == 2);
+            g.setColour (zoneCols[i].withAlpha (current ? 1.0f : 0.22f));
+            g.fillRoundedRectangle (z, 7.0f);
+        }
+    }
 
     {
         auto zones = r.removeFromTop (28);
-        const float widths[] = { 0.40f, 0.30f, 0.20f, 0.10f };
-        const float scores[] = { 20.0f, 55.0f, 80.0f, 95.0f };
-        float x = (float) zones.getX();
-        const float lineH = zones.getHeight() * 0.5f;
-        for (int i = 0; i < 4; ++i)
+        if (numbers)
         {
-            const float w = zones.getWidth() * widths[i];
-            auto box = juce::Rectangle<float> (x, (float) zones.getY(), w - 3.0f, (float) zones.getHeight());
-            int lines = 2;
-            // the two right-hand zones are narrow: they share their space on two lines,
-            // "close enough" on top from its zone's start, "looks perfect" below, right-aligned
-            if (i >= 2)
+            const float widths[] = { 0.40f, 0.30f, 0.20f, 0.10f };
+            const float scores[] = { 20.0f, 55.0f, 80.0f, 95.0f };
+            float x = (float) zones.getX();
+            const float lineH = zones.getHeight() * 0.5f;
+            for (int i = 0; i < 4; ++i)
             {
-                const float start = (float) zones.getX() + zones.getWidth() * (widths[0] + widths[1]);
-                box = juce::Rectangle<float> (start, (float) zones.getY() + (i == 3 ? lineH : 0.0f), (float) zones.getRight() - start, lineH);
-                lines = 1;
+                const float w = zones.getWidth() * widths[i];
+                auto box = juce::Rectangle<float> (x, (float) zones.getY(), w - 3.0f, (float) zones.getHeight());
+                int lines = 2;
+                // the two right-hand zones are narrow: they share their space on two lines,
+                // "close enough" on top from its zone's start, "looks perfect" below, right-aligned
+                if (i >= 2)
+                {
+                    const float start = (float) zones.getX() + zones.getWidth() * (widths[0] + widths[1]);
+                    box = juce::Rectangle<float> (start, (float) zones.getY() + (i == 3 ? lineH : 0.0f), (float) zones.getRight() - start, lineH);
+                    lines = 1;
+                }
+                const bool current = valid && verdictFor (score, lang) == verdictFor (scores[i], lang);
+                g.setColour (current ? col : colours::dim);
+                g.setFont ((current ? fonts::labelBold (11.0f) : fonts::label (10.5f)).withExtraKerningFactor (0.04f));
+                g.drawFittedText (upper (verdictFor (scores[i], lang)), box.toNearestInt(),
+                                  i == 3 ? juce::Justification::topRight : juce::Justification::topLeft, lines, 0.7f);
+                x += w;
             }
-            const bool current = valid && verdictFor (score, lang) == verdictFor (scores[i], lang);
-            g.setColour (current ? col : colours::dim);
-            g.setFont ((current ? fonts::labelBold (11.0f) : fonts::label (10.5f)).withExtraKerningFactor (0.04f));
-            g.drawFittedText (upper (verdictFor (scores[i], lang)), box.toNearestInt(),
-                              i == 3 ? juce::Justification::topRight : juce::Justification::topLeft, lines, 0.7f);
-            x += w;
+        }
+        else
+        {
+            const float widths[] = { 0.40f, 0.30f, 0.30f };
+            const float scores[] = { 20.0f, 55.0f, 85.0f };
+            float x = (float) zones.getX();
+            for (int i = 0; i < 3; ++i)
+            {
+                const float w = zones.getWidth() * widths[i];
+                const bool current = valid && plainVerdict (score, lang) == plainVerdict (scores[i], lang);
+                g.setColour (current ? col : colours::dim);
+                g.setFont ((current ? fonts::labelBold (11.0f) : fonts::label (10.5f)).withExtraKerningFactor (0.04f));
+                g.drawFittedText (upper (plainVerdict (scores[i], lang)), juce::Rectangle<float> (x, (float) zones.getY(), w - 3.0f, (float) zones.getHeight()).toNearestInt(),
+                                  juce::Justification::topLeft, 2, 0.7f);
+                x += w;
+            }
         }
     }
 
     juce::AttributedString a;
     a.setWordWrap (juce::AttributedString::byWord);
-    a.append (state.shownAssessment().nextStep, fonts::body (12.5f), colours::soft);
+    if (numbers || ! valid)
+        a.append (state.shownAssessment().nextStep, fonts::body (12.5f), colours::soft);
+    else if (score >= 70.0f)
+        a.append (t (lang, "The meter has little left to say. Your ears decide the rest: compare BEFORE and MIX, and a reference, at the same loudness.",
+                           "Mittarilla ei ole paljon sanottavaa. Korva päättää loput: vertaa ENNEN ja MIKSI, sekä referenssiä, samalla äänekkyydellä."),
+                  fonts::body (12.5f), colours::soft);
+    else
+        a.append (t (lang, "Fix the top finding, then listen: does BEFORE or MIX sound better?",
+                           "Korjaa ylin havainto ja kuuntele: kuulostaako ENNEN vai MIKSI paremmalta?"),
+                  fonts::body (12.5f), colours::soft);
     if (valid && ! state.viewingRef() && state.scoreHistory.size() > 36 && std::abs (state.trend) >= 3.0f)
         a.append (state.trend > 0.0f ? t (lang, "  Getting better.", "  Paranee.") : t (lang, "  Getting worse.", "  Huononee."),
                   fonts::bodyBold (12.5f), state.trend > 0.0f ? colours::good : colours::bad);
@@ -1020,22 +1104,28 @@ void ScoreBox::paint (juce::Graphics& g)
         const auto* act = state.activeRefView();
         const auto who = state.viewingRef() ? t (lang, " Your mix", " Miksisi")
                                             : (act->earlier ? t (lang, " Your earlier version", " Aiempi versiosi") : " " + state.refLabel());
-        a.append (who + t (lang, " scores ", " saa ") + juce::String (juce::roundToInt (state.otherAssessment().score))
-                      + t (lang, " against the ", " pistettä tyylille ") + state.profileName
-                      + t (lang, " preset.", " -presetille."),
-                  fonts::body (12.5f), act->earlier ? colours::earlier : colours::ref);
+        if (numbers)
+            a.append (who + t (lang, " scores ", " saa ") + juce::String (juce::roundToInt (state.otherAssessment().score))
+                          + t (lang, " against the ", " pistettä tyylille ") + state.profileName
+                          + t (lang, " preset.", " -presetille."),
+                      fonts::body (12.5f), act->earlier ? colours::earlier : colours::ref);
+        else
+            a.append (who + ": " + plainVerdict (state.otherAssessment().score, lang).toLowerCase() + t (lang, " for ", " tyylille ")
+                          + state.profileName + ".",
+                      fonts::body (12.5f), act->earlier ? colours::earlier : colours::ref);
         // what holds a reference's score down: the reference's own biggest findings
         const auto& other = state.otherAssessment();
         if (! state.viewingRef() && state.targetSlot >= 0 && state.targetSlot == state.activeRef)
-            a.append (t (lang, " This track is the target itself, so a high score says nothing about it.",
-                               " Tämä raita on itse tavoite, joten korkea pistemäärä ei kerro siitä mitään."),
+            a.append (t (lang, " This track is the target itself, so the meter says nothing about it.",
+                               " Tämä raita on itse tavoite, joten mittari ei kerro siitä mitään."),
                       fonts::body (12.5f), colours::warn);
         else if (other.score < 95.0f && ! other.findings.empty())
         {
             juce::String why;
             for (size_t i = 0; i < other.findings.size() && i < 1; ++i)
                 why << (i > 0 ? "; " : "") << other.findings[i].title;
-            a.append (t (lang, " Held down by ", " Pisteitä vie: ") + why + ".", fonts::body (12.5f), colours::dim);
+            a.append ((numbers ? t (lang, " Held down by ", " Pisteitä vie: ") : t (lang, " The meter notes: ", " Mittari huomauttaa: ")) + why + ".",
+                      fonts::body (12.5f), colours::dim);
         }
     }
     layoutText (a, (float) r.getWidth()).draw (g, r.withTrimmedTop (4).toFloat());
@@ -1107,7 +1197,8 @@ void TranslationBox::paint (juce::Graphics& g)
         const auto col = valid ? scoreColour (tr.score) : colours::faint;
         g.setColour (col);
         g.setFont (fonts::num (13.0f));
-        g.drawText (valid ? juce::String (juce::roundToInt (tr.score)) : dash, num, juce::Justification::centredRight);
+        if (state.showScore || ! valid)
+            g.drawText (valid ? juce::String (juce::roundToInt (tr.score)) : dash, num, juce::Justification::centredRight);
         auto track = line.reduced (0, 6).toFloat().withTrimmedRight (8.0f);
         g.setColour (colours::raised);
         g.fillRoundedRectangle (track, 3.5f);
@@ -1244,7 +1335,7 @@ void ProgressBox::paintBanner (juce::Graphics& g, juce::Rectangle<float> r)
     else if (state.passComparable && state.passVerdict.ready)
     {
         const auto& v = state.passVerdict;
-        const auto pts = " (" + fmt (lang, v.scoreDelta, 0, true) + ")";
+        const auto pts = state.showScore ? " (" + fmt (lang, v.scoreDelta, 0, true) + ")" : juce::String();
         col = v.verdict > 0 ? colours::good : (v.verdict < 0 ? colours::bad : colours::dim);
         headline = (v.verdict > 0 ? juce::String (juce::CharPointer_UTF8 ("â² ")) + t (lang, "Better than the last pass", "Parempi kuin edellinen soitto")
                   : v.verdict < 0 ? juce::String (juce::CharPointer_UTF8 ("â¼ ")) + t (lang, "Worse than the last pass", "Huonompi kuin edellinen soitto")
@@ -1293,7 +1384,7 @@ void ProgressBox::paint (juce::Graphics& g)
 
     const auto& snaps = state.snapshots;
     const bool live = state.assessment.enoughData;
-    if (! snaps.empty() && live)
+    if (! snaps.empty() && live && state.showScore)
     {
         const float d = state.displayScore - snaps.back().score;
         g.setFont (fonts::num (12.0f));
@@ -1327,6 +1418,39 @@ void ProgressBox::paint (juce::Graphics& g)
                               + t (lang, "\". Then you can go back to this point if the next change makes it worse.",
                                          "\". Silloin pääset palaamaan tähän, jos seuraava muutos huonontaa.") ,
                           text, juce::Justification::topLeft, 4);
+        return;
+    }
+    if (! state.showScore)
+    {
+        // without the number: the snapshots as a short list, and what to do with them
+        auto list = r.reduced (2, 6);
+        g.setFont (fonts::body (11.5f));
+        if (snaps.empty())
+        {
+            g.setColour (colours::dim);
+            g.drawFittedText (t (lang, "Play the part, then save a snapshot. After your change, press BEFORE and MIX in turn: which one do you like better?",
+                                       "Soita kohta ja tallenna snapshot. Muutoksen jälkeen paina vuorotellen ENNEN ja MIKSI: kumpi kuulostaa paremmalta?"),
+                              list, juce::Justification::centred, 4, 0.9f);
+            return;
+        }
+        const size_t first = snaps.size() > 3 ? snaps.size() - 3 : 0;
+        for (size_t i = first; i < snaps.size(); ++i)
+        {
+            auto line = list.removeFromTop (16);
+            g.setColour (colours::soft);
+            g.drawText ((snaps[i].confirmed ? juce::String (juce::CharPointer_UTF8 ("\xe2\x9c\x93 ")) : juce::String()) + snaps[i].time.formatted ("%H:%M"),
+                        line.removeFromLeft (56), juce::Justification::centredLeft);
+            g.setColour (scoreColour (snaps[i].score));
+            g.drawText (plainVerdict (snaps[i].score, lang), line, juce::Justification::centredLeft);
+        }
+        list.removeFromTop (4);
+        g.setColour (state.beforeSeconds > 0 ? colours::earlier : colours::dim);
+        g.drawFittedText (state.beforeSeconds > 0
+                              ? t (lang, "BEFORE holds the newest snapshot. Press BEFORE and MIX in turn: which one do you like better?",
+                                         "ENNEN soittaa uusinta snapshotia. Paina vuorotellen ENNEN ja MIKSI: kumpi kuulostaa paremmalta?")
+                              : t (lang, "BEFORE is empty: play the part before you save the snapshot, so WWMA can record it.",
+                                         "ENNEN on tyhjä: soita kohta ennen snapshotin tallennusta, jotta WWMA voi nauhoittaa sen."),
+                          list, juce::Justification::topLeft, 3, 0.9f);
         return;
     }
     auto plot = r.toFloat().withTrimmedLeft (22.0f).withTrimmedBottom (14.0f).withTrimmedTop (6.0f);
@@ -2015,6 +2139,24 @@ void BeforeAfterBox::paint (juce::Graphics& g)
     // the score, big
     auto scoreRow = r.removeFromTop (34);
     const float now = state.assessment.enoughData ? state.assessment.score : -1.0f;
+    if (! state.showScore)
+    {
+        // without the number: the level then and now, in words
+        g.setFont (fonts::labelBold (16.0f));
+        g.setColour (scoreColour (snap.score));
+        g.drawText (upper (plainVerdict (snap.score, lang)), scoreRow.removeFromLeft (150), juce::Justification::centredLeft);
+        g.setColour (colours::dim);
+        g.setFont (fonts::body (18.0f));
+        g.drawText (juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92")), scoreRow.removeFromLeft (30), juce::Justification::centred);
+        if (now >= 0.0f)
+        {
+            g.setFont (fonts::labelBold (16.0f));
+            g.setColour (scoreColour (now));
+            g.drawText (upper (plainVerdict (now, lang)), scoreRow.removeFromLeft (150), juce::Justification::centredLeft);
+        }
+    }
+    else
+    {
     g.setFont (fonts::numBold (26.0f));
     g.setColour (scoreColour (snap.score));
     g.drawText (juce::String (juce::roundToInt (snap.score)), scoreRow.removeFromLeft (50), juce::Justification::centredLeft);
@@ -2030,6 +2172,7 @@ void BeforeAfterBox::paint (juce::Graphics& g)
         g.setFont (fonts::bodyBold (14.0f));
         g.setColour (d >= 1.0f ? colours::good : (d <= -1.0f ? colours::bad : colours::dim));
         g.drawText (fmt (lang, d, 0, true) + t (lang, " points", " pistettä"), scoreRow.removeFromLeft (110), juce::Justification::centredLeft);
+    }
     }
     int better = 0, worse = 0;
     for (const auto& c : state.changes) { better += c.verdict > 0; worse += c.verdict < 0; }
@@ -2061,6 +2204,8 @@ void BeforeAfterBox::paint (juce::Graphics& g)
     int shown = 0, hidden = 0;
     for (const auto& c : state.changes)
     {
+        if (c.id == "score" && ! state.showScore)
+            continue;
         if (r.getHeight() < rowH)
         {
             ++hidden;
