@@ -209,11 +209,22 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: docs/release-notes
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      # hand-written notes for this version (docs/release-notes/<tag>.md) go first, when there are any
+      - name: Release notes
+        id: notes
+        shell: bash
+        run: |
+          f="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$f" ]; then echo "body_path=$f" >> "$GITHUB_OUTPUT"; fi
       - uses: softprops/action-gh-release@v2
         with:
+          body_path: ${{ steps.notes.outputs.body_path }}
           files: |
             artifacts/**/*.zip
             artifacts/**/*.pkg
