@@ -115,6 +115,10 @@ struct ViewState
     Snapshot inputSnap;                  // the input, before the EQ and limiter
     float gainReduction = 0.0f;          // dB, for the meter (falls back slowly)
     bool listeningWithout = false;       // level-matched bypass is on
+    /** A change WWMA made to the EQ / limiter on the user's click (an AI suggestion, or its own
+        suggested values) that waits for "Keep" or "Undo". */
+    bool chainChangePending = false;
+    juce::StringArray chainChangeLines;  // what changed, one line per knob
 
     /** The active, analysed reference, or nullptr. */
     const RefView* activeRefView() const

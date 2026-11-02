@@ -142,6 +142,11 @@ public:
         chain produces, so you judge the sound and not the volume. Never on unless the user turns it on. */
     std::atomic<bool> listenWithoutChain { false };
     std::atomic<float> withoutChainGainDb { 0.0f };
+    /** A change WWMA made to the EQ / limiter on the user's click (an AI suggestion or its own
+        suggested values), waiting for Keep or Undo: the knobs as they were, and what changed.
+        Kept while the window is closed, not saved with the project. */
+    std::optional<wwma::ChainSettings> chainUndo;
+    juce::StringArray chainUndoLines;
     bool getShowSuggestions() const;
     void setShowSuggestions (bool on);
     /** The 0-100 number on the meters. Off by default: the meter is a hint, the ears decide. */

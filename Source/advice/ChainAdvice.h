@@ -5,7 +5,8 @@
 
 namespace wwma
 {
-/** A suggested value for one knob. It is only shown: WWMA never turns a knob itself. */
+/** A suggested value for one knob. It is shown next to the knob; WWMA sets it only when the
+    user presses "Use suggested" (and Undo puts the knob back). */
 struct Suggestion
 {
     bool shown = false;      // false: nothing to suggest yet (or nothing to suggest for this knob)

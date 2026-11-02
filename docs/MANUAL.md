@@ -1,6 +1,6 @@
 # WWMA manual
 
-WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teaches you what to change. It never changes your sound by itself. It changes what you hear only when you choose **B · REF** to hear a reference track, or when you turn on its own mastering EQ or limiter (section 9). Even then it never turns a knob for you.
+WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teaches you what to change. It never changes your sound by itself. It changes what you hear only when you choose **B · REF** to hear a reference track, or when you turn on its own mastering EQ or limiter (section 9). Even then it never turns a knob without your click: **Use suggested** and an AI's **Try on master** set knobs only when you press them, and **Undo** puts them back.
 
 > **Heads-up: WWMA is 100 % vibe coded.** It was built entirely with an AI coding assistant, not by a seasoned plugin developer. Install and use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes.
 
@@ -236,6 +236,27 @@ An AI assistant can't hear your song, but it can read numbers and pictures. So *
 
 Start a chat with an AI assistant, attach the files and paste the question. Then ask more, like "what about the bass in the second drop?". Nothing is sent anywhere by WWMA: these are plain files on your computer, and you decide where they go.
 
+### Ask an AI from inside WWMA
+
+Press **AI** at the bottom. The panel opens over the spectrum and the findings. **Ask** saves a report (the same files as **Report**) and gives it to the assistant you chose under **Settings**:
+
+| Way | Key? | What happens |
+|---|---|---|
+| **Browser** | No | WWMA opens Claude, Gemini or ChatGPT in your browser. On Windows the files are on the clipboard (Ctrl+V in the chat); elsewhere the report folder opens so you can drag them in. **Copy question** puts the question on the clipboard. WWMA sends nothing itself. Copy the answer and press **Paste answer** to get Try buttons. |
+| **App on this computer** | No | WWMA runs **Claude Code** (`claude`), **Gemini CLI** (`gemini`) or **Codex CLI** (`codex`) installed on your computer, signed in with your own subscription. It may read only the report folder. Install the app and sign in once in a terminal. WWMA finds it in the usual places; if not, choose it under Settings. Some DAWs don't let plugins start other apps: then use the browser or a key. |
+| **API key** | Yes | WWMA calls the service's API with your own key (Claude: Messages API, default model `claude-opus-5-5`; Gemini and ChatGPT: a model picked from your account's list, or the one you choose). Billed to your API account. You can ask follow-up questions in the panel. |
+
+Claude can't be used with a Claude Pro or Max subscription through a key-less API: other apps may not sign in with it. The two ways without a key are the browser and Claude Code, which uses your subscription.
+
+- Only the report goes: numbers, the song part by part and the spectrogram pictures. **Never audio.** The app and API ways need your OK first (the box under Settings).
+- The settings and keys are kept in WWMA's own folder on this computer (`ai-settings.xml`, readable by you only on macOS and Linux), never in the DAW project or a report.
+- The answer is saved next to the report as `... AI answer (Claude).md` (or Gemini, ChatGPT). **Open file** opens it.
+- The question asks the assistant to end with a short block for WWMA. Its suggestions (at most three) become cards:
+  - **Try**: make the change yourself, then play the same part again. WWMA judges the pass against the one before, then asks your ears (BEFORE vs MIX), as in "Try the top fix". A suggestion about one of WWMA's own findings is judged on that finding; others on the whole pass.
+  - **Try on master** (only while mastering, or when you already use the EQ, and never in track mode): the change goes straight to WWMA's own EQ and limiter. It is kept small: at most 3 dB per EQ band from where it is, the limiter gain at most 6 dB up, and the ceiling at −0.3 dBTP or lower. The card's tooltip shows every knob that will move, and what had to be limited. The knobs move through the host, like a turned knob, so automation sees them. BEFORE is frozen first, and the EQ + limiter panel opens with **Keep** and **Undo**. **Undo** puts every knob back exactly as it was.
+- A fix that belongs on one track ("cut 300 Hz on the pads") can't be done from the master: it gets only **Try**.
+- The assistant can't hear the song and can be wrong. Your ears decide.
+
 To get the whole song, play it from start to end before you press **Report** (with **Reset on play** on, every play starts a fresh timeline). Silence is left out. In a DAW the table also shows where each part is in your project. See an [example](example-ai-report.md):
 
 ![The spectrogram picture](images/wwma-ai-timeline.png)
@@ -279,7 +300,7 @@ The tonal chart draws the earlier version as an orange dotted line next to the r
 
 ## 9. Mastering EQ and limiter
 
-Press **EQ + Limiter** at the bottom to open the panel. It has a four-band EQ and a true peak limiter, enough to finish a master without another plugin. **WWMA suggests values, you turn the knobs.** Nothing here moves by itself.
+Press **EQ + Limiter** at the bottom to open the panel. It has a four-band EQ and a true peak limiter, enough to finish a master without another plugin. **WWMA suggests values, you turn the knobs.** Nothing here moves by itself, only on your click.
 
 ![Mastering EQ and limiter](images/wwma-eq-limiter.png)
 
@@ -312,6 +333,7 @@ Press **EQ + Limiter** at the bottom to open the panel. It has a four-band EQ an
 - **Release** is about a 16th note at the song's tempo, so the limiter breathes in time. Without a clear tempo it's 100 ms.
 - In **MIX** mode the limiter is suggested off: limiting while mixing hides balance problems.
 - Untick **Suggestions** to hide them all. The setting is saved with the project.
+- **Use suggested** sets the knobs to the suggested values with one click (EQ and limiter, EQ only or limiter only). The stages it uses are turned on. Then **Keep** or **Undo**: Undo puts every knob back exactly as it was. While the change waits, WWMA judges the next pass of the same part and asks your ears, like **Try the top fix**.
 
 **Hear without** plays your mix without the EQ and limiter, at the same loudness as with them (the top bar turns yellow while it does). Use it to check that the chain makes the sound better and not just louder. Louder always sounds better for a moment.
 

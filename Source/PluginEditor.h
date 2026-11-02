@@ -6,6 +6,10 @@
 #include "ui/Components.h"
 #include "ui/ChainPanel.h"
 #include "ui/VersionsPanel.h"
+#include "ui/AiPanel.h"
+#include "ai/AiClient.h"
+#include "ai/AiPrompt.h"
+#include "advice/ListeningReport.h"
 #include "ui/Theme.h"
 #include "advice/StyleGuess.h"
 
@@ -100,6 +104,29 @@ public:
     const wwma::PassVerdict& getPassVerdict() const noexcept { return state.passVerdict; }
     bool isPassComparable() const noexcept { return state.passComparable; }
 
+    // ---- the AI assistant (Claude, Gemini, ChatGPT)
+    void setAiOpen (bool open);
+    bool isAiOpen() const noexcept { return aiPanel.isVisible(); }
+    void showAiSettings (bool show) { setAiOpen (true); aiPanel.showSettings (show); }
+    /** Saves a report and gives it to the chosen assistant (or opens it in the browser). */
+    void askAi();
+    /** An answer from the assistant (or pasted back from the browser): shown, saved next to the
+        report, and its suggestions become cards to try. */
+    void showAiAnswer (const juce::String& answer);
+    const std::vector<wwma::ai::Suggestion>& getAiSuggestions() const noexcept { return aiSession.suggestions; }
+    /** "Try": the user makes the change; WWMA judges the next pass and asks the ears. */
+    bool tryAiSuggestion (int index);
+    /** "Try on master": sets WWMA's own EQ / limiter to the suggestion (kept small), then the same as Try. */
+    bool tryAiSuggestionOnMaster (int index);
+    /** "Use suggested" in the EQ + limiter panel: WWMA's own suggested values, with one click. */
+    bool useSuggestedChain (bool eq, bool limiter);
+    /** Keep or undo a change WWMA made to the EQ / limiter. */
+    void keepChainChange();
+    void undoChainChange();
+    bool isChainChangePending() const noexcept { return proc.chainUndo.has_value(); }
+    /** Master changes are offered when mastering (or when the user already uses the EQ), never in track mode. */
+    bool masterChangesAllowed() const;
+
     static constexpr int baseWidth = 1140, baseHeight = 800;
 
 private:
@@ -179,11 +206,47 @@ private:
     wwma::ui::VersionsPanel versionsPanel;
     wwma::ui::SessionOffer sessionOffer;
     juce::TextButton learnButton, reportButton, chainButton;
+    int footerTextRight = 420; // where the footer's buttons start (the text on the left stops there)
     float lessonSeconds = -1.0f; // music time when the lesson goal was last checked
     void updateLesson();
     void chooseReportFile();
-    /** Copies the report files to the clipboard (Windows) and shows them in the file manager. */
-    void shareReportFiles (const juce::File& markdownFile);
+    /** Copies the report files to the clipboard (Windows) and shows them in the file manager.
+        Returns true when the files are on the clipboard. */
+    bool shareReportFiles (const juce::File& markdownFile);
+    /** The listening data of the newest report (for the AI question). */
+    wwma::ListeningInput lastListening;
+
+    // ---- the AI assistant
+    wwma::ui::AiPanel aiPanel { state };
+    juce::TextButton aiButton;
+    wwma::ai::Settings aiSettings;
+    wwma::ai::Worker aiWorker;
+    struct AiSession
+    {
+        juce::File reportFile, promptFile, answerFile;
+        wwma::ai::Provider provider = wwma::ai::Provider::claude;
+        wwma::ai::Mode mode = wwma::ai::Mode::browser;
+        juce::String prompt;
+        wwma::ai::ApiRequest request;       // API mode: the conversation, for follow-up questions
+        std::vector<wwma::ai::Suggestion> suggestions;
+        juce::String answerShown;
+        wwma::ui::AiPanel::View::Status status = wwma::ui::AiPanel::View::Status::idle;
+        juce::String headline, message;
+    } aiSession;
+    std::unique_ptr<juce::FileChooser> aiChooser;
+    void setAiStatus (wwma::ui::AiPanel::View::Status status, const juce::String& headline, const juce::String& message);
+    void refreshAiView();
+    void aiReplied (const wwma::ai::Reply& reply);
+    void sendAiRequest();
+    void aiFollowUp (const juce::String& question);
+    void testAiConnection();
+    void saveAiAnswerFile();
+    /** Starts "Try" on a change: judged on the next pass of the same part, then the ears. */
+    bool startTrial (const std::string& findingId, const juce::String& title, const juce::String& step, const juce::String& undoText);
+    bool applyChainChange (const wwma::ai::ChainChange& change, const wwma::ai::ChainLimits& limits, const juce::String& title,
+                           const std::string& findingId = {});
+    void setChainParameters (const wwma::ChainSettings& s);
+    void syncChainChangeState();
     std::unique_ptr<juce::FileChooser> chooser;
     int refGeneration = -1;
 

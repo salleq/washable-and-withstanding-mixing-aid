@@ -73,7 +73,8 @@ TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, boo
     r.excessBefore = it != t.before.excess.end() ? it->second : 0.0f;
     if (! newPass)
     {
-        r.headline = tr (lang, "Make the change, then play the same part again", "Tee muutos ja soita sama kohta uudelleen");
+        r.headline = t.undoText.isNotEmpty() ? tr (lang, "Changed: now play the same part again", "Muutettu: soita nyt sama kohta uudelleen")
+                                             : tr (lang, "Make the change, then play the same part again", "Tee muutos ja soita sama kohta uudelleen");
         r.detail = t.step;
         return r;
     }
@@ -95,11 +96,16 @@ TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, boo
         return r;
     }
 
+    // a suggestion without a finding of its own is judged on the whole pass
+    const bool ownFinding = ! t.findingId.empty();
     const auto after = now.excess.find (t.findingId);
-    const bool gone = after == now.excess.end();
-    r.excessAfter = gone ? 0.0f : after->second;
-    const bool findingBetter = gone || r.excessAfter < 0.7f * r.excessBefore;
-    const bool findingWorse = r.excessAfter > 1.2f * r.excessBefore + 0.1f;
+    const bool gone = ownFinding && after == now.excess.end();
+    r.excessAfter = ! ownFinding || gone ? 0.0f : after->second;
+    const bool findingBetter = ownFinding ? (gone || r.excessAfter < 0.7f * r.excessBefore) : r.overall.verdict > 0;
+    const bool findingWorse = ownFinding && r.excessAfter > 1.2f * r.excessBefore + 0.1f;
+    const auto undo = t.undoText.isNotEmpty() ? t.undoText
+                                              : tr (lang, "Undo (Ctrl/Cmd+Z), then try a smaller move, or the next step of the fix.",
+                                                          "Peru (Ctrl/Cmd+Z) ja kokeile pienempää muutosta tai korjauksen seuraavaa askelta.");
     const float d = r.overall.scoreDelta;
     const auto points = juce::String (juce::roundToInt (d)) ;
     const auto signedPoints = (d >= 0.0f ? "+" : "") + points;
@@ -112,8 +118,7 @@ TrialResult judgeTrial (const Trial& t, const PassRecord& now, bool newPass, boo
         r.detail = scoreText
                    + (r.overall.worseNames.isEmpty() ? juce::String()
                                                      : tr (lang, "Worse: ", "Huonompi: ") + r.overall.worseNames.joinIntoString (", ") + ". ")
-                   + tr (lang, "Undo (Ctrl/Cmd+Z), then try a smaller move, or the next step of the fix.",
-                               "Peru (Ctrl/Cmd+Z) ja kokeile pienempää muutosta tai korjauksen seuraavaa askelta.");
+                   + undo;
     }
     else if (findingBetter && d > -1.5f)
     {
@@ -191,7 +196,7 @@ TrialResult judgeWithEars (const TrialResult& meter, const Trial& t, int overrul
                              "Pidä, jos se kuulostaa paremmalta myös hiljaa ja puhelimesta. Mittari vain mittaa; musiikki on se, mitä kuulet. ")
                    + keep;
     }
-    else if (t.ear < 0 && meterGood)
+    else if (t.ear < 0 && meterGood && ! t.findingId.empty())
     {
         r.kind = TrialResult::Kind::worse;
         r.overrule = true;
@@ -207,8 +212,9 @@ TrialResult judgeWithEars (const TrialResult& meter, const Trial& t, int overrul
     {
         r.kind = TrialResult::Kind::worse;
         r.headline = tr (lang, "BEFORE was better: undo it", "ENNEN oli parempi: peru muutos");
-        r.detail = tr (lang, "Undo (Ctrl/Cmd+Z), then try a smaller move, or the next step of the fix.",
-                             "Peru (Ctrl/Cmd+Z) ja kokeile pienempää muutosta tai korjauksen seuraavaa askelta.");
+        r.detail = t.undoText.isNotEmpty() ? t.undoText
+                                           : tr (lang, "Undo (Ctrl/Cmd+Z), then try a smaller move, or the next step of the fix.",
+                                                       "Peru (Ctrl/Cmd+Z) ja kokeile pienempää muutosta tai korjauksen seuraavaa askelta.");
     }
     return r;
 }

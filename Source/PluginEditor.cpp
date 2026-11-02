@@ -78,13 +78,14 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &loudness, &meters, &history, &compare, &refBox, &tonal, &findings, &score, &translation, &progress,
              &profileBox, &targetBox, &trackBox, &mixButton, &masterButton, &trackButton, &nowButton, &songButton, &mixAButton, &beforeButton, &refBButton,
-             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton })
+             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton, &aiButton })
         content.addAndMakeVisible (c);
     content.addChildComponent (versionsPanel);
     content.addChildComponent (beforeAfter);
     content.addChildComponent (chainPanel);
     content.addChildComponent (lessonBox);
     content.addChildComponent (refDetail);
+    content.addChildComponent (aiPanel);
 
     profileBox.getProperties().set ("caption", "Preset");
     profileBox.onChange = [this]
@@ -241,11 +242,73 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     chainPanel.onClose = [this] { setChainOpen (false); };
     chainPanel.onShowSuggestions = [this] (bool on) { setShowSuggestions (on); };
     chainPanel.onListenWithout = [this] (bool on) { setListeningWithout (on); };
+    chainPanel.onUseSuggested = [this] (bool eq, bool limiter) { useSuggestedChain (eq, limiter); };
+    chainPanel.onKeepChange = [this] { keepChainChange(); };
+    chainPanel.onUndoChange = [this] { undoChainChange(); };
     state.chainOpen = proc.getChainOpen();
     state.showSuggestions = proc.getShowSuggestions();
     state.chainSettings = proc.getChainSettings();
     chainButton.setToggleState (state.chainOpen, juce::dontSendNotification);
     reportButton.onClick = [this] { chooseReportFile(); };
+
+    // the AI assistant: nothing is sent before the user presses Ask
+    aiSettings = ai::loadSettings();
+    aiPanel.setSettings (aiSettings);
+    aiButton.setClickingTogglesState (true);
+    aiButton.onClick = [this] { setAiOpen (aiButton.getToggleState()); };
+    aiPanel.onClose = [this] { setAiOpen (false); };
+    aiPanel.onAsk = [this] { askAi(); };
+    aiPanel.onCancel = [this]
+    {
+        aiWorker.cancel();
+        setAiStatus (ui::AiPanel::View::Status::idle, tr (state.lang, "Cancelled", "Peruttu"), {});
+    };
+    aiPanel.onCopyQuestion = [this]
+    {
+        juce::SystemClipboard::copyTextToClipboard (aiSession.prompt);
+        setAiStatus (aiSession.status, aiSession.headline,
+                     tr (state.lang, "The question is on the clipboard: paste it into the chat (after the files) and send it.",
+                                     "Kysymys on leikepöydällä: liitä se keskusteluun (tiedostojen jälkeen) ja lähetä."));
+    };
+    aiPanel.onPasteAnswer = [this]
+    {
+        const auto text = juce::SystemClipboard::getTextFromClipboard().trim();
+        if (text.isEmpty() || text == aiSession.prompt.trim())
+            setAiStatus (ui::AiPanel::View::Status::error, tr (state.lang, "Nothing to paste", "Ei mitään liitettävää"),
+                         tr (state.lang, "Copy the whole answer in the chat first (most chats have a copy button under the answer).",
+                                         "Kopioi ensin koko vastaus keskustelusta (useimmissa on kopiointinappi vastauksen alla)."));
+        else
+            showAiAnswer (text);
+    };
+    aiPanel.onOpenFile = [this] { if (aiSession.answerFile.existsAsFile()) aiSession.answerFile.startAsProcess(); };
+    aiPanel.onFollowUp = [this] (const juce::String& q) { aiFollowUp (q); };
+    aiPanel.onTry = [this] (int i) { tryAiSuggestion (i); };
+    aiPanel.onTryMaster = [this] (int i) { tryAiSuggestionOnMaster (i); };
+    aiPanel.onKeepChange = [this] { keepChainChange(); };
+    aiPanel.onUndoChange = [this] { undoChainChange(); };
+    aiPanel.onSettingsChanged = [this]
+    {
+        aiSettings = aiPanel.getSettings();
+        ai::saveSettings (aiSettings);
+        refreshAiView();
+    };
+    aiPanel.onTest = [this] { testAiConnection(); };
+    aiPanel.onBrowseCli = [this]
+    {
+        aiChooser = std::make_unique<juce::FileChooser> (tr (state.lang, "Where is ", "Missä on ") + ai::cliAppName (aiSettings.provider) + "?",
+                                                         juce::File::getSpecialLocation (juce::File::userHomeDirectory));
+        juce::Component::SafePointer<WwmaAudioProcessorEditor> self (this);
+        aiChooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [self] (const juce::FileChooser& fc)
+        {
+            if (self == nullptr || fc.getResult() == juce::File())
+                return;
+            self->aiSettings.of (self->aiSettings.provider).cliPath = fc.getResult().getFullPathName();
+            ai::saveSettings (self->aiSettings);
+            self->aiPanel.setSettings (self->aiSettings);
+            self->testAiConnection();
+        });
+    };
+    syncChainChangeState();
     progress.onVersions = [this] { setVersionsOpen (! versionsOpen); };
     state.showScore = proc.getShowScore();
     score.onShowScore = [this] (bool on)
@@ -368,6 +431,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
 
 WwmaAudioProcessorEditor::~WwmaAudioProcessorEditor()
 {
+    aiWorker.cancel();
     exportPulse.stopThread (2000);
     glContext.detach();
     stopTimer();
@@ -505,7 +569,7 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setFont (fonts::body (12.5f));
     g.drawFittedText (tr (lang, "Numbers are advice, not rules. If it sounds good on a phone and in a car, it is good.",
                                 "Luvut ovat neuvoja, eivät sääntöjä. Jos se kuulostaa hyvältä puhelimessa ja autossa, se on hyvä."),
-                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, 360 - earW, footer), juce::Justification::centredLeft, 2, 0.9f);
+                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, editor.footerTextRight - 8 - (margin + 36 + earW + 14), footer), juce::Justification::centredLeft, 2, 0.85f);
 }
 
 void WwmaAudioProcessorEditor::Content::resized()
@@ -540,9 +604,11 @@ void WwmaAudioProcessorEditor::Content::resized()
         place (e.autoResetToggle, 124, 10);
     place (e.songButton, 66, 0);
     place (e.nowButton, 58, 14);
-    place (e.reportButton, 84, 8);
-    place (e.learnButton, 78, 8);
-    place (e.chainButton, 104, 8);
+    place (e.aiButton, 48, 6);
+    place (e.reportButton, 80, 8);
+    place (e.learnButton, 74, 8);
+    place (e.chainButton, 100, 8);
+    e.footerTextRight = x;
 
     // columns
     const int top = topBar + gap, bottom = baseHeight - footer - gap;
@@ -565,6 +631,7 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.versionsPanel.setBounds (e.findings.getBounds());
     e.sessionOffer.setBounds (0, 0, baseWidth, baseHeight);
     e.refDetail.setBounds (e.tonal.getBounds());
+    e.aiPanel.setBounds (e.tonal.getBounds().getUnion (e.findings.getBounds()));
 
     e.score.setBounds (rx, top, rightWidth, 196);
     e.translation.setBounds (rx, top + 196 + gap, rightWidth, 222);
@@ -693,6 +760,12 @@ void WwmaAudioProcessorEditor::updateTexts()
     chainButton.setTooltip (tr (lang, "Mastering EQ and limiter. You turn the knobs; WWMA shows suggested values next to them, worked out from your mix and the style. Both are off until you turn them on.",
                                       "Masterointi-EQ ja limitteri. Sinä käännät nupit; WWMA näyttää ehdotetut arvot niiden vieressä miksisi ja tyylin perusteella. Molemmat ovat pois päältä, kunnes kytket ne."));
     chainPanel.updateTexts();
+    aiButton.setButtonText ("AI");
+    aiButton.setTooltip (tr (lang, "Ask an AI assistant (Claude, Gemini or ChatGPT) about this mix. WWMA saves a report and gives it to the AI: numbers and spectrogram pictures, never audio. "
+                                   "Its suggestions get Try buttons, and fixes that fit WWMA's own EQ or limiter can be tried on the master with one click (and undone).",
+                                   "Kysy tekoälyavustajalta (Claude, Gemini tai ChatGPT) tästä miksistä. WWMA tallentaa raportin ja antaa sen tekoälylle: luvut ja spektrogrammikuvat, ei koskaan ääntä. "
+                                   "Ehdotuksista tulee Kokeile-nappeja, ja WWMA:n omaan EQ:hon tai limitteriin sopivia korjauksia voi kokeilla masterissa yhdellä klikkauksella (ja perua)."));
+    aiPanel.updateTexts();
     learnButton.setButtonText (ui::upper (tr (lang, "Learn", "Opettele")));
     learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
                                       "Oppimistila: lyhyitä käytännön tehtäviä (esim. basson duckaus kickin alle). WWMA seuraa viimeisiä 3 sekuntia ja kertoo, kun onnistuit."));
@@ -735,6 +808,9 @@ void WwmaAudioProcessorEditor::timerCallback()
         refreshVersions();
     if (ticks % 15 == 0)
         pushHistory();
+    aiWorker.tick();
+    if (aiWorker.busy() && aiSession.status == ui::AiPanel::View::Status::working && ticks % 15 == 0)
+        refreshAiView(); // shows how long the assistant has been at it
     refresh (ticks % 10 == 0);
 }
 
@@ -1163,6 +1239,8 @@ void WwmaAudioProcessorEditor::confirmSnapshotSaved()
 
 void WwmaAudioProcessorEditor::setCompareOpen (bool open)
 {
+    if (open)
+        setAiOpen (false);
     state.compareOpen = open && ! state.snapshots.empty();
     if (state.compareOpen && state.learnMode)
         setLearnMode (false);
@@ -1174,6 +1252,8 @@ void WwmaAudioProcessorEditor::setCompareOpen (bool open)
 
 void WwmaAudioProcessorEditor::setLearnMode (bool on)
 {
+    if (on)
+        setAiOpen (false);
     state.learnMode = on;
     proc.setLearnMode (on);
     learnButton.setToggleState (on, juce::dontSendNotification);
@@ -1208,6 +1288,8 @@ void WwmaAudioProcessorEditor::updatePanels()
 
 void WwmaAudioProcessorEditor::setChainOpen (bool open)
 {
+    if (open)
+        setAiOpen (false); // the AI panel would cover it
     state.chainOpen = open;
     proc.setChainOpen (open);
     proc.inputAnalysisWanted.store (open);
@@ -1285,7 +1367,7 @@ void WwmaAudioProcessorEditor::chooseReportFile()
     shareReportFiles (file);
 }
 
-void WwmaAudioProcessorEditor::shareReportFiles (const juce::File& markdownFile)
+bool WwmaAudioProcessorEditor::shareReportFiles (const juce::File& markdownFile)
 {
     // The files an AI assistant needs: the report and the song part by part (text + pictures).
     const auto folder = markdownFile.getParentDirectory();
@@ -1299,8 +1381,9 @@ void WwmaAudioProcessorEditor::shareReportFiles (const juce::File& markdownFile)
     // copied like Explorer's Copy, so Ctrl+V in the chat attaches them; the folder opens
     // with the report selected, to show where they are and as a fallback
     void* window = getPeer() != nullptr ? getPeer()->getNativeHandle() : nullptr;
-    copyFilesToClipboard (files, window);
+    const bool copied = copyFilesToClipboard (files, window);
     markdownFile.revealToUser();
+    return copied;
 }
 
 juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
@@ -1416,6 +1499,7 @@ void WwmaAudioProcessorEditor::saveListeningData (const juce::File& markdownFile
             li.referenceImageName = refImage.getFileName();
     }
     folder.getChildFile (base + " AI.md").replaceWithText (listeningMarkdown (li, lang));
+    lastListening = li;
 }
 
 void WwmaAudioProcessorEditor::updateBaselineDiff()
@@ -1512,6 +1596,7 @@ void WwmaAudioProcessorEditor::openReferenceDetail (int slot)
 {
     if (proc.refs.getStatus (slot) != ReferenceTracks::Status::ready)
         return;
+    setAiOpen (false);
     proc.refs.setActive (slot);
     readReferences();
     refDetail.setSlot (slot);
@@ -1568,6 +1653,7 @@ void WwmaAudioProcessorEditor::setVersionsOpen (bool open)
 {
     if (open)
     {
+        setAiOpen (false);
         state.compareOpen = false;
         if (state.learnMode)
         {

@@ -2,7 +2,7 @@
 
 > **Huom: WWMA on 100 % vibe-koodattu**, eli tehty kokonaan tekoälyavustajan kanssa. Asennus ja käyttö omalla vastuulla, eikä takuuta ole. Se on tehty hyvässä uskossa ja siinä toivossa, että siitä on jollekin hyötyä.
 
-WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia itse. Se kuuntelee miksauksesi, kertoo selkokielellä, mitä on selvästi tai vähän liikaa tai liian vähän, ja neuvoo, miten korjaat sen itse. Tavoite on, että ajan mittaan et tarvitse sitä enää.
+WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia ilman klikkaustasi (ja jokaisen sellaisen klikkauksen voi perua). Se kuuntelee miksauksesi, kertoo selkokielellä, mitä on selvästi tai vähän liikaa tai liian vähän, ja neuvoo, miten korjaat sen itse. Tavoite on, että ajan mittaan et tarvitse sitä enää.
 
 **Korva ratkaisee.** Luvut ovat neuvoja, eivät sääntöjä. Jos se kuulostaa hyvältä puhelimessa ja autossa, se on hyvä.
 
@@ -158,11 +158,30 @@ Tekoälyavustaja ei kuule kappalettasi, mutta se osaa lukea lukuja ja kuvia. Sik
 
 Aloita keskustelu tekoälyavustajan kanssa, liitä tiedostot ja liitä kysymys. Kysy sitten lisää, esim. "entä basso toisessa dropissa?". WWMA ei lähetä mitään minnekään: nämä ovat tavallisia tiedostoja koneellasi, ja sinä päätät mihin ne menevät.
 
+### Kysy tekoälyltä suoraan WWMA:sta
+
+Paina alareunan **AI**-nappia. Paneeli aukeaa spektrin ja havaintojen päälle. **Kysy** tallentaa raportin (samat tiedostot kuin **Raportti**) ja antaa sen **Asetuksissa** valitsemallesi avustajalle (Claude, Gemini tai ChatGPT). Tapoja on kolme:
+
+- **Selain (ei avainta):** WWMA avaa palvelun selaimeen. Windowsissa tiedostot ovat leikepöydällä (Ctrl+V keskusteluun); muualla raporttikansio aukeaa ja vedät tiedostot mukaan. **Kopioi kysymys** laittaa kysymyksen leikepöydälle. WWMA ei lähetä itse mitään. Kopioi vastaus ja paina **Liitä vastaus**, niin saat Kokeile-napit.
+- **Sovellus koneella (ei avainta):** WWMA ajaa koneelle asennetun **Claude Coden**, **Gemini CLI:n** tai **Codex CLI:n** omalla tilauksellasi kirjautuneena. Se saa lukea vain raporttikansiota. Asenna sovellus ja kirjaudu kerran päätteessä. Jotkin DAW:t eivät anna pluginien käynnistää muita ohjelmia: käytä silloin selainta tai avainta.
+- **API-avain:** WWMA käyttää palvelun rajapintaa omalla avaimellasi (laskutus API-tilillesi). Paneelissa voi kysyä jatkokysymyksiä.
+
+Claude Pro- tai Max-tilausta ei voi käyttää muista sovelluksista ilman avainta. Avaimettomat tavat Claudelle ovat selain ja Claude Code, joka käyttää tilaustasi.
+
+- Vain raportti lähtee: luvut, kappaleen osat ja spektrogrammikuvat. **Ei koskaan ääntä.** Sovellus- ja API-tavat kysyvät ensin luvan (ruutu Asetuksissa).
+- Asetukset ja avaimet ovat WWMA:n omassa kansiossa tällä koneella, eivät koskaan DAW-projektissa tai raportissa.
+- Vastaus tallentuu raportin viereen (`... AI answer (Claude).md`).
+- Ehdotuksista (enintään kolme) tulee kortteja:
+  - **Kokeile:** tee muutos itse ja soita sama kohta uudelleen. WWMA vertaa soittoa edelliseen ja kysyy sitten korvaltasi (ENNEN vai MIKSI), kuten "Kokeile ylintä vinkkiä".
+  - **Kokeile masterissa** (vain masteroidessa tai kun EQ on jo käytössä, ei raitatilassa): muutos menee suoraan WWMA:n omaan EQ:hon ja limitteriin, esim. vähän lisää bassoa koko masteriin. Muutos pidetään pienenä: enintään 3 dB kaistaa kohti, limitterin gain enintään 6 dB ylös ja katto aina −0,3 dBTP tai alempana. ENNEN-ääni jäädytetään ensin, ja EQ + limitteri -paneeli aukeaa **Pidä**- ja **Peru**-napein. **Peru** palauttaa jokaisen nupin täsmälleen ennalleen.
+- Yhtä raitaa koskeva korjaus ("leikkaa pädeistä 300 Hz") ei onnistu masterista: siitä tulee vain **Kokeile**.
+- Tekoäly ei kuule kappaletta ja voi olla väärässä. Korva ratkaisee.
+
 Jotta mukana on koko kappale, soita se alusta loppuun ennen kuin painat **Raportti** (kun **Nollaa playssa** on päällä, jokainen soitto aloittaa uuden aikajanan). Hiljaisuus jätetään pois. DAW:ssa taulukko näyttää myös, missä kohtaa projektia kukin osa on.
 
 ## 7. Masterointi-EQ ja limitteri
 
-Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ ja true peak -limitteri. Niillä saat masterin valmiiksi ilman muita plugineja. **WWMA ehdottaa lukuja, sinä käännät nupit.** Mikään ei liiku itsestään.
+Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ ja true peak -limitteri. Niillä saat masterin valmiiksi ilman muita plugineja. **WWMA ehdottaa lukuja, sinä käännät nupit.** Mikään ei liiku itsestään, vain klikkauksestasi.
 
 ![Masterointi-EQ ja limitteri](images/wwma-eq-limiter-fi.png)
 
@@ -183,6 +202,7 @@ Alareunan **EQ + limitteri** -napista aukeaa paneeli, jossa on nelikaistainen EQ
 - **Release** on noin 16-osanuotti kappaleen tempossa, jotta limitteri hengittää tahdissa. Ilman selvää tempoa se on 100 ms.
 - **MIX**-tilassa limitteriä ehdotetaan pois päältä: limitointi miksatessa piilottaa tasapaino-ongelmia.
 - **Ehdotukset**-ruudusta piilotat ehdotukset. Valinta tallentuu projektin mukana.
+- **Käytä ehdotusta** asettaa nupit ehdotettuihin arvoihin yhdellä klikkauksella (EQ ja limitteri, vain EQ tai vain limitteri). Sen jälkeen **Pidä** tai **Peru**: Peru palauttaa jokaisen nupin täsmälleen ennalleen. Odotuksen aikana WWMA vertaa saman kohdan seuraavaa soittoa ja kysyy korvaltasi.
 
 **Kuuntele ilman** soittaa miksin ilman EQ:ta ja limitteriä samalla äänekkyydellä kuin niiden kanssa (yläpalkki muuttuu keltaiseksi). Sillä tarkistat, että ketju parantaa soundia eikä vain nosta voimakkuutta. Kovempi kuulostaa aina hetken paremmalta.
 

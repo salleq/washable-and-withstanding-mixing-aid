@@ -11,7 +11,8 @@
 namespace wwma
 {
 /** The settings of the mastering EQ and limiter, exactly as the user set the knobs.
-    WWMA never changes these by itself: it only shows suggested values next to them. */
+    WWMA never changes these by itself: it shows suggested values next to them, and sets
+    them only on the user's click ("Use suggested", an AI's "Try on master"), with Undo. */
 struct ChainSettings
 {
     enum Band { lowShelf, lowMid, highMid, highShelf, numBands };

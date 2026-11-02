@@ -11,9 +11,14 @@
 #include "advice/Lessons.h"
 #include "advice/ChainAdvice.h"
 #include "advice/ListeningReport.h"
+#include "ai/AiPrompt.h"
+#include "ai/AiClient.h"
 #include <complex>
 #include <functional>
 #include <iostream>
+#if ! JUCE_WINDOWS
+ #include <sys/stat.h>
+#endif
 
 using namespace wwma;
 
@@ -1027,6 +1032,375 @@ namespace
                    w.editor->getTrialResult().headline);
         }
     }
+
+    // ------------------------------------------------------------------ the AI assistant
+    void aiTests (const juce::File& shots = {})
+    {
+        std::cout << "The AI assistant (Claude, Gemini, ChatGPT)" << std::endl;
+        const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-ai-test-" + juce::Uuid().toDashedString());
+        tmp.createDirectory();
+        struct Cleanup { juce::File f; ~Cleanup() { f.deleteRecursively(); } } cleanup { tmp };
+
+        // ---- settings: on this computer only, never in the project
+        {
+            ai::setSettingsFileForTests (tmp.getChildFile ("ai-settings.xml"));
+            ai::Settings st;
+            st.provider = ai::Provider::gemini;
+            st.consent = true;
+            st.of (ai::Provider::gemini).mode = ai::Mode::api;
+            st.of (ai::Provider::gemini).apiKey = "secret-key-123";
+            st.of (ai::Provider::claude).mode = ai::Mode::cli;
+            ai::saveSettings (st);
+            const auto back = ai::loadSettings();
+            check (back.provider == ai::Provider::gemini && back.consent && back.of (ai::Provider::gemini).apiKey == "secret-key-123"
+                       && back.of (ai::Provider::gemini).mode == ai::Mode::api && back.of (ai::Provider::claude).mode == ai::Mode::cli,
+                   "AI settings are saved and read back (service, way, key, consent)");
+           #if JUCE_LINUX || JUCE_MAC
+            struct stat info {};
+            ::stat (ai::settingsFile().getFullPathName().toRawUTF8(), &info);
+            check ((info.st_mode & 0777) == 0600, "  the settings file (it holds API keys) is readable by the user only",
+                   juce::String::formatted ("%o", (unsigned) (info.st_mode & 0777)));
+           #endif
+            ai::saveSettings (st); // again: still in place, still private
+            WwmaAudioProcessor p;
+            juce::MemoryBlock mb;
+            p.getStateInformation (mb);
+            check (! mb.toString().contains ("secret-key-123") && ! juce::String::fromUTF8 ((const char*) mb.getData(), (int) mb.getSize()).contains ("secret-key"),
+                   "  the API key is never in the DAW project");
+            check (ai::loadSettings().of (ai::Provider::chatgpt).mode == ai::Mode::browser && ai::defaultModel (ai::Provider::claude) == "claude-opus-5-5",
+                   "  the browser (no key) is the default way; Claude's default model is set");
+        }
+
+        // ---- the question
+        ai::PromptInput in;
+        in.question = "I'm working on a House track.";
+        in.findings = { { "range2+", "Too much mud" }, { "kickbass", "Kick drowns in the bass" } };
+        in.stage = Stage::mastering;
+        in.masterChanges = true;
+        const auto prompt = ai::buildPrompt (in);
+        check (prompt.startsWith (in.question) && prompt.contains ("```json") && prompt.contains ("range2+") && prompt.contains ("kickbass")
+                   && prompt.contains ("\"chain\"") && prompt.contains ("band 0, low shelf") && prompt.contains ("-0.3 dBTP"),
+               "the AI question asks for a block WWMA can read, names its findings and its EQ bands");
+        in.masterChanges = false;
+        in.stage = Stage::mixing;
+        check (ai::buildPrompt (in).contains ("still being mixed") && ! ai::buildPrompt (in).contains ("band 0, low shelf"),
+               "  while mixing it asks for no master changes");
+
+        // ---- reading the answer
+        const juce::String answer =
+            "Here is what I hear in the numbers.\n\n1. The low mids are heavy.\n\n"
+            "```json\n{\"suggestions\": [\n"
+            " {\"finding_id\": \"range2+\", \"part\": \"B\", \"at\": \"1:05\", \"title\": \"Cut the mud\", \"step\": \"Cut 300 Hz on the pads by 3 dB.\", \"listen_for\": \"Clearer kick.\"},\n"
+            " {\"finding_id\": null, \"part\": null, \"at\": null, \"title\": \"A little more low end\", \"step\": \"Raise the low shelf.\", \"listen_for\": \"Fuller bass on a phone.\",\n"
+            "  \"chain\": {\"eq\": [{\"band\": 0, \"freq_hz\": 80, \"gain_db\": 6.0}, {\"band\": 9, \"gain_db\": 3}], \"limiter\": {\"ceiling_dbtp\": 0.0}}},\n"
+            " {\"title\": \"Third\", \"step\": \"x\"}, {\"title\": \"Fourth\", \"step\": \"y\"}\n]}\n```\n";
+        juce::String shown;
+        const auto sugg = ai::parseSuggestions (answer, &shown);
+        check (sugg.size() == 3 && sugg[0].findingId == "range2+" && sugg[0].part == "B" && sugg[0].at == "1:05" && sugg[0].chain.empty()
+                   && sugg[1].findingId.empty() && sugg[1].part.isEmpty() && ! sugg[1].chain.empty(),
+               "the answer's block becomes at most 3 suggestions, with where in the song and a master change when there is one",
+               juce::String ((int) sugg.size()));
+        check (shown.contains ("low mids are heavy") && ! shown.contains ("suggestions") && ! shown.contains ("```"),
+               "  the answer is shown without the block");
+        check (! sugg[1].chain.gain[0].has_value() || (sugg[1].chain.gain[0].has_value() && ! sugg[1].chain.freq[3].has_value()),
+               "  a band that does not exist is ignored");
+        juce::String keep;
+        check (ai::parseSuggestions ("No block here.", &keep).empty() && keep == "No block here."
+                   && ai::parseSuggestions ("text ```json {broken ``` more", nullptr).empty(),
+               "  an answer without a block, or with a broken one, gives no suggestions and keeps the text");
+        check (ai::parseSuggestions ("Sure! {\"suggestions\": [{\"title\": \"A\", \"step\": \"B\"}]}", nullptr).size() == 1,
+               "  a block without the code fence is read too");
+
+        // ---- master changes are kept small and safe
+        {
+            ChainSettings now;
+            juce::StringArray notes;
+            const auto target = ai::applyChange (now, sugg[1].chain, ai::aiLimits(), &notes, Lang::english);
+            check (target.eqOn && near (target.gain[0], 3.0, 0.01) && near (target.freq[0], 80.0, 0.01) && target.limiterOn && near (target.ceiling, -0.3, 0.01),
+                   "an AI master change: +6 dB is limited to +3 dB, the ceiling to -0.3 dBTP, and the stages it uses are turned on",
+                   juce::String (target.gain[0], 1) + " dB, " + juce::String (target.ceiling, 1) + " dBTP");
+            check (notes.size() == 2, "  and every limited value is told", notes.joinIntoString (" | "));
+            const auto lines = ai::describeChange (now, target, Lang::english);
+            check (lines.joinIntoString ("\n").contains ("Low shelf") && lines.joinIntoString ("\n").contains ("more bass") && lines.contains ("EQ on"),
+                   "  the change is told knob by knob", lines.joinIntoString (" | "));
+            ai::ChainChange big;
+            big.gain[1] = 9.0f;
+            big.freq[2] = 50000.0f;
+            const auto own = ai::applyChange (now, big, ai::ownLimits(), nullptr, Lang::english);
+            check (near (own.gain[1], 9.0, 0.01) && near (own.freq[2], 12000.0, 0.01),
+                   "  WWMA's own suggested values are used as they are, within the knobs' ranges");
+            check (ai::describeChange (now, now, Lang::english).isEmpty(), "  no change, nothing to tell");
+        }
+
+        // ---- the API calls (built and read without the network)
+        {
+            ai::ApiRequest r;
+            r.provider = ai::Provider::claude;
+            r.apiKey = "k";
+            r.context = "DATA";
+            r.images.push_back (juce::MemoryBlock ("\x89PNG", 4));
+            r.turns = { { true, "Q1" }, { false, "A1" }, { true, "Q2" } };
+            const auto body = juce::JSON::toString (ai::requestBody (r), true);
+            const auto json = ai::requestBody (r);
+            const auto first = json.getProperty ("messages", {})[0].getProperty ("content", {});
+            check (json.getProperty ("model", {}).toString() == "claude-opus-5-5" && json.getProperty ("thinking", {}).getProperty ("type", {}).toString() == "adaptive"
+                       && json.getProperty ("fallbacks", {}).toString() == "default" && first[0].getProperty ("type", {}).toString() == "image"
+                       && first[1].getProperty ("text", {}).toString() == "DATA" && first[2].getProperty ("text", {}).toString() == "Q1"
+                       && json.getProperty ("messages", {})[1].getProperty ("role", {}).toString() == "assistant"
+                       && json.getProperty ("messages", {})[2].getProperty ("content", {}).toString() == "Q2",
+                   "Claude: the model, adaptive thinking, the picture, the data and the question, then the conversation", body.substring (0, 200));
+            const auto h = ai::headers (ai::Provider::claude, "k", "claude-opus-5-5");
+            check (h.contains ("x-api-key: k") && h.contains ("anthropic-version: 2023-06-01") && h.contains ("server-side-fallback"),
+                   "  with the key and the API version in the headers");
+            r.model = "claude-haiku-4-5";
+            check (! ai::requestBody (r).hasProperty ("thinking") && ! ai::requestBody (r).hasProperty ("fallbacks") && ! ai::headers (ai::Provider::claude, "k", r.model).contains ("beta"),
+                   "  an older model gets no settings it doesn't know");
+
+            r.provider = ai::Provider::chatgpt;
+            r.model = "gpt-x";
+            const auto o = ai::requestBody (r);
+            check (ai::endpoint (r).endsWith ("/v1/responses") && o.getProperty ("input", {})[0].getProperty ("content", {})[0].getProperty ("image_url", {}).toString().startsWith ("data:image/png;base64,")
+                       && ai::headers (ai::Provider::chatgpt, "k", {}).contains ("Authorization: Bearer k"),
+                   "ChatGPT: the Responses API with the picture as a data URL and a bearer key");
+            r.provider = ai::Provider::gemini;
+            r.model = "gemini-x";
+            const auto g = ai::requestBody (r);
+            check (ai::endpoint (r).contains ("/models/gemini-x:generateContent") && g.getProperty ("contents", {})[0].getProperty ("parts", {})[0].hasProperty ("inline_data")
+                       && g.getProperty ("contents", {})[1].getProperty ("role", {}).toString() == "model" && ai::headers (ai::Provider::gemini, "k", {}).contains ("x-goog-api-key: k"),
+                   "Gemini: generateContent with the picture inline, the model's turns as 'model'");
+
+            auto ok = ai::parseReply (ai::Provider::claude, 200, R"({"model":"claude-opus-5-5","stop_reason":"end_turn","content":[{"type":"thinking","thinking":""},{"type":"text","text":"Hello"},{"type":"text","text":" there"}]})");
+            check (ok.ok && ok.text == "Hello there" && ok.model == "claude-opus-5-5", "answers are read: Claude's text blocks", ok.text);
+            auto refusal = ai::parseReply (ai::Provider::claude, 200, R"({"stop_reason":"refusal","content":[]})");
+            auto cut = ai::parseReply (ai::Provider::claude, 200, R"({"stop_reason":"max_tokens","content":[{"type":"text","text":"Part"}]})");
+            check (! refusal.ok && refusal.error.isNotEmpty() && cut.ok && cut.text.contains ("cut short"), "  a refusal is an error, a cut answer says so");
+            auto bad = ai::parseReply (ai::Provider::claude, 401, R"({"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}})");
+            check (! bad.ok && bad.error.contains ("API key") && bad.error.contains ("invalid x-api-key"), "  a wrong key says so in plain words, with the service's message", bad.error);
+            check (ai::parseReply (ai::Provider::claude, 0, {}).error.contains ("No connection"), "  no network: says so");
+            auto oa = ai::parseReply (ai::Provider::chatgpt, 200, R"({"model":"gpt-x","status":"completed","output":[{"type":"reasoning"},{"type":"message","content":[{"type":"output_text","text":"Hi"}]}]})");
+            auto gm = ai::parseReply (ai::Provider::gemini, 200, R"({"candidates":[{"content":{"parts":[{"text":"think","thought":true},{"text":"Moi"}]},"finishReason":"STOP"}]})");
+            auto gb = ai::parseReply (ai::Provider::gemini, 200, R"({"promptFeedback":{"blockReason":"SAFETY"}})");
+            check (oa.ok && oa.text == "Hi" && gm.ok && gm.text == "Moi" && ! gb.ok, "  ChatGPT's output text, Gemini's parts (not its thoughts), and a blocked Gemini answer",
+                   oa.text + " | " + gm.text);
+
+            const auto gemModels = ai::parseModels (ai::Provider::gemini, 200, R"({"models":[
+                {"name":"models/gemini-2.5-flash","supportedGenerationMethods":["generateContent"]},
+                {"name":"models/gemini-2.5-pro","supportedGenerationMethods":["generateContent","countTokens"]},
+                {"name":"models/gemini-3-pro-preview","supportedGenerationMethods":["generateContent"]},
+                {"name":"models/text-embedding-004","supportedGenerationMethods":["embedContent"]}]})");
+            check (gemModels.ok && gemModels.models.size() == 3 && ai::pickModel (ai::Provider::gemini, gemModels.models) == "gemini-2.5-pro",
+                   "model lists are read; for Gemini a released Pro model is picked", gemModels.models.joinIntoString (", ") + " -> " + ai::pickModel (ai::Provider::gemini, gemModels.models));
+            const auto oaModels = ai::parseModels (ai::Provider::chatgpt, 200, R"({"data":[{"id":"gpt-5-mini"},{"id":"gpt-5"},{"id":"gpt-5.1"},{"id":"gpt-5.1-2025-11-13"},{"id":"gpt-realtime"},{"id":"dall-e-3"}]})");
+            check (ai::pickModel (ai::Provider::chatgpt, oaModels.models) == "gpt-5.1", "  for ChatGPT the newest full model",
+                   oaModels.models.joinIntoString (", ") + " -> " + ai::pickModel (ai::Provider::chatgpt, oaModels.models));
+            check (ai::pickModel (ai::Provider::claude, { "claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5" }) == "claude-opus-5-5",
+                   "  for Claude the default model when the account has it");
+        }
+
+        // ---- the assistant's own app (Claude Code, Gemini CLI, Codex CLI)
+        {
+            ai::CliRequest r;
+            r.provider = ai::Provider::claude;
+            r.exe = juce::File ("/usr/local/bin/claude");
+            r.folder = tmp;
+            r.prompt = "Read the file \"x\".";
+            const auto args = ai::cliArguments (r);
+            check (args.contains ("-p") && args.contains (r.prompt) && args.contains ("--add-dir") && args.contains (tmp.getFullPathName())
+                       && args.contains ("--allowedTools") && args.contains ("Read"),
+                   "Claude Code runs with the prompt, may read only the report folder", args.joinIntoString (" | ").substring (0, 300));
+           #if ! JUCE_WINDOWS
+            check (args[0] == "/bin/sh" && args[2].contains ("/opt/homebrew/bin") && args[3] == r.exe.getFullPathName(),
+                   "  started through sh with the usual places on the PATH (a DAW's PATH often has no node)");
+           #endif
+            r.provider = ai::Provider::chatgpt;
+            r.image = tmp.getChildFile ("pic.png");
+            r.image.replaceWithText ("x");
+            r.lastMessage = tmp.getChildFile ("last.txt");
+            const auto codex = ai::cliArguments (r);
+            check (codex.contains ("exec") && codex.contains ("read-only") && codex.indexOf ("--image") < codex.indexOf ("--output-last-message")
+                       && codex[codex.size() - 1] == r.prompt,
+                   "  Codex runs read-only, with the picture, and its last message to a file", codex.joinIntoString (" | ").substring (0, 300));
+
+           #if ! JUCE_WINDOWS
+            // a stand-in app: prints an answer, like the real ones do
+            auto fake = tmp.getChildFile ("claude");
+            fake.replaceWithText (juce::String ("#!/bin/sh\nif [ \"$1\" = \"-p\" ]; then echo \"Answer to: $2\"; echo '```json'; echo '{\"suggestions\":[{\"title\":\"T\",\"step\":\"S\"}]}'; echo '```'; exit 0; fi\nexit 3\n"), false, false, "\n");
+            fake.setExecutePermission (true);
+            ai::Worker w;
+            w.deliverOnWorkerThreadForTests();
+            juce::WaitableEvent got;
+            ai::Reply reply;
+            ai::CliRequest cr;
+            cr.provider = ai::Provider::claude;
+            cr.exe = fake;
+            cr.folder = tmp;
+            cr.prompt = "Read the file \"my prompt.md\" and answer.";
+            w.runCli (cr, [&] (const ai::Reply& rr) { reply = rr; got.signal(); });
+            const bool came = got.wait (10000);
+            check (came && reply.ok && reply.text.contains ("Answer to: Read the file \"my prompt.md\"") && ai::parseSuggestions (reply.text).size() == 1,
+                   "an installed app is run and its answer read (the prompt arrives whole, quotes and spaces included)", reply.text.substring (0, 80) + reply.error);
+            while (w.busy()) juce::Thread::sleep (5);
+
+            fake.replaceWithText ("#!/bin/sh\necho 'Please log in'\nexit 1\n", false, false, "\n");
+            fake.setExecutePermission (true);
+            got.reset();
+            const bool started = w.runCli (cr, [&] (const ai::Reply& rr) { reply = rr; got.signal(); });
+            const bool failedAnswer = started && got.wait (10000);
+            check (failedAnswer && ! reply.ok && reply.error.contains ("exit code 1") && reply.error.contains ("Please log in"),
+                   "  an app that fails: its own words are shown", reply.error.replace ("\n", " / "));
+            while (w.busy()) juce::Thread::sleep (5);
+
+            fake.replaceWithText ("#!/bin/sh\nsleep 30\necho late\n", false, false, "\n");
+            fake.setExecutePermission (true);
+            got.reset();
+            bool called = false;
+            w.runCli (cr, [&] (const ai::Reply&) { called = true; got.signal(); });
+            juce::Thread::sleep (300);
+            const auto t0 = juce::Time::getMillisecondCounter();
+            w.cancel();
+            while (w.busy() && juce::Time::getMillisecondCounter() - t0 < 5000) juce::Thread::sleep (5);
+            check (! w.busy() && ! called && juce::Time::getMillisecondCounter() - t0 < 3000, "  Cancel stops the app at once, and no answer comes",
+                   juce::String ((int) (juce::Time::getMillisecondCounter() - t0)) + " ms");
+
+            cr.exe = tmp.getChildFile ("nothing-here");
+            got.reset();
+            w.runCli (cr, [&] (const ai::Reply& rr) { reply = rr; got.signal(); });
+            check (got.wait (5000) && ! reply.ok && reply.error.contains ("not found"), "  an app that is not installed: says so");
+            while (w.busy()) juce::Thread::sleep (5);
+           #endif
+        }
+
+        // ---- in the plugin: Try, Try on master, Keep and Undo
+        {
+            struct Session
+            {
+                struct Host : juce::AudioPlayHead
+                {
+                    int64_t pos = 0;
+                    juce::Optional<PositionInfo> getPosition() const override
+                    {
+                        PositionInfo info;
+                        info.setIsPlaying (true);
+                        info.setTimeInSamples (pos);
+                        return info;
+                    }
+                } host;
+                WwmaAudioProcessor p;
+                std::unique_ptr<juce::AudioProcessorEditor> ed;
+                WwmaAudioProcessorEditor* editor = nullptr;
+                Session()
+                {
+                    p.setPlayConfigDetails (2, 2, 48000.0, 512);
+                    p.prepareToPlay (48000.0, 512);
+                    p.setPlayHead (&host);
+                    p.setProfileIndex (0);
+                    p.setWindow (Window::song);
+                    p.setStage (Stage::mastering);
+                    ed.reset (p.createEditor());
+                    editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+                }
+                ~Session() { p.setPlayHead (nullptr); }
+                void pass (double at, synth::SongParams sp)
+                {
+                    host.pos = (int64_t) (at * 48000.0);
+                    sp.seconds = 12.0;
+                    const auto x = synth::renderSong (sp);
+                    juce::AudioBuffer<float> buf (2, 512);
+                    juce::MidiBuffer midi;
+                    size_t since = 0;
+                    editor->refresh (true);
+                    for (size_t i = 0; i + 512 <= x.l.size(); i += 512)
+                    {
+                        buf.copyFrom (0, 0, x.l.data() + i, 512);
+                        buf.copyFrom (1, 0, x.r.data() + i, 512);
+                        p.processBlock (buf, midi);
+                        host.pos += 512;
+                        if ((since += 512) >= 24000)
+                        {
+                            since = 0;
+                            p.before.service (host.pos / 48000.0);
+                            editor->refresh (true);
+                        }
+                    }
+                    editor->refresh (true);
+                }
+            };
+
+            synth::SongParams muddy, clean;
+            muddy.mudDb = 8.0;
+            Session s;
+            s.pass (30.0, muddy);
+            s.editor->showAiAnswer (answer);
+            check (s.editor->getAiSuggestions().size() == 3, "an answer in the plugin gives its suggestions as cards");
+            const bool hasMud = std::any_of (s.editor->getAssessment().findings.begin(), s.editor->getAssessment().findings.end(),
+                                             [] (const Finding& f) { return f.id == "range2+"; });
+            check (s.editor->tryAiSuggestion (0) && s.editor->getTrial().active && s.editor->getTrial().title == "Cut the mud"
+                       && (s.editor->getTrial().findingId == "range2+") == hasMud && s.p.before.hasBefore(),
+                   "  Try: a trial with the AI's step, tied to WWMA's own finding, with BEFORE frozen", juce::String (s.editor->getTrial().findingId));
+            check (s.editor->tryAiSuggestion (1) && s.editor->getTrial().findingId.empty(), "  a suggestion without a finding of its own: judged on the whole pass");
+            s.pass (30.0, clean);
+            check (s.editor->getTrialResult().kind == TrialResult::Kind::helped && s.editor->getTrialResult().askEar,
+                   "  after the change the meter has its say, then the ears", s.editor->getTrialResult().headline);
+
+            auto shot = [&] (const char* name)
+            {
+                if (shots == juce::File())
+                    return;
+                shots.createDirectory();
+                for (int k = 0; k < 40; ++k)
+                    s.editor->refresh (true);
+                s.editor->settleDisplay();
+                s.editor->setSize (WwmaAudioProcessorEditor::baseWidth, WwmaAudioProcessorEditor::baseHeight);
+                const auto img = s.editor->createComponentSnapshot (s.editor->getLocalBounds(), true, 1.0f);
+                juce::FileOutputStream out (shots.getChildFile (name));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (img, out);
+                std::cout << "  wrote " << name << std::endl;
+            };
+            s.editor->setAiOpen (true);
+            shot ("ai-answer.png");
+            const auto before = s.p.getChainSettings();
+            check (s.editor->masterChangesAllowed() && s.editor->tryAiSuggestionOnMaster (1), "Try on master is offered while mastering");
+            shot ("ai-master-pending.png");
+            const auto after = s.p.getChainSettings();
+            check (after.eqOn && near (after.gain[0], 3.0, 0.05) && near (after.freq[0], 80.0, 1.0) && after.limiterOn && after.ceiling <= -0.29f
+                       && s.editor->isChainChangePending() && s.editor->getTrial().undoText.isNotEmpty(),
+                   "  it sets WWMA's own EQ and limiter (kept small and safe), and waits for Keep or Undo",
+                   juce::String (after.gain[0], 2) + " dB @ " + juce::String (after.freq[0], 0) + " Hz, ceiling " + juce::String (after.ceiling, 2));
+            check (s.editor->isChainOpen() && ! s.editor->isAiOpen(), "  and shows the knobs that moved");
+            s.editor->undoChainChange();
+            check (s.p.getChainSettings().sameAs (before) && ! s.editor->isChainChangePending() && ! s.editor->getTrial().active,
+                   "  Undo puts every knob back exactly as it was");
+            if (shots != juce::File())
+            {
+                s.editor->showAiSettings (true);
+                shot ("ai-settings.png");
+                s.editor->showAiSettings (false);
+                s.editor->setAiOpen (false);
+            }
+
+            s.editor->refresh (true);
+            if (s.editor->getChainAdvice().ready && s.editor->useSuggestedChain (true, true))
+            {
+                check (s.editor->isChainChangePending() && ! s.p.getChainSettings().sameAs (before), "Use suggested: WWMA's own values with one click");
+                s.editor->keepChainChange();
+                check (! s.editor->isChainChangePending() && ! s.p.getChainSettings().sameAs (before), "  Keep keeps them");
+                s.editor->setChainOpen (false);
+            }
+            else
+                check (false, "Use suggested: WWMA's own values with one click", "no chain advice");
+
+            Session mixing;
+            mixing.p.setStage (Stage::mixing);
+            mixing.pass (30.0, muddy);
+            mixing.editor->showAiAnswer (answer);
+            const auto untouched = mixing.p.getChainSettings();
+            check (! mixing.editor->masterChangesAllowed() && ! mixing.editor->tryAiSuggestionOnMaster (1) && mixing.p.getChainSettings().sameAs (untouched),
+                   "while mixing, AI suggestions never change the master");
+        }
+        ai::setSettingsFileForTests ({});
+    }
 }
 
 int main (int argc, char* argv[])
@@ -1045,6 +1419,12 @@ int main (int argc, char* argv[])
     if (argc > 1 && juce::String (argv[1]) == "before")
     {
         beforeTests();
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "ai")
+    {
+        aiTests (argc > 2 ? juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) : juce::File());
         std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
         return failures == 0 ? 0 : 1;
     }
@@ -1965,6 +2345,7 @@ int main (int argc, char* argv[])
     // ------------------------------------------------------------------ track mode
     trackTests (false);
     passTests();
+    aiTests();
     beforeTests();
     storeTests();
     listeningTextTests();

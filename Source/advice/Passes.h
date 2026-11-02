@@ -41,8 +41,9 @@ PassVerdict comparePasses (const PassRecord& before, const PassRecord& now, Lang
 struct Trial
 {
     bool active = false;
-    std::string findingId;
+    std::string findingId;     // empty: a suggestion not tied to one of WWMA's findings (judged on the whole pass)
     juce::String title, step;  // the finding, and the first step of its fix
+    juce::String undoText;     // set when WWMA itself made the change: how to undo it (instead of the DAW's undo)
     PassRecord before;         // the pass the change is judged against
     int passAtStart = 0;       // the result comes from a later pass
     /** What the ears said after A/B: 0 not yet, +1 the mix now is better, -1 BEFORE was better, 2 no difference. */

@@ -62,6 +62,9 @@ struct ListeningInput
     juce::String referenceImageName;
 };
 
+/** The ready question for an AI assistant (the same one the listening file asks to paste). */
+juce::String listeningQuestion (const ListeningInput& in, Lang lang);
+
 /** A Markdown file made to be given to an AI assistant (or read by a person): a ready
     question to paste, the song's parts with their levels, what changes between them,
     the timeline in steps, and how to read the numbers. Plain text: nothing is sent anywhere. */
