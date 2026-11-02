@@ -523,6 +523,292 @@ namespace
         }
     }
 
+    /** "Before": WWMA records its own output by song position and plays it back at the same spot. */
+    void beforeTests()
+    {
+        std::cout << "Before / now (WWMA's own recording)" << std::endl;
+        const double sr = 48000.0;
+        const int bl = 512;
+        auto sineBlock = [] (std::vector<float>& l, std::vector<float>& r, int64_t pos, double hz, float amp)
+        {
+            for (size_t i = 0; i < l.size(); ++i)
+                l[i] = r[i] = amp * (float) std::sin (2.0 * pi * hz * (double) (pos + (int64_t) i) / 48000.0);
+        };
+        auto recordSpan = [&] (BeforeTake& t, double fromSec, double toSec, double hz, float amp, bool offline = false)
+        {
+            std::vector<float> l ((size_t) bl), r ((size_t) bl);
+            int k = 0;
+            for (int64_t pos = (int64_t) (fromSec * sr); pos < (int64_t) (toSec * sr); pos += bl, ++k)
+            {
+                sineBlock (l, r, pos, hz, amp);
+                t.record (l.data(), r.data(), bl, pos, offline);
+                if (k % 20 == 0)
+                    t.service (pos / sr);   // the processor's timer does this 10 times a second
+            }
+        };
+
+        {
+            BeforeTake t;
+            t.prepare (sr);
+            t.service();
+            recordSpan (t, 10.0, 14.0, 440.0, 0.25f);
+            check (! t.hasBefore() && t.getLiveSeconds() == 4, "playing 4 s records them, but nothing is 'before' until a snapshot",
+                   juce::String (t.getLiveSeconds()) + " s live");
+            check (t.freeze() && t.hasBefore() && t.getBeforeSeconds() == 4 && t.getLiveSeconds() == 0, "  a snapshot freezes them as 'before'");
+            check (! t.freeze(), "  a second snapshot with nothing played since keeps the before take");
+
+            // the mix is now 6 dB louder at the same spot
+            recordSpan (t, 10.0, 14.0, 440.0, 0.5f);
+            t.service (12.0);
+            check (near (t.getMatchDb(), 6.02, 0.2), "  the before take is level-matched to the mix as it plays now",
+                   juce::String (t.getMatchDb(), 2) + " dB");
+
+            std::vector<float> l ((size_t) bl), r ((size_t) bl), want ((size_t) bl), unused ((size_t) bl);
+            t.setMatchLoudness (false);
+            const int64_t at = (int64_t) (11.3 * sr);
+            const int got = t.render (l.data(), r.data(), bl, at);
+            sineBlock (want, unused, at, 440.0, 0.25f);
+            float err = 0.0f;
+            for (int i = 0; i < bl; ++i)
+                err = juce::jmax (err, std::abs (l[(size_t) i] - want[(size_t) i]));
+            check (got == bl && err < 1.0e-4f, "  playback at 0:11.3 gives exactly what was recorded there (16-bit)", juce::String (err, 6));
+
+            t.setMatchLoudness (true);
+            for (int k = 0; k < 20; ++k)
+                t.render (l.data(), r.data(), bl, at + k * bl);
+            float peak = 0.0f;
+            for (auto v : l)
+                peak = juce::jmax (peak, std::abs (v));
+            check (near (peak, 0.5, 0.02), "  with level matching it plays as loud as the mix now", juce::String (peak, 3));
+
+            std::fill (l.begin(), l.end(), 0.123f);
+            check (t.render (l.data(), r.data(), bl, (int64_t) (30.0 * sr)) == 0 && t.isMissingHere() && l[0] == 0.123f,
+                   "  a spot that was never played: nothing is replaced, and WWMA says so");
+
+            // play only 0:10-0:11 again with a change, then snapshot: that second is replaced, the rest kept
+            recordSpan (t, 14.0, 14.0, 440.0, 0.5f);
+            t.clearAll();
+            recordSpan (t, 10.0, 14.0, 440.0, 0.25f);
+            t.freeze();
+            recordSpan (t, 10.0, 11.0, 880.0, 0.25f);
+            t.freeze();
+            const auto cov = t.beforeCoverage();
+            t.setMatchLoudness (false);
+            for (int k = 0; k < 20; ++k)   // let the level settle (it glides, so switching is click-free)
+                t.render (l.data(), r.data(), bl, (int64_t) (10.5 * sr));
+            sineBlock (want, unused, (int64_t) (10.5 * sr), 880.0, 0.25f);
+            check (cov.size() == 14 && cov[10] == 2 && cov[12] == 1 && std::abs (l[100] - want[100]) < 1.0e-4f,
+                   "a part played again replaces only that part; the rest keeps its older sound (marked as older)",
+                   "covered " + juce::String ((int) cov.size()) + " s, 0:10 " + juce::String (cov.size() > 10 ? cov[10] : 0)
+                       + ", 0:12 " + juce::String (cov.size() > 12 ? cov[12] : 0) + ", error " + juce::String (std::abs (l[100] - want[100]), 5));
+        }
+
+        {
+            // an export records the whole song at once; playing "before" never goes into an export
+            struct Host : juce::AudioPlayHead
+            {
+                bool playing = true;
+                int64_t pos = 0;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying (playing);
+                    info.setTimeInSamples (pos);
+                    return info;
+                }
+            } host;
+            WwmaAudioProcessor p;
+            p.setPlayConfigDetails (2, 2, sr, bl);
+            p.prepareToPlay (sr, bl);
+            p.setPlayHead (&host);
+            juce::MidiBuffer midi;
+            juce::AudioBuffer<float> buf (2, bl);
+            std::vector<float> l ((size_t) bl), r ((size_t) bl);
+            const int64_t at30 = (int64_t) (30.0 * sr) / bl * bl;   // 0:30, on a block boundary
+
+            // an older before take of 0:29-0:31 (a different sound), and BEFORE left on by mistake
+            for (host.pos = at30 - 50 * bl; host.pos < at30 + 50 * bl; host.pos += bl)
+            {
+                sineBlock (l, r, host.pos, 880.0, 0.3f);
+                buf.copyFrom (0, 0, l.data(), bl);
+                buf.copyFrom (1, 0, r.data(), bl);
+                p.processBlock (buf, midi);
+                p.before.service();
+            }
+            p.before.freeze();
+            p.listenToBefore.store (true);
+
+            p.setNonRealtime (true);
+            host.playing = false;   // many hosts don't report "playing" while rendering
+            std::vector<float> exported;   // what went out at 0:30
+            float exportErr = 1.0f;
+            for (host.pos = 0; host.pos < (int64_t) (60.0 * sr); host.pos += bl)
+            {
+                sineBlock (l, r, host.pos, 220.0, 0.3f);
+                buf.copyFrom (0, 0, l.data(), bl);
+                buf.copyFrom (1, 0, r.data(), bl);
+                p.processBlock (buf, midi);
+                if (host.pos == at30)
+                    exported.assign (buf.getReadPointer (0), buf.getReadPointer (0) + bl);
+            }
+            check (p.before.getLiveSeconds() == 60, "one export records the whole song (60 s)", juce::String (p.before.getLiveSeconds()) + " s");
+            p.listenToBefore.store (false);
+            p.setNonRealtime (false);
+            p.before.freeze();
+            p.before.setMatchLoudness (false);
+
+            // later, in real time: the mix is now silent, BEFORE is pressed, and the play head jumps to 0:30
+            host.playing = true;
+            p.listenToBefore.store (true);
+            float lastErr = 1.0f;
+            for (host.pos = at30 - 20 * bl; host.pos <= at30; host.pos += bl)
+            {
+                buf.clear();
+                p.processBlock (buf, midi);
+                if (host.pos == at30 && exported.size() == (size_t) bl)
+                {
+                    lastErr = 0.0f;
+                    for (int i = 0; i < bl; ++i)
+                        lastErr = juce::jmax (lastErr, std::abs (buf.getSample (0, i) - exported[(size_t) i]));
+                }
+            }
+            check (lastErr < 1.0e-4f, "  BEFORE plays the exported sound at the DAW's play head (a jump to 0:30)", juce::String (lastErr, 6));
+            {
+                // the export is the mix (the 220 Hz input delayed by the latency), not the older 880 Hz before take
+                std::vector<float> mixL ((size_t) bl), mixR ((size_t) bl);
+                sineBlock (mixL, mixR, at30 - p.getLatencySamples(), 220.0, 0.3f);
+                float err = exported.empty() ? 1.0f : 0.0f;
+                for (size_t i = 0; i < exported.size(); ++i)
+                    err = juce::jmax (err, std::abs (exported[i] - mixL[i]));
+                exportErr = err;
+            }
+            check (exportErr < 1.0e-5f, "  and BEFORE left on is not mixed into the export", juce::String (exportErr, 6));
+            p.setPlayHead (nullptr);
+        }
+
+        {
+            // saved at one sample rate, put back at another
+            BeforeTake a;
+            a.prepare (sr);
+            recordSpan (a, 5.0, 8.0, 440.0, 0.25f, true);
+            a.freeze();
+            const auto saved = a.exportBefore();
+            BeforeTake b;
+            b.prepare (44100.0);
+            b.importBefore (saved);
+            check (saved.firstSecond == 5 && saved.covered.size() >= 3 && b.getBeforeSeconds() == (int) saved.covered.size(),
+                   "a before take saved at 48 kHz is put back at 44.1 kHz, same spots of the song",
+                   juce::String (b.getBeforeSeconds()) + " s, saved from " + juce::String (saved.firstSecond) + " for " + juce::String ((int) saved.covered.size()) + " s");
+        }
+    }
+
+    /** WWMA's own folder: sessions survive WWMA being removed and added again; before versions on disk. */
+    void storeTests()
+    {
+        std::cout << "Sessions and versions on disk" << std::endl;
+        const double sr = 48000.0;
+        const auto sessionsNow = [] { return (int) store::listSessions().size(); };
+        const int atStart = sessionsNow();
+
+        juce::String id;
+        {
+            WwmaAudioProcessor a;
+            a.prepareToPlay (sr, 512);
+            a.setLang (Lang::finnish);
+            a.setProfileIndex (3);
+            SavedSnapshot snap;
+            snap.time = juce::Time::getCurrentTime();
+            snap.score = 64.0f;
+            a.addSnapshot (snap);
+            a.saveSessionIfChanged();
+            id = a.getSessionId();
+            check (store::sessionFolder (id).getChildFile ("state.xml").existsAsFile(), "a used WWMA writes its session to its own folder", id);
+        }
+        {
+            WwmaAudioProcessor untouched;
+            check (untouched.shouldOfferRestore(), "a WWMA just added (nothing restored, nothing changed) offers earlier sessions");
+        }
+        check (sessionsNow() == atStart + 1, "  and one added and removed without being used leaves nothing behind",
+               juce::String (sessionsNow() - atStart) + " new");
+        {
+            WwmaAudioProcessor b;
+            b.prepareToPlay (sr, 512);
+            const auto c = b.restoreCandidates();
+            const bool offered = ! c.empty() && c.front().id == id;
+            check (offered, "  the session of the WWMA taken out is offered first");
+            const bool ok = offered && b.restoreSession (c.front().folder);
+            check (ok && b.getSessionId() == id && b.getLang() == Lang::finnish && b.getProfileIndex() == 3 && b.getSnapshots().size() == 1,
+                   "  'continue' brings back its settings, snapshots and session id");
+            check (! b.shouldOfferRestore(), "  and no longer offers anything");
+        }
+        {
+            // a project the DAW restores itself is never offered anything
+            WwmaAudioProcessor a, b;
+            a.setLang (Lang::finnish);
+            juce::MemoryBlock mb;
+            a.getStateInformation (mb);
+            b.setStateInformation (mb.getData(), (int) mb.getSize());
+            check (! b.shouldOfferRestore() && b.getSessionId() == a.getSessionId(), "a WWMA restored by the DAW keeps its session and offers nothing");
+        }
+
+        {
+            // before versions: save, list, load back, rename, prune, remove
+            BeforeTake t;
+            t.prepare (sr);
+            std::vector<float> l (512), r (512);
+            for (int64_t pos = (int64_t) (20 * sr); pos < (int64_t) (23 * sr); pos += 512)
+            {
+                for (int i = 0; i < 512; ++i)
+                    l[(size_t) i] = r[(size_t) i] = 0.25f * (float) std::sin (2.0 * pi * 330.0 * (double) (pos + i) / sr);
+                t.record (l.data(), r.data(), 512, pos, true);
+            }
+            t.freeze();
+            const auto v = store::saveVersion (id, t, {}, 71.0f, 0);
+            const auto list = store::listVersions (id);
+            check (v.audio.existsAsFile() && list.size() == 1 && list[0].firstSecond == 20 && list[0].coveredSeconds >= 3,
+                   "the before take is saved as a FLAC in the session's Versions folder",
+                   v.audio.getFileName() + ", " + store::sizeText (v.bytes));
+
+            BeforeTake back;
+            back.prepare (sr);
+            const bool loaded = store::loadVersion (list[0], back);
+            std::vector<float> a (512), b (512), x (512), y (512);
+            t.setMatchLoudness (false);
+            back.setMatchLoudness (false);
+            const int64_t at = (int64_t) (21.5 * sr);
+            t.render (a.data(), b.data(), 512, at);
+            back.render (x.data(), y.data(), 512, at);
+            float err = 0.0f;
+            for (int i = 0; i < 512; ++i)
+                err = juce::jmax (err, std::abs (a[(size_t) i] - x[(size_t) i]));
+            check (loaded && back.getBeforeSeconds() == t.getBeforeSeconds() && err < 1.0e-4f,
+                   "  loading it back gives the same sound at the same spot", juce::String (err, 6));
+
+            BeforeTake slow;
+            slow.prepare (44100.0);
+            check (store::loadVersion (list[0], slow) && slow.beforeSpan().first == 20, "  and at another sample rate, at the same spot of the song");
+
+            check (store::renameVersion (list[0], "v3 before mud cut") && store::listVersions (id)[0].named, "  a version can be named");
+            for (int k = 0; k < 3; ++k)
+            {
+                juce::Thread::sleep (1100);   // file names have one-second resolution
+                store::saveVersion (id, t, {}, 70.0f, 0);
+            }
+            const int removed = store::prune (id, 2);
+            const auto after = store::listVersions (id);
+            const bool namedKept = std::any_of (after.begin(), after.end(), [] (const store::VersionInfo& i) { return i.named; });
+            check (removed == 1 && after.size() == 3 && namedKept, "  keeping 2: the oldest unnamed one goes, the named one stays",
+                   juce::String (removed) + " removed, " + juce::String ((int) after.size()) + " left");
+            check (store::removeVersion (after.back()) && store::listVersions (id).size() == 2, "  a version can be removed");
+        }
+        {
+            const auto folder = store::sessionFolder (id);
+            check (store::removeSession (folder) && ! folder.exists(), "a whole session can be removed");
+            check (! store::removeSession (juce::File::getSpecialLocation (juce::File::tempDirectory)),
+                   "  nothing outside WWMA's own folder can be removed from the plugin");
+        }
+    }
+
     /** References are judged without mastering; every pass is compared with the previous pass of the
         same part; "try the top fix" tells whether the change helped. */
     void passTests()
@@ -646,9 +932,27 @@ namespace
 int main (int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI gui;
+    // never touch the user's own WWMA folder from the tests
+    const auto storeRoot = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-selftest-" + juce::Uuid().toDashedString());
+    store::setRootForTests (storeRoot);
+    struct Cleanup { juce::File f; ~Cleanup() { f.deleteRecursively(); } } cleanup { storeRoot };
+    if (argc > 1 && juce::String (argv[1]) == "store")
+    {
+        storeTests();
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "before")
+    {
+        beforeTests();
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
     if (argc > 1 && juce::String (argv[1]) == "passes")
     {
         passTests();
+    beforeTests();
+    storeTests();
         std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
         return failures == 0 ? 0 : 1;
     }

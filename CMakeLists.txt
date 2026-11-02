@@ -88,7 +88,9 @@ set(WWMA_CORE_SOURCES
     Source/advice/TrackAdvice.cpp
     Source/advice/Passes.cpp
     Source/dsp/MasterChain.cpp
-    Source/reference/ReferenceTracks.cpp)
+    Source/reference/ReferenceTracks.cpp
+    Source/reference/BeforeTake.cpp
+    Source/reference/VersionStore.cpp)
 
 set(WWMA_UI_SOURCES
     Source/PluginProcessor.cpp

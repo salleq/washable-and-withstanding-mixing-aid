@@ -93,6 +93,16 @@ struct ViewState
     bool refPlaying = false;         // WWMA's own play button runs the reference (not the DAW)
     bool dragOver = false;
 
+    // "before": WWMA's own recording of the mix at the last snapshot, played by song position
+    bool listeningBefore = false;    // the before take plays instead of the mix
+    int beforeSeconds = 0;           // how much of the song it covers
+    int liveSeconds = 0;             // recorded since the last snapshot
+    bool beforeMissing = false;      // the play head is at a spot the before take does not have
+    bool beforeFull = false;         // the memory cap was reached
+    float beforeMatchDb = 0.0f;      // level matching applied to it
+    double songSeconds = -1.0;       // the DAW's play head
+    std::vector<uint8_t> beforeCoverage;   // per second: 0 none, 1 older, 2 newest snapshot
+
     // mastering EQ and limiter
     bool chainOpen = false;              // the EQ + limiter panel is shown over the findings
     bool showSuggestions = true;         // suggested values next to the knobs (can be hidden)

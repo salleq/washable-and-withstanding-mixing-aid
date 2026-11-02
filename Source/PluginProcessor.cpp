@@ -7,7 +7,7 @@ namespace
 {
     const juce::Identifier windowId ("window"), langId ("lang"), autoResetId ("autoReset"), referenceId ("Reference"),
                            stageId ("stage"), trackId ("track"), trackKindId ("trackKind"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
-                           refsId ("ReferenceTracks"), slotId ("Slot");
+                           refsId ("ReferenceTracks"), slotId ("Slot"), sessionIdId ("sessionId"), sessionNameId ("sessionName");
 
     Lang defaultLang() { return Lang::english; } // Finnish is one click away
 }
@@ -43,6 +43,163 @@ WwmaAudioProcessor::WwmaAudioProcessor()
     chain.prepare (48000.0, chainBlock);
     refScratch.setSize (2, chainBlock);
     setLatencySamples (chain.latency());
+    before.prepare (48000.0);
+    ensureSessionId();
+    defaultStateXml = apvts.copyState().toXmlString();
+    lastSavedXml = defaultStateXml;
+    beforeService.startTimerHz (10);
+}
+
+WwmaAudioProcessor::~WwmaAudioProcessor()
+{
+    beforeService.stopTimer();
+    closing.store (true);
+    alive->store (false);
+    // the last changes, so nothing is lost when WWMA is taken out of the project
+    if (juce::MessageManager::existsAndIsCurrentThread())
+        saveSessionIfChanged();
+    diskPool.removeAllJobs (true, 10000);
+    wwma::TrackBus::shared().leave (busId);
+}
+
+// ---- WWMA's own folder
+
+void WwmaAudioProcessor::ensureSessionId()
+{
+    if (apvts.state.getProperty (sessionIdId).toString().isEmpty())
+        apvts.state.setProperty (sessionIdId, juce::Uuid().toDashedString(), nullptr);
+}
+
+juce::String WwmaAudioProcessor::getSessionId() const { return apvts.state.getProperty (sessionIdId).toString(); }
+
+juce::String WwmaAudioProcessor::getSessionName() const
+{
+    const auto n = apvts.state.getProperty (sessionNameId).toString();
+    return n.isNotEmpty() ? n : store::readSession (store::sessionFolder (getSessionId())).name;
+}
+
+void WwmaAudioProcessor::setSessionName (const juce::String& name)
+{
+    apvts.state.setProperty (sessionNameId, name, nullptr);
+    store::renameSession (store::sessionFolder (getSessionId()), name);
+    saveSessionIfChanged();
+}
+
+void WwmaAudioProcessor::updateTrackProperties (const TrackProperties& properties)
+{
+    trackName = properties.name;
+}
+
+bool WwmaAudioProcessor::shouldOfferRestore() const
+{
+    return ! stateRestored && ! restoreAnswered && const_cast<juce::AudioProcessorValueTreeState&> (apvts).copyState().toXmlString() == defaultStateXml;
+}
+
+std::vector<store::SessionInfo> WwmaAudioProcessor::restoreCandidates() const
+{
+    std::vector<store::SessionInfo> out;
+    const auto role = juce::String ((int) getTrackRole());
+    for (auto& s : store::listSessions())
+        if (s.hasState() && s.id != getSessionId())
+            out.push_back (std::move (s));
+    // the same kind of WWMA (master, kick, bass...) first, newest first within each
+    std::stable_sort (out.begin(), out.end(), [&role] (const store::SessionInfo& a, const store::SessionInfo& b)
+    {
+        return (a.role == role) > (b.role == role);
+    });
+    return out;
+}
+
+bool WwmaAudioProcessor::restoreSession (const juce::File& folder)
+{
+    auto xml = store::loadState (folder);
+    if (xml == nullptr || ! xml->hasTagName (apvts.state.getType()))
+        return false;
+    if (xml->getStringAttribute (sessionIdId.toString()).isEmpty())
+        xml->setAttribute (sessionIdId, folder.getFileName());
+    applyState (*xml);
+    restoreAnswered = true;
+    lastSavedXml = apvts.copyState().toXmlString();
+    loadLatestVersionIfEmpty();
+    return true;
+}
+
+void WwmaAudioProcessor::saveSessionIfChanged()
+{
+    const auto xml = apvts.copyState().toXmlString();
+    // a WWMA just added and not used yet leaves nothing behind
+    if (xml == lastSavedXml || (! stateRestored && ! restoreAnswered && xml == defaultStateXml))
+        return;
+    store::SessionInfo info;
+    info.name = apvts.state.getProperty (sessionNameId).toString();
+    if (info.name.isEmpty() && ! store::sessionFolder (getSessionId()).getChildFile ("info.json").existsAsFile())
+        info.name = (trackName.isNotEmpty() ? trackName + " " : juce::String())
+                    + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H:%M");
+    info.host = juce::PluginHostType().getHostDescription();
+    info.role = juce::String ((int) getTrackRole());
+    for (int i = 0; i < ReferenceTracks::numSlots; ++i)
+        if (auto r = refs.getInfo (i))
+            info.references.add (r->file.getFileName());
+    if (store::saveSession (getSessionId(), xml, info))
+        lastSavedXml = xml;
+}
+
+void WwmaAudioProcessor::setDiskNote (const juce::String& n)
+{
+    const juce::ScopedLock sl (noteLock);
+    diskNote = n;
+}
+
+juce::String WwmaAudioProcessor::getDiskNote() const
+{
+    const juce::ScopedLock sl (noteLock);
+    return diskNote;
+}
+
+void WwmaAudioProcessor::saveBeforeVersion (float score)
+{
+    if (! before.hasBefore())
+        return;
+    const auto id = getSessionId();
+    auto flag = alive;
+    ++diskJobs;
+    diskPool.addJob ([this, flag, id, score]
+    {
+        if (! flag->load())
+            return;
+        const auto v = store::saveVersion (id, before, {}, score, keepVersions, &closing);
+        if (! flag->load())
+            return;
+        setDiskNote (v.audio.existsAsFile() ? juce::String() : juce::String ("save failed"));
+        --diskJobs;
+        ++versionsGeneration;
+    });
+    saveSessionIfChanged();
+}
+
+void WwmaAudioProcessor::loadBeforeVersion (const store::VersionInfo& v)
+{
+    auto flag = alive;
+    ++diskJobs;
+    diskPool.addJob ([this, flag, v]
+    {
+        if (! flag->load())
+            return;
+        const bool ok = store::loadVersion (v, before, &closing);
+        if (! flag->load())
+            return;
+        setDiskNote (ok ? juce::String() : juce::String ("load failed"));
+        --diskJobs;
+    });
+}
+
+void WwmaAudioProcessor::loadLatestVersionIfEmpty()
+{
+    if (before.hasBefore())
+        return;
+    const auto versions = store::listVersions (getSessionId());
+    if (! versions.empty())
+        loadBeforeVersion (versions.front());
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout WwmaAudioProcessor::createLayout()
@@ -122,6 +279,9 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
     }
     refs.setPlaybackRate (sampleRate);
     mixTrack.setPlaybackRate (sampleRate);
+    before.prepare (sampleRate);
+    before.service();
+    beforeMix = 0.0f;
     refScratch.setSize (2, juce::jmax (512, samplesPerBlock), false, false, true);
     chainBlock = juce::jmax (512, samplesPerBlock);
     chain.prepare (sampleRate, chainBlock);
@@ -236,6 +396,51 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
                 if (r != l)
                     r[i] += withoutMix * (dr[i] * withoutGain - r[i]);
             }
+        }
+    }
+
+    // "before": record what goes out (the mix as you hear it), keyed by the song position.
+    // An export records too, so one bounce gives the whole song. Not while the level-matched
+    // bypass plays, since that is not your mix as it stands.
+    {
+        const bool recordNow = hostSample >= 0 && (hostPlaying || offline) && ! without && withoutMix <= 0.0f;
+        if (recordNow)
+        {
+            const float* l = buffer.getReadPointer (0);
+            before.record (l, numCh > 1 ? buffer.getReadPointer (1) : l, n, hostSample, offline);
+        }
+        songSeconds.store (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : -1.0);
+    }
+
+    // before / now, only when the user asked for it, and never into an export
+    const bool hearBefore = listenToBefore.load() && ! offline;
+    if (hearBefore || beforeMix > 0.0f)
+    {
+        for (int start = 0; start < n;)
+        {
+            const int len = juce::jmin (n - start, refScratch.getNumSamples());
+            float* outL = buffer.getWritePointer (0, start);
+            float* outR = numCh > 1 ? buffer.getWritePointer (1, start) : nullptr;
+            float* bl = refScratch.getWritePointer (0);
+            float* br = refScratch.getWritePointer (1);
+            // where the before take has nothing, the mix keeps playing
+            std::copy (outL, outL + len, bl);
+            std::copy (outR != nullptr ? outR : outL, (outR != nullptr ? outR : outL) + len, br);
+            if (hostSample >= 0 && hostPlaying)
+                before.render (bl, br, len, hostSample + start);
+            const float target = hearBefore ? 1.0f : 0.0f;
+            for (int i = 0; i < len; ++i)
+            {
+                beforeMix = beforeMix < target ? juce::jmin (target, beforeMix + abStep) : juce::jmax (target, beforeMix - abStep);
+                if (outR != nullptr)
+                {
+                    outL[i] += beforeMix * (bl[i] - outL[i]);
+                    outR[i] += beforeMix * (br[i] - outR[i]);
+                }
+                else
+                    outL[i] += beforeMix * (0.5f * (bl[i] + br[i]) - outL[i]);
+            }
+            start += len;
         }
     }
 
@@ -629,12 +834,22 @@ void WwmaAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
     {
         if (xml->hasTagName (apvts.state.getType()))
         {
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
-            autoReset.store ((bool) apvts.state.getProperty (autoResetId, true));
-            restoreReference();
-            restoreReferenceTracks();
+            applyState (*xml);
+            stateRestored = true;
+            lastSavedXml = apvts.copyState().toXmlString();
+            // the project's own before versions, so BEFORE works again right away
+            juce::MessageManager::callAsync ([this, flag = alive] { if (flag->load()) loadLatestVersionIfEmpty(); });
         }
     }
+}
+
+void WwmaAudioProcessor::applyState (const juce::XmlElement& xml)
+{
+    apvts.replaceState (juce::ValueTree::fromXml (xml));
+    ensureSessionId();   // projects saved before 0.5 have none
+    autoReset.store ((bool) apvts.state.getProperty (autoResetId, true));
+    restoreReference();
+    restoreReferenceTracks();
 }
 
 // ---- reference tracks

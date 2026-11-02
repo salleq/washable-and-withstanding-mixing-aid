@@ -67,6 +67,8 @@ public:
     bool isReferenceDetailOpen() const noexcept { return refDetail.isVisible(); }
     /** A/B: true plays the reference instead of the mix. */
     void setListening (bool b);
+    /** True plays the "before" recording (the mix as it was at the last snapshot) instead of the mix. */
+    void setListeningBefore (bool b);
     void referencesChanged() { refGeneration = -1; readReferences(); reassess(); }
     /** The mastering EQ + limiter panel (shown over the findings). */
     void setChainOpen (bool open);
@@ -132,6 +134,9 @@ private:
     void loadReference (int slot, const juce::File& file);
     void readReferences();
     void updatePanels();
+    /** Reads the before take's state for the BEFORE button and its strip. */
+    void readBefore();
+    int beforeGenerationShown = -1;
 
     WwmaAudioProcessor& proc;
     wwma::ui::LookAndFeel lnf;
@@ -166,7 +171,7 @@ private:
     juce::ComboBox trackBox; // shown instead of the loudness target in track mode
     juce::TextButton trackButton;
     void fillTrackBox();
-    juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, langButton, mixAButton, refBButton;
+    juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, langButton, mixAButton, beforeButton, refBButton;
     juce::ToggleButton autoResetToggle;
     juce::TextButton mixLoadButton, mixPlayButton; // standalone app only: your own song
 
