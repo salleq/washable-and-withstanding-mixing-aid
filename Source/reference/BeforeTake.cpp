@@ -76,6 +76,7 @@ void BeforeTake::prepare (double sampleRate)
         storage.clear();
         spares.clear();
         chunkLen = juce::jmax (1000, (int) std::lround (sampleRate));
+        chunkCap = juce::jlimit (60, maxChunks, (int) (maxBytes / ((double) chunkLen * 4.0)));
         rate.store (sampleRate);
     }
     for (int ch = 0; ch < 2; ++ch)
@@ -96,7 +97,7 @@ BeforeTake::Chunk* BeforeTake::newChunk (bool allowAllocate) noexcept
         spares.pop_back();
         return c;
     }
-    if (! allowAllocate || (int) storage.size() >= maxChunks)
+    if (! allowAllocate || (int) storage.size() >= chunkCap)
         return nullptr;
     // offline render only: the host waits for us, so allocating here is fine
     try
@@ -237,7 +238,7 @@ void BeforeTake::service (double songSeconds)
     std::vector<std::unique_ptr<Chunk>> fresh;
     {
         const juce::SpinLock::ScopedLockType sl (lock);
-        const size_t room = (size_t) juce::jmax (0, maxChunks - (int) storage.size());
+        const size_t room = (size_t) juce::jmax (0, chunkCap - (int) storage.size());
         const size_t want = spares.size() < keepSpares ? keepSpares - spares.size() : 0;
         fresh.resize (std::min (want, room));
     }
@@ -249,7 +250,7 @@ void BeforeTake::service (double songSeconds)
     const juce::SpinLock::ScopedLockType sl (lock);
     for (auto& f : fresh)
     {
-        if ((int) storage.size() >= maxChunks)
+        if ((int) storage.size() >= chunkCap)
             break;
         spares.push_back (f.get());
         storage.push_back (std::move (f));
@@ -487,7 +488,7 @@ void BeforeTake::importBefore (const Export& e)
     const int gen = generation.load() + 1;
     for (auto& [second, c] : made)
     {
-        if ((int) storage.size() >= maxChunks)
+        if ((int) storage.size() >= chunkCap)
             break;
         c->generation = gen;
         before->chunks[(size_t) second] = c.get();
@@ -585,7 +586,7 @@ bool BeforeTake::importSecond (int second, const float* l, const float* r, int f
     }
 
     const juce::SpinLock::ScopedLockType sl (lock);
-    if (importGeneration != generation.load() || chunkLen != len || (int) storage.size() >= maxChunks)
+    if (importGeneration != generation.load() || chunkLen != len || (int) storage.size() >= chunkCap)
         return false;
     c->generation = importGeneration;
     release (before->chunks[(size_t) second]);

@@ -809,6 +809,34 @@ namespace
         }
     }
 
+    /** Every finding says what it sounds like, in English and Finnish. */
+    void listeningTextTests()
+    {
+        std::cout << "What each finding sounds like" << std::endl;
+        juce::StringArray ids { "range0+", "range0-", "range1+", "range1-", "range2+", "range2-", "range3+", "range3-", "range4+", "range4-", "range5+", "range5-",
+                                "loud", "quiet", "peak", "squashed", "dynamic", "lra", "phonebass", "lowwidth", "phase", "monoloss", "wide", "narrow",
+                                "balance", "dcoffset", "clipping", "headroom", "hotmix", "kickbass", "flatdrums", "spikydrums", "boomnote", "piercing",
+                                "sibilance", "notch", "rumble", "sidehigh", "kick-low", "kick-high", "kick-long", "kick-short", "kick-noclick",
+                                "kick-clicky", "kick-mud", "kick-squashed", "bass-noharm", "bass-fizzy", "bass-sub+", "bass-uneven", "bus-sub+",
+                                "bus-sub-", "bus-squashed", "clash", "kick-tune", "track-hot" };
+        juce::StringArray missing;
+        for (auto lang : { Lang::english, Lang::finnish })
+        {
+            std::vector<Finding> fs;
+            for (const auto& id : ids)
+            {
+                Finding f;
+                f.id = id.toStdString();
+                fs.push_back (f);
+            }
+            describeForEars (fs, lang);
+            for (const auto& f : fs)
+                if (f.listenFor.isEmpty())
+                    missing.addIfNotAlreadyThere (juce::String (f.id));
+        }
+        check (missing.isEmpty(), "every finding has a 'what you hear' line in English and Finnish", missing.joinIntoString (" "));
+    }
+
     /** References are judged without mastering; every pass is compared with the previous pass of the
         same part; "try the top fix" tells whether the change helped. */
     void passTests()
@@ -1939,6 +1967,7 @@ int main (int argc, char* argv[])
     passTests();
     beforeTests();
     storeTests();
+    listeningTextTests();
 
     // ------------------------------------------------------------------ snapshots, lessons, report
     std::cout << "Snapshots, lessons and the mix report" << std::endl;

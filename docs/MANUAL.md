@@ -39,10 +39,11 @@ While **B · REF** plays, the loudness, tonal balance, findings, score and trans
 | Reference tracks | Up to two reference tracks, each with its waveform. Click a waveform to jump. |
 | Tonal balance | Your mix (white) against the style's corridor (green), in plain-named ranges: sub, bass, mud, mids, harsh and air. Red means too much; orange means too little. |
 | Findings | At most four things to fix, most important first. Click a card for the reason, every step and the common trap. |
-| How close to a good mix | Score 0–100: Needs improvement, Not quite there yet, Close enough, Looks perfect. |
+| How close to a good mix | Three plain levels: Needs improvement, Not quite there yet, Close enough. Past "Close enough" the meter steps back and your ears decide the rest. The **0-100** button shows the number (off by default, see below). |
 | Translation | How the mix should hold up on a phone, in a car, on headphones and in a club. |
 | EQ + Limiter | The mastering EQ and limiter, opened with the **EQ + Limiter** button at the bottom. It takes the place of the findings while it is open. See section 9. |
-| Progress | Save a snapshot before a change. The cards then show what got better or worse, the chart tracks your score, and **Before/after** compares every meter. See section 5. |
+| Progress | Save a snapshot before a change. The cards then show what got better or worse, **Before/after** compares every meter, and **Versions** lists the BEFORE recordings saved on disk. See section 5. |
+| Listen: Mix · Before · Ref | **Mix** is your mix. **Before** plays your mix as it was at the last snapshot, at the same spot of the song. **Ref** plays the reference track. Both are level-matched. See section 5. |
 
 ## 3. Every check, explained
 
@@ -141,6 +142,36 @@ Limits:
 
 Snapshots are saved with your DAW project.
 
+### BEFORE: hear the mix as it was, without exporting
+
+A VST, AU or CLAP plugin can't see your DAW's undo history (Studio One's History included) and can't change your project. So WWMA records its own output instead: it sits last on the master, so it hears exactly what you hear.
+
+- While the DAW plays, WWMA records what goes out, one second at a time, by **song position**. Playing a spot again replaces it, so it always has the newest sound of every spot you played.
+- **Snapshot** freezes that recording as **BEFORE**.
+- Make your change. Press **BEFORE** in the top bar: you hear the mix as it was, at the spot the DAW's play head is at. It follows loops, jumps and the whole song. Press **MIX** to hear it as it is now. Both play at the same loudness, so the louder one doesn't win just by being louder.
+- **The whole song**: play it through once before the snapshot, or **export once**. An export runs through WWMA too, so one bounce fills BEFORE for the whole song in seconds. After that you don't need to bounce to compare.
+- The thin strip under **BEFORE** shows which parts of the song it has (brighter: from the newest snapshot; dimmer: older). Where it has nothing, the mix keeps playing and the status says so.
+- It assumes the arrangement stays the same. If you move parts in time, BEFORE plays the old arrangement at that time.
+- Up to 15 minutes of song. The memory is capped at about 230 MB for BEFORE and the running recording together, so at 96 kHz it holds about half as much. BEFORE never plays into an export.
+
+### Versions on disk, and WWMA added back to a project
+
+Every snapshot also saves BEFORE as a 24-bit FLAC in WWMA's own folder, not in your DAW project:
+
+- Windows: `%APPDATA%\WWMA\Projects`
+- macOS: `~/Library/Application Support/WWMA/Projects`
+- Linux: `~/.config/WWMA/Projects`
+
+**Versions** (in the progress panel) lists them: **Use** loads one as BEFORE, **Name** gives it a name (named versions are never removed automatically), **Remove** moves it to the trash. A session keeps 10 unnamed versions; older ones go to the trash. The panel also lists the other sessions in the folder, with their size, to continue or remove, and **Open folder**.
+
+WWMA also keeps its whole state there (references and where they were loaded from, loops, snapshots, settings). If you take WWMA out of a project and add it again, for example to update it, the new WWMA starts empty and asks **Continue an earlier session?**, the same kind (master, kick, bass) first. Nothing is restored until you pick one; **Start fresh** leaves the old one alone. Tip: updating with the project closed (close the DAW, replace the plugin, open the project) keeps everything without that step, because the DAW gives the saved state to the new version.
+
+### The number is hidden by default
+
+Chasing the score can lead a mix the wrong way: the meter only sees what it measures. So the meter shows three plain levels, and from "Close enough" on it says the ears decide the rest. The **0-100** button in the meter brings back the number, the progress chart and the points in the banners. It is kept with the project.
+
+If many changes pile up since the snapshot (three tonal ranges moved 2 dB, the meter jumped 15 points, or it rose while the tone moved away from your reference), the progress banner asks you to listen to BEFORE and MIX before you go on.
+
 ### Did my change help? Passes and "Try the top fix"
 
 Advice is only useful if following it makes the song better. WWMA checks that for you.
@@ -149,17 +180,21 @@ Advice is only useful if following it makes the song better. WWMA checks that fo
 
 **Try the top fix** (button in the progress panel) turns this into a step-by-step lesson on your own song:
 
-1. WWMA picks the most important finding and shows **one concrete step** from it, for example *Sweep a narrow boost between 200 and 400 Hz to find the boxy spot, then cut 2-4 dB there.*
+1. WWMA picks the most important finding and shows **one concrete step** from it, for example *Sweep a narrow boost between 200 and 400 Hz to find the boxy spot, then cut 2-4 dB there.* What you just played becomes BEFORE.
 2. You make that change and play the same part again.
-3. WWMA compares the pass with the one before your change and tells you:
-   - **It helped. Keep it**: the finding got clearly smaller or went away, and the score didn't drop. Save the DAW project as a new version.
-   - **That made it worse: undo it**: the finding or the score got worse. Undo, and try a smaller move or the next step.
-   - **No clear change yet**: the change was probably too small or on the wrong track. Go a bit further.
-4. **Next fix** moves on to the new top finding.
+3. WWMA compares the pass with the one before your change and says what the meter thinks: it helped, it got worse, or no clear change.
+4. Then it asks your ears: press **BEFORE** and **MIX** in turn and answer **Mix better**, **Before better** or **Same**. Your ears win:
+   - Both agree it helped: **keep it**, and save the DAW project as a new version.
+   - The meter liked it but BEFORE sounded better: **your ears win, undo it**. The meter only sees one thing; the change probably took away something else (warmth, punch, space). For this song it may be a choice, so the finding stops counting: no points, below the others, marked **Your ears**. The second time, WWMA suggests loading a track you love and using the **Reference track** preset as the target.
+   - You liked it although the meter didn't: keep it if it still sounds better quietly and on a phone.
+   - **Same**: if you can't hear it, nobody will. Don't go further that way.
+5. **Next fix** moves on to the new top finding. **Clear** in the progress panel forgets the snapshots and the findings your ears ruled out.
+
+Every finding card also says **Listen:** what the problem sounds like, so you learn to hear it, and, opened, **When to leave it**: when it is a style choice rather than a mistake.
 
 ![Try the top fix: it helped](images/wwma-try-fix.png)
 
-The numbers don't depend on how loud you play, but your ears do: when the banner says it helped, also listen once at matched loudness (bounce the old version into the **earlier version** slot, or compare with **Hear without** for the EQ and limiter).
+The numbers don't depend on how loud you play, but your ears do: BEFORE is level-matched for that reason (and **Hear without** does the same for the EQ and limiter).
 
 ## 6. Learning mode
 

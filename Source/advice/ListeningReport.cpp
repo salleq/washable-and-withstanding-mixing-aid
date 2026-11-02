@@ -499,7 +499,11 @@ juce::String listeningMarkdown (const ListeningInput& in, Lang lang)
         int count = 0;
         for (const auto& f : a.findings)
             if (f.id != "tip" && f.severity != Severity::good)
-                md << ++count << ". " << f.title << (f.value.isNotEmpty() ? " (" + f.value + ")" : juce::String()) << nl();
+                md << ++count << ". " << f.title << (f.value.isNotEmpty() ? " (" + f.value + ")" : juce::String())
+                   << (f.earOverruled ? tr (lang, " - the user compared BEFORE and MIX and preferred it without this fix: treat it as a deliberate choice",
+                                              " - käyttäjä vertasi ENNEN- ja MIKSI-versioita ja piti enemmän versiosta ilman tätä korjausta: pidä sitä tietoisena valintana")
+                                      : juce::String())
+                   << nl();
         if (count == 0)
             md << tr (lang, "- none", "- ei yhtään") << nl();
         md << nl();

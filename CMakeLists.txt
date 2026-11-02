@@ -80,6 +80,7 @@ set(WWMA_CORE_SOURCES
     Source/analysis/Analyzer.cpp
     Source/advice/Profiles.cpp
     Source/advice/Advisor.cpp
+    Source/advice/Listening.cpp
     Source/advice/StyleGuess.cpp
     Source/advice/MixReport.cpp
     Source/advice/ListeningReport.cpp

@@ -786,6 +786,7 @@ Assessment assessTrack (const Snapshot& s, const Profile& style, TrackRole role,
                           "Yhden raidan luvut ovat vain puoli totuutta: soolona hyvin mittautuvat äänet voivat silti peittää toisiaan. Kuuntele koko miksin kanssa, hiljaa ja puhelimesta.");
         a.findings.insert (a.findings.begin(), f);
     }
+    describeForEars (a.findings, lang);
     return a;
 }
 } // namespace wwma

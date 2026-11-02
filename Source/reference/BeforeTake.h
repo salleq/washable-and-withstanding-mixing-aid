@@ -30,7 +30,8 @@ class BeforeTake
 {
 public:
     static constexpr int maxSeconds = 15 * 60;   // song positions beyond this are not recorded
-    static constexpr int maxChunks = 20 * 60;    // memory cap for both takes together
+    static constexpr int maxChunks = 20 * 60;    // both takes together, at 48 kHz (fewer seconds at higher rates)
+    static constexpr double maxBytes = 20.0 * 60.0 * 48000.0 * 4.0;   // ~230 MB, whatever the sample rate
     static constexpr int blockSize = 256;        // granularity of "this part was recorded"
 
     BeforeTake();
@@ -135,6 +136,7 @@ private:
     std::vector<Chunk*> spares;
     std::unique_ptr<Take> live, before;
     int chunkLen = 48000;
+    int chunkCap = maxChunks;   // how many chunks fit in maxBytes at this rate
 
     std::atomic<double> rate { 0.0 };
     std::atomic<int> beforeSeconds { 0 }, liveSeconds { 0 }, generation { 0 };

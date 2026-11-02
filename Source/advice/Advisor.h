@@ -100,6 +100,9 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
     and go after the others, so "try the top fix" moves on. */
 void applyEarDecisions (Assessment& a, const std::set<std::string>& overruled);
 
+/** Fills in what each finding sounds like and when it is a choice (Listening.cpp). */
+void describeForEars (std::vector<Finding>& findings, Lang lang);
+
 /** "Needs improvement" (0-40), "Not quite there yet" (40-70), "Close enough" (70-90), "Looks perfect" (90-100). */
 juce::String verdictFor (float score, Lang lang);
 

@@ -794,6 +794,8 @@ Assessment assess (const Snapshot& s, const Profile& p, Window w, Lang lang, Sta
         a.findings.push_back (f);
     }
 
+    describeForEars (a.findings, lang);
+
     // ---- one listening tip at a time, changing every 30 seconds: the ear decides
     if (m.valid)
     {

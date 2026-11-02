@@ -15,13 +15,10 @@ Put it last on your master bus (or on a single kick, bass or kick + bass track, 
 - **Findings that teach.** At most four things to fix at a time, most important first. Each one has a "Try:" first step. Click a finding to see why it matters, every step, and the common trap behind it.
 - **Common pitfalls built in.** Kick drowning in the bass (with sidechain ducking settings), sub without harmonics (gone on phones), wide or out-of-phase low end, over-compression and over-limiting, clipping, missing headroom while mixing, mixing into a limiter, harsh upper mids, sibilance, rumble, booming notes, piercing peaks, holes in the spectrum, wideners on the top end, left/right imbalance, DC offset, and quiet or squashed drums.
 - **A rotating listening tip.** The tip changes every 30 seconds: listen quietly, check in mono, check on your phone, take a break, match loudness before comparing, and so on.
-- **"How close to a good mix" meter.** A score from 0 to 100 on a red-to-green bar:
-  - Needs improvement (0–40)
-  - Not quite there yet (40–70)
-  - Close enough (70–90)
-  - Looks perfect (90–100)
-
-  It also tells you what the next fix is worth.
+- **"How close to a good mix" meter.** Three plain levels: Needs improvement, Not quite there yet, Close enough. Past that the meter steps back: your ears decide the rest. The number (0–100) is hidden by default, because chasing it can lead a mix the wrong way; the **0-100** button brings it back.
+- **BEFORE: hear your mix as it was, without exporting.** WWMA records its own output by song position while the DAW plays (or exports: one bounce covers the whole song). A snapshot freezes it, and the **BEFORE** button plays it at the DAW's play head, level-matched, following loops and jumps. A plugin can't see the DAW's undo history, so this is how WWMA gives you an A/B of before and after your changes.
+- **Your ears decide.** After "Try the top fix", WWMA asks you to compare BEFORE and MIX. If BEFORE sounded better, the ears win: the finding stops counting for this song. Every finding also says what it sounds like and when it is a style choice. When many changes pile up since a snapshot, WWMA asks you to listen before you go on.
+- **Versions and sessions on disk.** Every snapshot saves BEFORE as a FLAC in WWMA's own folder, with the session's state. **Versions** lists them to use, name or remove (to the trash). A WWMA taken out of a project and added back (e.g. to update it) offers to continue where it was.
 - **Translation.** An estimate of how well the mix holds up on a phone, in a car, on headphones and in a club.
 - **Mono check.** Warns when the bass or a wide synth gets quieter when the mix is summed to mono (club systems, phones and many Bluetooth speakers are mono).
 - **Snapshots and before/after.** Save a snapshot before a change. WWMA then reminds you to save your DAW project as a new version (Save As, "My song v3") and asks you to confirm with **I saved it**, so you can always go back. **Before/after** shows every number before and now, marked better or worse. The snapshot's tonal curve stays on the spectrum as a ghost line, with the difference filled in another colour (can be turned off).
