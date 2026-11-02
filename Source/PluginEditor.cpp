@@ -794,7 +794,13 @@ void WwmaAudioProcessorEditor::updateTexts()
 void WwmaAudioProcessorEditor::timerCallback()
 {
     lastTimerMs.store (juce::Time::getMillisecondCounter());
-    state.exporting = false;
+    if (state.exporting)
+    {
+        // the export is over (or the host lets the timer run again): take the box away everywhere,
+        // not only where something happens to be repainted
+        state.exporting = false;
+        content.repaint();
+    }
     ++ticks;
     proc.updateReferenceState();
     readReferences();
@@ -816,13 +822,17 @@ void WwmaAudioProcessorEditor::timerCallback()
 
 void WwmaAudioProcessorEditor::exportTick()
 {
-    // the normal timer is running: nothing to do
-    if (! proc.exporting.load() || juce::Time::getMillisecondCounter() - lastTimerMs.load() < 600)
+    // the normal timer is running, or no render is going on now: nothing to do
+    const auto now = juce::Time::getMillisecondCounter();
+    const bool rendering = proc.exporting.load() && now - proc.lastOfflineMs.load() < 1000;
+    if (! rendering || now - lastTimerMs.load() < 600)
         return;
     proc.analyzer.readSnapshot (state.snap);
     state.exporting = true;
     state.exportSeconds = (float) proc.exportSeconds.load();
-    content.repaint();
+    // components may only be repainted on the message thread: ask it to, for when it gets a moment
+    juce::Component::SafePointer<juce::Component> c (&content);
+    juce::MessageManager::callAsync ([c] { if (c != nullptr) c->repaint(); });
     glContext.triggerRepaint();
 }
 
