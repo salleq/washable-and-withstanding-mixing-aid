@@ -351,6 +351,10 @@ bool ReferenceTracks::render (float* l, float* r, int n, int64_t hostSample, boo
 
     if (synced && ! hostPlaying)
         return false;
+    // without the DAW's song position (the standalone app, or a host that gives none) the
+    // reference plays only while its own play button is on: B alone never starts it
+    if (! synced && ! ownTransport.load())
+        return false;
 
     // a loop keeps playback between its two points
     int64_t loopA = 0, loopB = len;

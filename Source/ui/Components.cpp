@@ -1827,7 +1827,7 @@ void ReferenceBox::paint (juce::Graphics& g)
         }
 
         // waveform, loop and play / pause
-        const bool playingHere = act && state.listening && state.refPlaying;
+        const bool playingHere = act && state.listening && (state.refPlaying || state.refAudible);
         drawRefWave (g, ref, waveBounds (i).toFloat(), act, act, state.playPosition);
         auto pb = playBounds (i).toFloat();
         g.setColour (playingHere ? colours::ref.withAlpha (0.25f) : colours::panel);
@@ -2441,9 +2441,10 @@ RefDetailBox::RefDetailBox (const ViewState& s) : state (s)
     clearButton.onClick = [this] { if (onClearLoop) onClearLoop(); };
     earlierButton.onClick = [this] { if (onToggleEarlier) onToggleEarlier(); };
     reportButton.onClick = [this] { if (onReport) onReport(); };
+    aiButton.onClick = [this] { if (onAskAi) onAskAi(); };
     earlierButton.setClickingTogglesState (false);
     earlierButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
-    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton, &earlierButton, &reportButton })
+    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton, &earlierButton, &reportButton, &aiButton })
         addAndMakeVisible (b);
     updateTexts();
 }
@@ -2457,7 +2458,7 @@ void RefDetailBox::updateTexts()
 {
     const auto lang = state.lang;
     const auto* v = view();
-    const bool playing = state.listening && state.refPlaying && slot == state.activeRef;
+    const bool playing = state.listening && (state.refPlaying || state.refAudible) && slot == state.activeRef;
     closeButton.setButtonText (upper (t (lang, "Close", "Sulje")));
     playButton.setButtonText (upper (playing ? t (lang, "Pause", "Tauko") : t (lang, "Play", "Soita")));
     loopButton.setButtonText (upper (t (lang, "Play the loop", "Soita looppi")));
@@ -2469,6 +2470,10 @@ void RefDetailBox::updateTexts()
     reportButton.setEnabled (v != nullptr);
     reportButton.setTooltip (t (lang, "Save a report of this track alone (Markdown + JSON, and the song part by part for an AI assistant), e.g. an older version of your song. Your mix is not part of it.",
                                       "Tallenna raportti pelkästä tästä raidasta (Markdown + JSON, ja kappale osa kerrallaan tekoälyavustajalle), esim. biisisi vanhemmasta versiosta. Miksisi ei ole mukana."));
+    aiButton.setButtonText (upper (t (lang, "Ask AI", "Kysy AI:lta")));
+    aiButton.setEnabled (v != nullptr);
+    aiButton.setTooltip (t (lang, "Save a report of this track alone and give it to the AI assistant chosen in the AI settings (Claude, Gemini or ChatGPT). Numbers and spectrogram pictures only, never audio.",
+                                  "Tallenna raportti pelkästä tästä raidasta ja anna se AI-asetuksissa valitulle tekoälyavustajalle (Claude, Gemini tai ChatGPT). Vain luvut ja spektrogrammikuvat, ei koskaan ääntä."));
     earlierButton.setButtonText (upper (t (lang, "My earlier version", "Oma aiempi versio")));
     earlierButton.setToggleState (v != nullptr && v->earlier, juce::dontSendNotification);
     earlierButton.setEnabled (v != nullptr);
@@ -2481,6 +2486,7 @@ void RefDetailBox::resized()
     const auto r = content (*this);
     closeButton.setBounds (r.getRight() - 70, r.getY() - 2, 70, 22);
     reportButton.setBounds (r.getRight() - 70 - 8 - 96, r.getY() - 2, 96, 22);
+    aiButton.setBounds (reportButton.getX() - 8 - 104, r.getY() - 2, 104, 22);
     auto row = juce::Rectangle<int> (r.getX(), r.getBottom() - 26, r.getWidth(), 26);
     playButton.setBounds (row.removeFromLeft (96));
     row.removeFromLeft (8);
@@ -2518,7 +2524,7 @@ void RefDetailBox::paint (juce::Graphics& g)
         return;
     }
     drawLabel (g, "Ref " + juce::String (slot + 1) + (v->earlier ? dot + t (lang, "my earlier version", "oma aiempi versio") : juce::String()) + dot + v->name,
-               head.withTrimmedRight (80), v->earlier ? colours::earlier : colours::ref);
+               head.withRight (aiButton.getX() - 8), v->earlier ? colours::earlier : colours::ref); // ends with "..." before the buttons
 
     auto info = r.removeFromTop (22);
     juce::String text = fmt (lang, v->snap.integrated) + " LUFS" + dot + duration (v->seconds);

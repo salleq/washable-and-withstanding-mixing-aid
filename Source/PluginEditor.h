@@ -64,12 +64,15 @@ public:
     void saveListeningData (const juce::File& markdownFile, const wwma::ReportInput& report, const wwma::Timeline* subjectTimeline = nullptr);
     /** A report of one reference slot alone (e.g. an older version of the song), saved like the mix report. */
     void saveReferenceReport (int slot);
+    /** Writes the report of one reference slot alone (no sharing); the Markdown file, or none. */
+    juce::File writeReferenceReport (int slot);
     /** The reference's own play/pause (plays it without the DAW's transport, loop included). */
     void toggleReferencePlay (int slot);
     /** The big reference view, where a loop is chosen. */
     void openReferenceDetail (int slot);
     void closeReferenceDetail();
     bool isReferenceDetailOpen() const noexcept { return refDetail.isVisible(); }
+    int getReferenceDetailSlot() const noexcept { return refDetail.getSlot(); }
     /** A/B: true plays the reference instead of the mix. */
     void setListening (bool b);
     /** True plays the "before" recording (the mix as it was at the last snapshot) instead of the mix. */
@@ -110,6 +113,8 @@ public:
     void showAiSettings (bool show) { setAiOpen (true); aiPanel.showSettings (show); }
     /** Saves a report and gives it to the chosen assistant (or opens it in the browser). */
     void askAi();
+    /** The same about one reference track alone (e.g. an older version of the song), from its big view. */
+    void askAiAboutReference (int slot);
     /** An answer from the assistant (or pasted back from the browser): shown, saved next to the
         report, and its suggestions become cards to try. */
     void showAiAnswer (const juce::String& answer);
@@ -224,6 +229,7 @@ private:
     struct AiSession
     {
         juce::File reportFile, promptFile, answerFile;
+        juce::String subject;               // a reference track's name when the report is about it alone
         wwma::ai::Provider provider = wwma::ai::Provider::claude;
         wwma::ai::Mode mode = wwma::ai::Mode::browser;
         juce::String prompt;
@@ -238,6 +244,10 @@ private:
     void refreshAiView();
     void aiReplied (const wwma::ai::Reply& reply);
     void sendAiRequest();
+    /** Asks about the report just written (the mix's, or a reference's when `referenceSlot` >= 0). */
+    void askAiAbout (const juce::File& reportFile, int referenceSlot);
+    /** Checks consent and key before anything is written or sent; false: the settings are shown instead. */
+    bool aiReady();
     void aiFollowUp (const juce::String& question);
     void testAiConnection();
     void saveAiAnswerFile();

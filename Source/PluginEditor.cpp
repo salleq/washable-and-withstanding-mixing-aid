@@ -147,6 +147,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     refDetail.onToggleEarlier = [this] { refBox.onToggleEarlier (refDetail.getSlot()); };
     refDetail.onClose = [this] { closeReferenceDetail(); };
     refDetail.onReport = [this] { saveReferenceReport (refDetail.getSlot()); };
+    refDetail.onAskAi = [this] { askAiAboutReference (refDetail.getSlot()); };
     refDetail.onPlayPause = [this] { toggleReferencePlay (refDetail.getSlot()); };
     refDetail.onCue = [this] (double f)
     {
@@ -1444,12 +1445,19 @@ juce::File WwmaAudioProcessorEditor::saveReport (const juce::File& markdownFile)
 
 void WwmaAudioProcessorEditor::saveReferenceReport (int slot)
 {
+    const auto file = writeReferenceReport (slot);
+    if (file.existsAsFile())
+        shareReportFiles (file);
+}
+
+juce::File WwmaAudioProcessorEditor::writeReferenceReport (int slot)
+{
     if (! juce::isPositiveAndBelow (slot, (int) state.refs.size()) || ! state.refs[(size_t) slot].ready())
-        return;
+        return {};
     const auto& view = state.refs[(size_t) slot];
     const auto info = proc.refs.getInfo (slot);
     if (info == nullptr)
-        return;
+        return {};
 
     // the track alone: its own measurements and parts, nothing of the mix being played
     ReportInput in;
@@ -1470,7 +1478,7 @@ void WwmaAudioProcessorEditor::saveReferenceReport (int slot)
     file.withFileExtension ("json").replaceWithText (juce::JSON::toString (reportJson (in)));
     saveListeningData (file, in, &info->timeline);
     proc.setReportFolder (folder);
-    shareReportFiles (file);
+    return file;
 }
 
 void WwmaAudioProcessorEditor::saveListeningData (const juce::File& markdownFile, const ReportInput& report, const Timeline* subjectTimeline)
@@ -1565,6 +1573,10 @@ void WwmaAudioProcessorEditor::readReferences()
             }
         }
         state.activeRef = refs.getActive();
+        // the big loop view follows the reference chosen in the boxes (by its card, waveform or play button)
+        if (refDetail.isVisible() && refDetail.getSlot() != state.activeRef
+            && juce::isPositiveAndBelow (state.activeRef, (int) state.refs.size()) && state.refs[(size_t) state.activeRef].ready())
+            refDetail.setSlot (state.activeRef);
         fillProfileBox();
         refBox.repaint();
         refDetail.repaint();
@@ -1583,6 +1595,13 @@ void WwmaAudioProcessorEditor::readReferences()
     }
     state.playPosition = refs.getPlayPosition();
     state.refPlaying = refs.isPlaying();
+    const bool audible = proc.referenceAudible.load();
+    if (audible != state.refAudible)
+    {
+        state.refAudible = audible;
+        refBox.repaint();
+        refDetail.repaint();
+    }
 }
 
 void WwmaAudioProcessorEditor::toggleReferencePlay (int slot)
@@ -1590,9 +1609,12 @@ void WwmaAudioProcessorEditor::toggleReferencePlay (int slot)
     auto& refs = proc.refs;
     if (refs.getStatus (slot) != ReferenceTracks::Status::ready)
         return;
-    if (state.listening && refs.isPlaying() && refs.getActive() == slot)
+    if (state.listening && (refs.isPlaying() || state.refAudible) && refs.getActive() == slot)
     {
-        setListening (false); // pause: back to your mix, the position is kept
+        // pause: the reference stops where it is, and you hear your mix again
+        refs.setPlaying (false);
+        state.refPlaying = false;
+        setListening (false);
         return;
     }
     refs.setActive (slot);
@@ -1626,12 +1648,8 @@ void WwmaAudioProcessorEditor::setListening (bool b)
     b = b && state.activeRefView() != nullptr;
     if (b)
         setListeningBefore (false);
-    if (! b)
-    {
-        // A, or pause: the reference's own playback stops too
-        proc.refs.setPlaying (false);
-        state.refPlaying = false;
-    }
+    // MIX / BEFORE / REF only choose what you hear: the reference keeps its own play state and
+    // position, so back on REF it carries on as it was (it is not heard, so it does not move, meanwhile)
     state.listening = b;
     proc.listenToReference.store (b);
     mixAButton.setToggleState (! b && ! state.listeningBefore, juce::dontSendNotification);

@@ -165,6 +165,8 @@ public:
     wwma::ReferenceTracks refs;
     /** A/B: true plays the active reference track instead of the mix. Never on unless the user turns it on. */
     std::atomic<bool> listenToReference { false };
+    /** True while the reference is actually heard (B on, and it plays: by the DAW's transport or its own play button). */
+    std::atomic<bool> referenceAudible { false };
     /** Gain for the reference so it plays as loud as the mix (set by the editor). */
     std::atomic<float> referenceGainDb { 0.0f };
     void loadReference (int slot, const juce::File& file);
