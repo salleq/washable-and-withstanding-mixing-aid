@@ -8,6 +8,16 @@
 
 namespace wwma::ui
 {
+/** Song times ("1:05") up to `length` seconds, and parts ("part G", "osa G", "G-kohta", "(G)")
+    among `parts`, in an answer: where they are in the text. */
+struct TextLink
+{
+    juce::Range<int> range;
+    char part = 0;
+    float seconds = -1.0f;
+};
+std::vector<TextLink> findTextLinks (const juce::String& text, const juce::String& parts, float length);
+
 /** "Ask an AI": hands the report to Claude, Gemini or ChatGPT and shows the answer, with its
     suggestions as cards to try (and, for the mastering EQ / limiter, to try on the master with
     one click). The settings page picks the service and how WWMA reaches it.
@@ -37,6 +47,9 @@ public:
         bool canTry = true;          // "Try": WWMA judges the next pass and asks the ears
         bool canTryMaster = false;   // "Try on master": the change goes to WWMA's own EQ / limiter
         juce::String masterTooltip;
+        char jumpPart = 0;           // > 0 or jumpSeconds >= 0: a "▶ part / time" button plays the track there
+        float jumpSeconds = -1.0f;
+        juce::String jumpLabel;
     };
     struct View
     {
@@ -49,6 +62,10 @@ public:
         bool hasFile = false;
         bool canPaste = false;       // the browser mode: paste the chat's answer back
         bool canAskAgain = false;    // a reference track's (saved) answer: a new one replaces it
+        // the track the answer is about can be played: its times ("1:05") and parts ("part G")
+        // in the answer become links that play it from there
+        float jumpLength = 0.0f;     // seconds; 0: no links
+        juce::String jumpParts;      // the part letters it has, e.g. "ABCDEFG"
     };
     void setView (View v);
     /** The user wrote a follow-up question (cleared once sent). */
@@ -58,8 +75,22 @@ public:
                           onSettingsChanged, onTest, onBrowseCli, onKeepChange, onUndoChange, onAskAgain;
     std::function<void (const juce::String&)> onFollowUp;
     std::function<void (int)> onTry, onTryMaster;
+    /** A link in the answer, or a card's play button: a part letter (0 when none) or a time in seconds (-1 when none). */
+    std::function<void (char part, float seconds)> onJump;
 
 private:
+    /** The answer, with links that can be clicked (selecting text still works). */
+    class LinkText : public juce::TextEditor
+    {
+    public:
+        std::vector<TextLink> links;
+        std::function<void (const TextLink&)> onLink;
+        void mouseMove (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
+    private:
+        const TextLink* linkAt (juce::Point<int> p) const;
+    };
+
     const ViewState& state;
     ai::Settings settings;
     bool settingsShown = false;
@@ -73,7 +104,10 @@ private:
     juce::TextButton settingsButton, closeButton;
     // answer page
     juce::TextButton askButton, askAgainButton, cancelButton, copyButton, pasteButton, openButton, sendButton, keepButton, undoButton;
-    juce::TextEditor answerText, followUp;
+    LinkText answerText;
+    juce::TextEditor followUp;
+    juce::String answerShownFor;   // the answer and links the text was built for
+    void setAnswerText();
     std::vector<std::unique_ptr<ListRow>> cards;
     // settings page
     std::array<juce::TextButton, ai::numProviders> providerButtons;

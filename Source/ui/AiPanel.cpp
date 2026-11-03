@@ -66,6 +66,114 @@ juce::String plainAnswer (const juce::String& markdown)
     return lines.joinIntoString ("\n").trim();
 }
 
+std::vector<TextLink> findTextLinks (const juce::String& text, const juce::String& parts, float length)
+{
+    std::vector<TextLink> out;
+    if (length <= 0.0f)
+        return out;
+    using CF = juce::CharacterFunctions;
+    const int n = text.length();
+    auto at = [&] (int i) -> juce::juce_wchar { return juce::isPositiveAndBelow (i, n) ? text[i] : 0; };
+    auto wordChar = [&] (int i) { return CF::isLetterOrDigit (at (i)); };
+    auto digit = [&] (int i) { return CF::isDigit (at (i)); };
+    // words that name a part: "part G", "section G", "osa G", "osassa G", "kohdassa G", "G-kohta"
+    auto partWord = [] (const juce::String& w)
+    {
+        const auto l = w.toLowerCase();
+        for (auto* p : { "part", "section", "osa", "osi", "kohta", "kohda", "kohd" })
+            if (l.startsWith (p))
+                return true;
+        return false;
+    };
+    for (int i = 0; i < n; ++i)
+    {
+        if (wordChar (i - 1))
+            continue; // only at the start of a word
+        const auto c = at (i);
+        if (CF::isDigit (c))
+        {
+            if (at (i - 1) == ':' || at (i - 1) == '.')
+                continue; // the end of "1:05:30" or "1.5"
+            // a time: "1:05" or "12:40" (not "1:05:30")
+            int j = i;
+            while (digit (j) && j - i < 2)
+                ++j;
+            if (at (j) == ':' && digit (j + 1) && digit (j + 2) && ! wordChar (j + 3) && ! (at (j + 3) == ':' && digit (j + 4)))
+            {
+                const float seconds = (float) (text.substring (i, j).getIntValue() * 60 + text.substring (j + 1, j + 3).getIntValue());
+                if (seconds <= length + 1.0f)
+                    out.push_back ({ { i, j + 3 }, 0, seconds });
+                i = j + 2;
+            }
+            continue;
+        }
+        if (c < 'A' || c > 'Z' || ! parts.containsChar (c))
+            continue;
+        int end = -1;
+        if (at (i + 1) == '-')
+        {
+            int k = i + 2;
+            while (CF::isLetter (at (k)))
+                ++k;
+            if (k > i + 2 && partWord (text.substring (i + 2, k)))
+                end = k;
+        }
+        if (end < 0 && ! wordChar (i + 1))
+        {
+            int k = i - 1;
+            while (at (k) == ' ')
+                --k;
+            int b = k;
+            while (CF::isLetter (at (b)))
+                --b;
+            const auto before = text.substring (b + 1, k + 1);
+            if (k > b && partWord (before))
+                end = i + 1;
+            else if (at (i - 1) == '(' && at (i + 1) == ')')
+                end = i + 1;
+            else if (! out.empty() && out.back().part != 0 && i - out.back().range.getEnd() <= 6)
+            {
+                // "parts B and C", "osat B ja C", "B, C", "B-C"
+                const auto between = text.substring (out.back().range.getEnd(), i).trim();
+                for (auto* s : { ",", "and", "ja", "&", "/", "-", "to", "or", "tai",
+                                 (const char*) juce::CharPointer_UTF8 ("\xe2\x80\x93") })
+                    if (between == juce::String (juce::CharPointer_UTF8 (s)))
+                        end = i + 1;
+            }
+        }
+        if (end > 0)
+            out.push_back ({ { i, end }, (char) c, -1.0f });
+    }
+    return out;
+}
+
+const TextLink* AiPanel::LinkText::linkAt (juce::Point<int> p) const
+{
+    for (const auto& l : links)
+        if (getTextBounds (l.range).containsPoint (p))
+            return &l;
+    return nullptr;
+}
+
+void AiPanel::LinkText::mouseMove (const juce::MouseEvent& e)
+{
+    juce::TextEditor::mouseMove (e);
+    setMouseCursor (linkAt (e.getPosition()) != nullptr ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::IBeamCursor);
+}
+
+void AiPanel::LinkText::mouseUp (const juce::MouseEvent& e)
+{
+    juce::TextEditor::mouseUp (e);
+    if (e.mouseWasDraggedSinceMouseDown() || ! getHighlightedRegion().isEmpty())
+        return; // selecting text, not clicking a link
+    if (const auto* l = linkAt (e.getPosition()))
+    {
+        const auto link = *l; // onLink may rebuild the links
+        if (onLink)
+            onLink (link);
+    }
+}
+
 AiPanel::AiPanel (const ViewState& s) : state (s)
 {
     for (auto* b : { &settingsButton, &closeButton, &askButton, &askAgainButton, &cancelButton, &copyButton, &pasteButton, &openButton, &sendButton,
@@ -96,6 +204,7 @@ AiPanel::AiPanel (const ViewState& s) : state (s)
     styleEditor (answerText, true);
     answerText.setReadOnly (true);
     answerText.setCaretVisible (false);
+    answerText.onLink = [this] (const TextLink& l) { if (onJump) onJump (l.part, l.seconds); };
     addChildComponent (answerText);
     styleEditor (followUp, false);
     followUp.onReturnKey = [this] { sendButton.triggerClick(); };
@@ -287,16 +396,44 @@ void AiPanel::setCliFound (const juce::File& exe)
 // ---- answer ------------------------------------------------------------------------------
 void AiPanel::setView (View v)
 {
-    const bool newAnswer = v.answer != view.answer;
     view = std::move (v);
-    if (newAnswer)
-    {
-        answerText.setText (plainAnswer (view.answer), false);
-        answerText.moveCaretToTop (false);
-    }
+    setAnswerText();
     rebuildCards();
     resized();
     repaint();
+}
+
+void AiPanel::setAnswerText()
+{
+    const auto plain = plainAnswer (view.answer);
+    const auto shownFor = plain + "\n" + view.jumpParts + "\n" + juce::String (view.jumpLength);
+    if (shownFor == answerShownFor)
+        return;
+    answerShownFor = shownFor;
+
+    // the times and parts that play the track there: coloured and underlined
+    const auto links = findTextLinks (plain, view.jumpParts, view.jumpLength);
+    const auto font = answerText.getFont();
+    answerText.clear();
+    answerText.links.clear();
+    int pos = 0;
+    auto add = [&] (int end, bool link)
+    {
+        auto f = font;
+        f.setUnderline (link);
+        answerText.setFont (f);
+        answerText.setColour (juce::TextEditor::textColourId, link ? colours::ref : colours::text);
+        answerText.insertTextAtCaret (plain.substring (pos, end));
+        pos = end;
+    };
+    for (const auto& l : links)
+    {
+        add (l.range.getStart(), false);
+        add (l.range.getEnd(), true);
+        answerText.links.push_back (l);
+    }
+    add (plain.length(), false);
+    answerText.moveCaretToTop (false);
 }
 
 void AiPanel::rebuildCards()
@@ -315,6 +452,10 @@ void AiPanel::rebuildCards()
             actions.push_back ({ t (lang, "Try", "Kokeile"), [this, i] { if (onTry) onTry ((int) i); }, ! c.canTryMaster,
                                  c.tooltip + "\n\n" + t (lang, "Make the change yourself, then play the same part again: WWMA tells you whether it helped, and your ears decide.",
                                                                 "Tee muutos itse ja soita sama kohta uudelleen: WWMA kertoo, auttoiko se, ja korva ratkaisee.") });
+        if (c.jumpPart != 0 || c.jumpSeconds >= 0.0f)
+            actions.push_back ({ juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb6 ")) + c.jumpLabel,
+                                 [this, part = c.jumpPart, seconds = c.jumpSeconds] { if (onJump) onJump (part, seconds); }, false,
+                                 t (lang, "Plays the track from this point.", "Soittaa raidan tästä kohdasta.") });
         auto row = std::make_unique<ListRow> (c.title, c.detail, std::move (actions));
         addChildComponent (*row);
         cards.push_back (std::move (row));
@@ -374,6 +515,8 @@ void AiPanel::layoutAnswer (juce::Rectangle<int> r)
         top.removeFromRight (6);
     };
     placeRight (openButton, view.hasFile);
+    askAgainButton.setButtonText (upper (view.answer.isEmpty() ? t (state.lang, "Ask about this track", "Kysy tästä raidasta")
+                                                               : t (state.lang, "Ask again", "Kysy uudelleen")));
     placeRight (askAgainButton, view.canAskAgain);
     placeRight (pasteButton, view.canPaste && ! working);
     placeRight (copyButton, view.canPaste && ! working);

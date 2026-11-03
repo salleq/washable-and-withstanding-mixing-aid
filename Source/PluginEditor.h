@@ -256,6 +256,13 @@ private:
     /** "Ask again" on a remembered reference answer: a new question about the same track. */
     void askAiAgain();
     void askAiAboutReference (int slot, bool fresh);
+    /** The AI panel shows a reference's answer and another reference was chosen: shows that
+        one's answer, or a page to ask about it. Never sends anything by itself. */
+    void followAiReference();
+    /** The loaded reference slot the current answer is about, or -1. */
+    int aiSessionSlot() const;
+    /** A part letter or a time clicked in the answer: plays that reference from there. */
+    void jumpAiTrack (char part, float seconds);
     std::unique_ptr<juce::FileChooser> aiChooser;
     void setAiStatus (wwma::ui::AiPanel::View::Status status, const juce::String& headline, const juce::String& message);
     void refreshAiView();

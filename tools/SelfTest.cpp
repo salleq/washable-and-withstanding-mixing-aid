@@ -1040,6 +1040,23 @@ namespace
         const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-ai-test-" + juce::Uuid().toDashedString());
         tmp.createDirectory();
         struct Cleanup { juce::File f; ~Cleanup() { f.deleteRecursively(); } } cleanup { tmp };
+    {
+        // the times and parts in an AI answer that play the track there
+        auto links = [] (const char* text)
+        {
+            juce::StringArray out;
+            const juce::String s (juce::CharPointer_UTF8 { text });
+            for (const auto& l : wwma::ui::findTextLinks (s, "ABCDEFG", 200.0f))
+                out.add (s.substring (l.range.getStart(), l.range.getEnd())
+                         + (l.part != 0 ? "=" + juce::String::charToString ((juce::juce_wchar) l.part) : "@" + juce::String ((int) l.seconds)));
+            return out.joinIntoString (" ");
+        };
+        const auto en = links ("In part G (the drop at 1:05) the bass is loud. Parts B and C are fine; see (D). A kick at 9:59 or 12:00:00.");
+        check (en == "G=G 1:05@65 B=B C=C D=D", "AI answer links in English", en);
+        const auto fi = links ("G-kohdassa basso on kova, osassa B ja C ei. Kohta 2:10 kuulostaa hyv\xc3\xa4lt\xc3\xa4, osa H ei ole olemassa. A on kirjain.");
+        check (fi == "G-kohdassa=G B=B C=C 2:10@130", "AI answer links in Finnish", fi);
+        check (wwma::ui::findTextLinks ("part G at 1:05", "ABCDEFG", 0.0f).empty(), "  and no links when no track can be played");
+    }
 
         // ---- settings: on this computer only, never in the project
         {

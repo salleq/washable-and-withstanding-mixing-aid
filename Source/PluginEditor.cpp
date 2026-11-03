@@ -266,6 +266,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     aiPanel.onClose = [this] { setAiOpen (false); };
     aiPanel.onAsk = [this] { askAi(); };
     aiPanel.onAskAgain = [this] { askAiAgain(); };
+    aiPanel.onJump = [this] (char part, float seconds) { jumpAiTrack (part, seconds); };
     aiPanel.onCancel = [this]
     {
         aiWorker.cancel();
@@ -1584,6 +1585,9 @@ void WwmaAudioProcessorEditor::readReferences()
         if (refDetail.isVisible() && refDetail.getSlot() != state.activeRef
             && juce::isPositiveAndBelow (state.activeRef, (int) state.refs.size()) && state.refs[(size_t) state.activeRef].ready())
             refDetail.setSlot (state.activeRef);
+        // so does an open AI panel that shows a reference's answer
+        if (aiPanel.isVisible())
+            followAiReference();
         fillProfileBox();
         refBox.repaint();
         refDetail.repaint();

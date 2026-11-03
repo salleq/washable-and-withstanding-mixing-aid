@@ -56,6 +56,16 @@ void WwmaAudioProcessorEditor::refreshAiView()
                     && v.status != Status::working;
     v.canAskAgain = aiSession.key.startsWith ("ref:") && v.status != Status::working;
 
+    // an answer about a reference that is loaded: its times and parts play the track there
+    std::vector<SongSection> sections;
+    if (const auto info = proc.refs.getInfo (aiSessionSlot()))
+    {
+        v.jumpLength = (float) info->seconds;
+        sections = findSections (info->timeline);
+        for (const auto& s : sections)
+            v.jumpParts << juce::String::charToString ((juce::juce_wchar) s.letter);
+    }
+
     const auto now = proc.getChainSettings();
     for (const auto& s : aiSession.suggestions)
     {
@@ -67,6 +77,22 @@ void WwmaAudioProcessorEditor::refreshAiView()
         c.detail = s.step;
         c.tooltip = s.step + (s.listenFor.isNotEmpty() ? "\n" + tr (lang, "Listen for: ", "Kuuntele: ") + s.listenFor : juce::String());
         c.canTry = true;
+        if (v.jumpLength > 0.0f)
+        {
+            // the time is the more exact; else the start of the part
+            const auto times = ui::findTextLinks (s.at.trim(), {}, v.jumpLength);
+            const auto part = s.part.trim().toUpperCase();
+            if (! times.empty())
+            {
+                c.jumpSeconds = times.front().seconds;
+                c.jumpLabel = s.at.trim();
+            }
+            else if (part.length() == 1 && v.jumpParts.containsChar (part[0]))
+            {
+                c.jumpPart = (char) part[0];
+                c.jumpLabel = tr (lang, "part ", "osa ") + part;
+            }
+        }
         if (! s.chain.empty() && masterChangesAllowed())
         {
             juce::StringArray notes;
@@ -251,6 +277,72 @@ bool WwmaAudioProcessorEditor::restoreAiSession (const juce::String& key)
         stashAiSession();
     aiSession = it->second;
     return true;
+}
+
+int WwmaAudioProcessorEditor::aiSessionSlot() const
+{
+    if (aiSession.key.startsWith ("ref:"))
+        for (int i = 0; i < (int) state.refs.size(); ++i)
+            if (state.refs[(size_t) i].ready() && referenceAiKey (i) == aiSession.key)
+                return i;
+    return -1;
+}
+
+void WwmaAudioProcessorEditor::followAiReference()
+{
+    // a question still running stays on screen; the mix's answer is not about any reference
+    if (aiWorker.busy() || ! aiSession.key.startsWith ("ref:"))
+        return;
+    const int slot = state.activeRef;
+    if (! juce::isPositiveAndBelow (slot, (int) state.refs.size()) || ! state.refs[(size_t) slot].ready())
+        return;
+    const auto key = referenceAiKey (slot);
+    if (key.isEmpty() || key == aiSession.key)
+        return;
+    if (! restoreAiSession (key))
+    {
+        const auto lang = state.lang;
+        stashAiSession();
+        aiSession = {};
+        aiSession.key = key;
+        aiSession.subject = state.refs[(size_t) slot].name;
+        aiSession.provider = aiSettings.provider;
+        aiSession.status = Status::done; // (idle would show the mix's intro instead)
+        aiSession.headline = tr (lang, "No answer about this track yet", "Tästä raidasta ei ole vielä vastausta");
+        aiSession.message = tr (lang, "Press Ask about this track to ask.", "Kysy painamalla Kysy tästä raidasta.");
+    }
+    refreshAiView();
+}
+
+void WwmaAudioProcessorEditor::jumpAiTrack (char part, float seconds)
+{
+    const int slot = aiSessionSlot();
+    const auto info = proc.refs.getInfo (slot);
+    if (info == nullptr || info->seconds <= 0.0)
+        return;
+    if (part != 0)
+    {
+        seconds = -1.0f;
+        const auto& t = info->timeline;
+        for (const auto& s : findSections (t))
+            if (s.letter == part && juce::isPositiveAndBelow (s.first, (int) t.points.size()))
+            {
+                const float song = t.points[(size_t) s.first].songSeconds;
+                seconds = song >= 0.0f ? song : heardTime (t, s.first);
+            }
+    }
+    if (seconds < 0.0f)
+        return;
+    const double f = juce::jlimit (0.0, 1.0, seconds / info->seconds);
+    // a loop elsewhere would keep the playback away from that point
+    const auto loop = proc.refs.getLoop (slot);
+    if (loop.second > loop.first && (f < loop.first || f >= loop.second))
+        proc.refs.clearLoop (slot);
+    proc.refs.setActive (slot);
+    proc.refs.setCue (f);
+    if (! (state.listening && proc.refs.isPlaying()))
+        toggleReferencePlay (slot);
+    readReferences();
 }
 
 void WwmaAudioProcessorEditor::askAiAgain()
