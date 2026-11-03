@@ -1376,7 +1376,13 @@ namespace
             {
                 s.editor->showAiSettings (true);
                 shot ("ai-settings.png");
+                s.p.setLang (Lang::finnish);
+                s.editor->reloadFromProcessor();
+                shot ("ai-settings-fi.png");
                 s.editor->showAiSettings (false);
+                shot ("ai-answer-fi.png");
+                s.p.setLang (Lang::english);
+                s.editor->reloadFromProcessor();
                 s.editor->setAiOpen (false);
             }
 

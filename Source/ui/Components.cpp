@@ -304,7 +304,18 @@ void HistoryBox::paint (juce::Graphics& g)
     auto plot = r.toFloat();
 
     const auto& p = state.profile;
-    const float top = p.lufsMax + 4.0f, bottom = p.lufsMin - 10.0f;
+    const auto& h = state.shortTermHistory;
+    // the target band and everything played fit (a quiet mix or a single track sits well
+    // below the target; clipped, it would run flat along the bottom edge)
+    float top = p.lufsMax + 4.0f, bottom = p.lufsMin - 10.0f;
+    for (const auto v : h)
+        if (v >= -60.0f)
+        {
+            top = juce::jmax (top, v + 2.0f);
+            bottom = juce::jmin (bottom, v - 2.0f);
+        }
+    top = juce::jmin (top, 0.0f);
+    bottom = juce::jmax (bottom, -60.0f);
     auto yFor = [&] (float v) { return plot.getY() + plot.getHeight() * juce::jlimit (0.0f, 1.0f, (top - v) / (top - bottom)); };
 
     g.setColour (colours::good.withAlpha (0.16f));
@@ -314,7 +325,6 @@ void HistoryBox::paint (juce::Graphics& g)
     g.drawText (fmt (lang, p.lufsMax, 0), juce::Rectangle<float> (plot.getRight() - 30.0f, yFor (p.lufsMax) - 11.0f, 30.0f, 10.0f), juce::Justification::centredRight);
     g.drawText (fmt (lang, p.lufsMin, 0), juce::Rectangle<float> (plot.getRight() - 30.0f, yFor (p.lufsMin) + 1.0f, 30.0f, 10.0f), juce::Justification::centredRight);
 
-    const auto& h = state.shortTermHistory;
     if (h.size() < 2)
         return;
     const size_t cap = 360;
@@ -1399,8 +1409,8 @@ void ProgressBox::paintBanner (juce::Graphics& g, juce::Rectangle<float> r)
         const auto& v = state.passVerdict;
         const auto pts = state.showScore ? " (" + fmt (lang, v.scoreDelta, 0, true) + ")" : juce::String();
         col = v.verdict > 0 ? colours::good : (v.verdict < 0 ? colours::bad : colours::dim);
-        headline = (v.verdict > 0 ? juce::String (juce::CharPointer_UTF8 ("â² ")) + t (lang, "Better than the last pass", "Parempi kuin edellinen soitto")
-                  : v.verdict < 0 ? juce::String (juce::CharPointer_UTF8 ("â¼ ")) + t (lang, "Worse than the last pass", "Huonompi kuin edellinen soitto")
+        headline = (v.verdict > 0 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb2 ")) + t (lang, "Better than the last pass", "Parempi kuin edellinen soitto")
+                  : v.verdict < 0 ? juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xbc ")) + t (lang, "Worse than the last pass", "Huonompi kuin edellinen soitto")
                                   : "= " + t (lang, "About the same as the last pass", "Suunnilleen sama kuin edellinen soitto")) + pts;
         if (! v.betterNames.isEmpty())
             detail << t (lang, "Better: ", "Parempi: ") << v.betterNames.joinIntoString (", ", 0, 3) << ". ";

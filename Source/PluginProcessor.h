@@ -126,6 +126,9 @@ public:
     // blocks the message thread and its normal timer cannot run
     std::atomic<bool> exporting { false };
     std::atomic<double> exportSeconds { 0.0 };
+    // when the last offline block came: "exporting" stays set after a render until the next
+    // real-time block, which may be much later, so the editor also checks that a render is going on
+    std::atomic<juce::uint32> lastOfflineMs { 0 };
 
     /** Standalone app only: nobody plays through a microphone there, so the audio interface input
         is ignored and "your mix" is a file loaded into the app (slot 0, with its own play button).

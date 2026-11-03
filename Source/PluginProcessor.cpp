@@ -379,6 +379,8 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : 0.0, true);
     wasOffline = offline;
     exporting.store (offline);
+    if (offline)
+        lastOfflineMs.store (juce::Time::getMillisecondCounter());
     if (offline && hostSample >= 0 && getSampleRate() > 0.0)
         exportSeconds.store ((double) hostSample / getSampleRate());
 
