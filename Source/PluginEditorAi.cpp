@@ -45,6 +45,8 @@ void WwmaAudioProcessorEditor::refreshAiView()
     v.status = aiSession.status;
     v.headline = aiSession.headline;
     v.message = aiSession.message;
+    if (aiSession.subject.isNotEmpty())
+        v.message = tr (lang, "About ", "Koskee: ") + aiSession.subject + ". " + v.message;
     if (v.status == Status::working && aiWorker.busy())
         v.message << "  " << clock (aiWorker.elapsedSeconds());
     v.answer = aiSession.answerShown;
@@ -82,42 +84,78 @@ void WwmaAudioProcessorEditor::refreshAiView()
 }
 
 // =====================================================================================
-void WwmaAudioProcessorEditor::askAi()
+bool WwmaAudioProcessorEditor::aiReady()
 {
     const auto lang = state.lang;
     if (aiWorker.busy())
-        return;
+        return false;
+    const auto& ps = aiSettings.current();
+    if (ps.mode != ai::Mode::browser && ! aiSettings.consent)
+    {
+        setAiOpen (true);
+        aiPanel.showSettings (true);
+        aiPanel.setTestStatus (tr (lang, "First allow WWMA to send the report (the box above), or use the browser.",
+                                         "Salli ensin raportin lähetys (yllä oleva ruutu) tai käytä selainta."), false);
+        return false;
+    }
+    if (ps.mode == ai::Mode::api && ps.apiKey.isEmpty())
+    {
+        setAiOpen (true);
+        aiPanel.showSettings (true);
+        aiPanel.setTestStatus (tr (lang, "Paste your API key first.", "Liitä ensin API-avaimesi."), false);
+        return false;
+    }
+    return true;
+}
+
+void WwmaAudioProcessorEditor::askAi()
+{
+    const auto lang = state.lang;
     if (! state.assessment.enoughData)
     {
         setAiStatus (Status::error, tr (lang, "Nothing measured yet", "Mitään ei ole vielä mitattu"),
                      tr (lang, "Play the song (or a good part of it) first.", "Soita kappale (tai hyvä osa siitä) ensin."));
         return;
     }
-    const auto provider = aiSettings.provider;
-    const auto& ps = aiSettings.current();
-    if (ps.mode != ai::Mode::browser && ! aiSettings.consent)
-    {
-        aiPanel.showSettings (true);
-        aiPanel.setTestStatus (tr (lang, "First allow WWMA to send the report (the box above), or use the browser.",
-                                         "Salli ensin raportin lähetys (yllä oleva ruutu) tai käytä selainta."), false);
+    if (! aiReady())
         return;
-    }
-    if (ps.mode == ai::Mode::api && ps.apiKey.isEmpty())
-    {
-        aiPanel.showSettings (true);
-        aiPanel.setTestStatus (tr (lang, "Paste your API key first.", "Liitä ensin API-avaimesi."), false);
-        return;
-    }
-
     // the report, the listening data and the pictures, like the Report button saves them
     auto folder = proc.getReportFolder();
     folder.createDirectory();
     const auto file = folder.getChildFile ("WWMA report " + juce::Time::getCurrentTime().formatted ("%Y-%m-%d %H%M") + ".md");
     saveReport (file);
+    askAiAbout (file, -1);
+}
+
+void WwmaAudioProcessorEditor::askAiAboutReference (int slot)
+{
+    if (! juce::isPositiveAndBelow (slot, (int) state.refs.size()) || ! state.refs[(size_t) slot].ready())
+        return;
+    // the panel covers the big view: close it, the answer is about this track
+    closeReferenceDetail();
+    setAiOpen (true);
+    aiPanel.showSettings (false);
+    if (! aiReady())
+        return;
+    const auto file = writeReferenceReport (slot);
+    if (file.existsAsFile())
+        askAiAbout (file, slot);
+}
+
+void WwmaAudioProcessorEditor::askAiAbout (const juce::File& file, int referenceSlot)
+{
+    const auto lang = state.lang;
+    const auto provider = aiSettings.provider;
+    const auto& ps = aiSettings.current();
+    auto folder = file.getParentDirectory();
     const auto base = file.getFileNameWithoutExtension();
+    const bool aboutReference = referenceSlot >= 0;
+    const auto& assessment = aboutReference ? state.refs[(size_t) referenceSlot].assessment : state.assessment;
 
     aiSession = {};
     aiSession.reportFile = file;
+    if (aboutReference)
+        aiSession.subject = state.refs[(size_t) referenceSlot].name;
     aiSession.provider = provider;
     aiSession.mode = ps.mode;
 
@@ -125,9 +163,15 @@ void WwmaAudioProcessorEditor::askAi()
     in.question = listeningQuestion (lastListening, lang);
     in.lang = lang;
     in.stage = state.stage;
-    in.masterChanges = masterChangesAllowed();
+    // a reference track alone is not what plays through WWMA's EQ: no master changes for it
+    in.masterChanges = ! aboutReference && masterChangesAllowed();
     in.chain = proc.getChainSettings();
-    for (const auto& f : state.assessment.findings)
+    if (aboutReference)
+        in.question << tr (lang, " Note: the attached report is about the audio file ", " Huom: liitteenä oleva raportti koskee äänitiedostoa ")
+                    << state.refs[(size_t) referenceSlot].name
+                    << tr (lang, " alone (for example an earlier version of my song, or a track I compare with), not about the mix playing now.",
+                                 " yksinään (esim. biisini aiempi versio tai vertailukappale), ei nyt soivaa miksiä.");
+    for (const auto& f : assessment.findings)
         if (f.severity != Severity::good && ! f.earOverruled)
             in.findings.emplace_back (f.id, f.title);
     aiSession.prompt = ai::buildPrompt (in);

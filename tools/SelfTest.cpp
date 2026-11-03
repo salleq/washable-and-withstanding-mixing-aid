@@ -1743,6 +1743,7 @@ int main (int argc, char* argv[])
         const auto refSnap = p.refs.getInfo (0)->snap;
         p.referenceGainDb.store (mix.integrated - refSnap.integrated);
         p.listenToReference.store (true);
+        p.refs.setPlaying (true); // no song position here: the reference plays with its own play button
         size_t i = 0;
         for (; i + 512 <= quietMix.l.size(); i += 512)
         {
@@ -1814,6 +1815,44 @@ int main (int argc, char* argv[])
         editor->toggleReferencePlay (0);
         check (! p.refs.isPlaying() && ! p.listenToReference.load(), "  and pause stops it and goes back to the mix");
 
+        {
+            // with no song position (the standalone app): REF alone never starts the reference,
+            // and MIX / REF keep its own play state and position
+            WwmaAudioProcessor sp;
+            sp.setPlayConfigDetails (2, 2, sr, 512);
+            sp.prepareToPlay (sr, 512);
+            sp.refs.loadNow (0, refFile);
+            std::unique_ptr<juce::AudioProcessorEditor> sed (sp.createEditor());
+            auto* se = dynamic_cast<WwmaAudioProcessorEditor*> (sed.get());
+            se->referencesChanged();
+            auto level = [&]
+            {
+                float peak = 0.0f;
+                for (int k = 0; k < 20; ++k)
+                {
+                    buf.clear();
+                    sp.processBlock (buf, midi);
+                    peak = juce::jmax (peak, buf.getMagnitude (0, 512));
+                }
+                return peak;
+            };
+            se->setListening (true);
+            check (level() < 1.0e-6f && ! sp.referenceAudible.load(), "REF without a song position does not start the reference by itself");
+            se->toggleReferencePlay (0);
+            check (level() > 0.01f && sp.referenceAudible.load(), "  its own play button plays it, and the card shows it playing");
+            const double at = sp.refs.getPlayPosition();
+            se->setListening (false);
+            level();
+            check (sp.refs.isPlaying() && ! sp.referenceAudible.load(), "  MIX: you hear the mix, and the reference remembers it was playing");
+            se->setListening (true);
+            level();
+            check (sp.referenceAudible.load() && sp.refs.getPlayPosition() >= at,
+                   "  REF again: it carries on from where it was", juce::String (at, 3) + " -> " + juce::String (sp.refs.getPlayPosition(), 3));
+            se->toggleReferencePlay (0);
+            se->setListening (true);
+            check (level() < 1.0e-6f && ! sp.refs.isPlaying(), "  paused, REF stays silent until play is pressed");
+        }
+
         editor->openReferenceDetail (0);
         check (editor->isReferenceDetailOpen(), "clicking the reference name opens the big view");
         p.refs.setLoop (0, 0.5, 0.6);
@@ -1833,6 +1872,40 @@ int main (int argc, char* argv[])
         buf.clear();
         p.processBlock (buf, midi);
         check (p.refs.getPlayPosition() >= 0.5 && p.refs.getPlayPosition() <= 0.6, "  a jump outside the loop lands back inside it");
+
+        // the big view open on one reference, then the other one chosen in the boxes: the view follows it
+        p.refs.loadNow (1, refFile);
+        editor->referencesChanged();
+        editor->openReferenceDetail (1);
+        const bool onSecond = editor->getReferenceDetailSlot() == 1;
+        editor->toggleReferencePlay (0); // its play button selects it
+        editor->refresh (false);
+        check (onSecond && editor->isReferenceDetailOpen() && editor->getReferenceDetailSlot() == 0,
+               "  choosing the other reference while the big view is open shows that reference in it",
+               juce::String (editor->getReferenceDetailSlot()));
+        editor->toggleReferencePlay (0);
+
+        // "Ask AI" in the big view: about that track alone. Without the user's OK nothing is
+        // written or sent; the AI panel opens on its settings instead of covering the view
+        ai::setSettingsFileForTests (juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-ai-ref-" + juce::Uuid().toDashedString() + ".xml"));
+        {
+            ai::Settings st;
+            st.of (ai::Provider::claude).mode = ai::Mode::api;
+            ai::saveSettings (st);
+        }
+        std::unique_ptr<juce::AudioProcessorEditor> ed2 (p.createEditor());
+        auto* e2 = dynamic_cast<WwmaAudioProcessorEditor*> (ed2.get());
+        e2->referencesChanged();
+        e2->openReferenceDetail (1);
+        const auto reportsBefore = p.getReportFolder().findChildFiles (juce::File::findFiles, false, "*.md").size();
+        e2->askAiAboutReference (1);
+        check (! e2->isReferenceDetailOpen() && e2->isAiOpen()
+                   && p.getReportFolder().findChildFiles (juce::File::findFiles, false, "*.md").size() == reportsBefore,
+               "'Ask AI' about a reference: the AI panel opens, and without the user's OK nothing is written or sent");
+        ai::settingsFile().deleteFile();
+        ai::setSettingsFileForTests ({});
+        ed2.reset();
+        editor->closeReferenceDetail();
         editor->toggleReferencePlay (0);
 
         p.updateReferenceState();

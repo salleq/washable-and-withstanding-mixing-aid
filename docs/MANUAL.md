@@ -25,7 +25,7 @@ WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teach
 
 ### The standalone app
 
-WWMA also runs on its own, without a DAW: **WWMA Mixing Aid** in Applications (macOS), in the Start menu (Windows), or the `WWMA Mixing Aid` program in the Linux zip. It is handy for trying out reference tracks quickly: drag them onto the window, compare their numbers and play them with ▶ or **B · REF** (there is no DAW transport, so B plays the reference right away). The audio interface input is not used. Your own song is a file: load it with **LOAD YOUR MIX** at the bottom right (or drop it on that button), play it with ▶ and jump around with the thin bar under the buttons. Reference tracks go in the boxes at the top. Each reference remembers where you left it when you switch between them, and a loop starts from its marked point.
+WWMA also runs on its own, without a DAW: **WWMA Mixing Aid** in Applications (macOS), in the Start menu (Windows), or the `WWMA Mixing Aid` program in the Linux zip. It is handy for trying out reference tracks quickly: drag them onto the window, compare their numbers and play them with ▶. There is no DAW transport, so a reference plays only with its own ▶: **REF** only chooses what you hear, and the reference keeps its play state and position when you switch to MIX or BEFORE and back. The audio interface input is not used. Your own song is a file: load it with **LOAD YOUR MIX** at the bottom right (or drop it on that button), play it with ▶ and jump around with the thin bar under the buttons. Reference tracks go in the boxes at the top. Each reference remembers where you left it when you switch between them, and a loop starts from its marked point.
 
 While **B · REF** plays, the loudness, tonal balance, findings, score and translation panels show the reference's numbers, and your mix becomes the dashed comparison line and marker. Switch back to **A · MIX** to see your own again.
 
@@ -269,7 +269,7 @@ Drag a track you like (WAV, AIFF, FLAC, MP3 or OGG; also M4A on macOS and Window
 - The **Mix vs reference** table shows the differences.
 - Every finding also shows the reference's value.
 - Choose the **Reference track** preset to use the reference as the target.
-- **B · REF** plays the reference instead of your mix, at the same loudness and following your song position. This is the only time WWMA changes what you hear, and the top bar turns purple while it does.
+- **B · REF** plays the reference instead of your mix, at the same loudness and following your song position. With the DAW stopped it is silent until you press the reference's own ▶. Switching MIX / BEFORE / REF does not stop or restart the reference: it carries on as it was. The ▶ on its card shows ⏸ whenever the reference is heard. This is the only time WWMA changes what you hear, and the top bar turns purple while it does.
 
 Playing the reference inside WWMA:
 

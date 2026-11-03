@@ -479,7 +479,11 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
     // A/B listening, only when the user asked for it
     const bool listen = listenToReference.load();
     if (! listen && abMix <= 0.0f)
+    {
+        referenceAudible.store (false);
         return;
+    }
+    bool anyPlaying = false;
 
     const float gainDb = referenceGainDb.load();
     for (int start = 0; start < n;)
@@ -490,6 +494,7 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         const bool playing = refs.render (refL, refR, len, hostSample >= 0 ? hostSample + start : -1, hostPlaying, gainDb);
         if (! playing)
             refScratch.clear (0, len);
+        anyPlaying = anyPlaying || playing;
 
         float* outL = buffer.getWritePointer (0, start);
         float* outR = numCh > 1 ? buffer.getWritePointer (1, start) : nullptr;
@@ -507,6 +512,7 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
         }
         start += len;
     }
+    referenceAudible.store (listen && anyPlaying);
 }
 
 // ---- mastering EQ and limiter

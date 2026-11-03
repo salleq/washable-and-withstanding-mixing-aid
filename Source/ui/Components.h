@@ -91,6 +91,7 @@ struct ViewState
     float refGainDb = 0.0f;          // level matching applied to the reference
     double playPosition = 0.0;
     bool refPlaying = false;         // WWMA's own play button runs the reference (not the DAW)
+    bool refAudible = false;         // the reference is heard right now (B on and playing, by the DAW or its own button)
     bool dragOver = false;
 
     // "before": WWMA's own recording of the mix at the last snapshot, played by song position
@@ -241,11 +242,11 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
 
-    void setSlot (int s) { slot = s; repaint(); }
+    void setSlot (int s) { slot = s; updateTexts(); repaint(); }
     int getSlot() const noexcept { return slot; }
     juce::Rectangle<int> waveArea() const;
 
-    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop, onToggleEarlier, onReport;
+    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop, onToggleEarlier, onReport, onAskAi;
     std::function<void (double fraction)> onCue;
     std::function<void (double start, double end)> onLoop;
 
@@ -254,7 +255,7 @@ private:
     double fractionAt (float x) const;
     const ViewState& state;
     int slot = 0;
-    juce::TextButton closeButton, playButton, loopButton, clearButton, earlierButton, reportButton;
+    juce::TextButton closeButton, playButton, loopButton, clearButton, earlierButton, reportButton, aiButton;
     enum class Drag { none, pending, select, startEdge, endEdge } drag = Drag::none;
     double dragFrom = 0.0, selA = 0.0, selB = 0.0;
 };
