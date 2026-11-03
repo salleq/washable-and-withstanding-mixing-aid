@@ -113,7 +113,7 @@ cmake --build build --target wwma_selftest
 
 `wwma_calibrate` prints what WWMA says about each synthetic mistake (or `wwma_calibrate styles` for the style guess), which is handy when tuning thresholds.
 
-CI builds macOS (universal), Windows x64 and ARM64, and Linux x64 and ARM64. On x64 it validates the plugin with pluginval, and on ARM it runs the self test. It also builds installers, and makes a release for every `v*` tag.
+CI builds macOS (universal), Windows x64 and ARM64, and Linux x64 and ARM64. On x64 it validates the plugin with pluginval, and on ARM it runs the self test. It also builds installers, and makes a release for every `v*` tag, or when the Build workflow is started by hand (Actions → Build → Run workflow) with a tag in its **release** box, such as `v0.5.1`: CI then creates the tag on the commit it built.
 
 ## Disclaimer
 
