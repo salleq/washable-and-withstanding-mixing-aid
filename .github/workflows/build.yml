@@ -6,14 +6,23 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a release: its tag (e.g. v0.5.1). CI creates the tag on the commit it builds. Empty: just build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 # a newer push to the same branch cancels the older, still running build
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event.inputs.release }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event.inputs.release == '' }}
+
+env:
+  # the release being made: the pushed v* tag, or the tag given when the workflow is started by hand
+  RELEASE_TAG: ${{ github.event.inputs.release || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
 
 jobs:
   build:
@@ -47,12 +56,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Check the version matches the tag
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.RELEASE_TAG != ''
         shell: bash
         run: |
           version=$(grep -m1 -o 'project(WWMA VERSION [0-9.]*' CMakeLists.txt | awk '{print $3}')
-          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} does not match project(WWMA VERSION $version) in CMakeLists.txt. Bump the version first."
+          if [ "v$version" != "${RELEASE_TAG}" ]; then
+            echo "::error::Tag ${RELEASE_TAG} does not match project(WWMA VERSION $version) in CMakeLists.txt. Bump the version first."
             exit 1
           fi
 
@@ -206,7 +215,7 @@ jobs:
   release:
     name: Release
     needs: [build, test, windows-installers]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(github.event.inputs.release, 'v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -220,10 +229,13 @@ jobs:
         id: notes
         shell: bash
         run: |
-          f="docs/release-notes/${GITHUB_REF_NAME}.md"
+          f="docs/release-notes/${RELEASE_TAG}.md"
           if [ -f "$f" ]; then echo "body_path=$f" >> "$GITHUB_OUTPUT"; fi
       - uses: softprops/action-gh-release@v2
         with:
+          # started by hand: the tag is created here, on the commit that was built
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           body_path: ${{ steps.notes.outputs.body_path }}
           files: |
             artifacts/**/*.zip
