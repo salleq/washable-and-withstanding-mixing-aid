@@ -68,7 +68,7 @@ juce::String plainAnswer (const juce::String& markdown)
 
 AiPanel::AiPanel (const ViewState& s) : state (s)
 {
-    for (auto* b : { &settingsButton, &closeButton, &askButton, &cancelButton, &copyButton, &pasteButton, &openButton, &sendButton,
+    for (auto* b : { &settingsButton, &closeButton, &askButton, &askAgainButton, &cancelButton, &copyButton, &pasteButton, &openButton, &sendButton,
                      &keepButton, &undoButton, &modelsButton, &testButton, &browseCliButton })
         addChildComponent (b);
     settingsButton.setVisible (true);
@@ -78,6 +78,7 @@ AiPanel::AiPanel (const ViewState& s) : state (s)
     closeButton.onClick = [this] { if (onClose) onClose(); };
     askButton.getProperties().set ("primary", true);
     askButton.onClick = [this] { if (onAsk) onAsk(); };
+    askAgainButton.onClick = [this] { if (onAskAgain) onAskAgain(); };
     cancelButton.onClick = [this] { if (onCancel) onCancel(); };
     copyButton.onClick = [this] { if (onCopyQuestion) onCopyQuestion(); };
     pasteButton.onClick = [this] { if (onPasteAnswer) onPasteAnswer(); };
@@ -190,6 +191,9 @@ void AiPanel::updateTexts()
         askButton.setButtonText (upper ("Ask " + ai::providerName (settings.provider)));
     askButton.setTooltip (t (lang, "Saves a report of the mix as it is now and gives it to the AI: the numbers, the song part by part and the spectrogram pictures. Never audio.",
                                    "Tallentaa raportin miksistä sellaisena kuin se nyt on ja antaa sen tekoälylle: luvut, kappaleen osat ja spektrogrammikuvat. Ei koskaan ääntä."));
+    askAgainButton.setButtonText (upper (t (lang, "Ask again", "Kysy uudelleen")));
+    askAgainButton.setTooltip (t (lang, "A new answer about this same track. It is saved over the earlier one.",
+                                        "Uusi vastaus tästä samasta raidasta. Se tallennetaan edellisen päälle."));
     cancelButton.setButtonText (upper (t (lang, "Cancel", "Peruuta")));
     copyButton.setButtonText (upper (t (lang, "Copy question", "Kopioi kysymys")));
     copyButton.setTooltip (t (lang, "Copies the question to the clipboard: paste it into the chat after the files.", "Kopioi kysymyksen leikepöydälle: liitä se keskusteluun tiedostojen jälkeen."));
@@ -333,7 +337,7 @@ void AiPanel::resized()
     settingsButton.setBounds (head.removeFromRight (110));
 
     const bool answerPage = ! settingsShown;
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &askButton, &cancelButton, &copyButton, &pasteButton, &openButton,
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &askButton, &askAgainButton, &cancelButton, &copyButton, &pasteButton, &openButton,
                                                                           &answerText, &followUp, &sendButton, &keepButton, &undoButton })
         c->setVisible (false);
     for (auto& c : cards)
@@ -370,6 +374,7 @@ void AiPanel::layoutAnswer (juce::Rectangle<int> r)
         top.removeFromRight (6);
     };
     placeRight (openButton, view.hasFile);
+    placeRight (askAgainButton, view.canAskAgain);
     placeRight (pasteButton, view.canPaste && ! working);
     placeRight (copyButton, view.canPaste && ! working);
 

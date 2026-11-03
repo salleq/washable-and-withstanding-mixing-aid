@@ -48,13 +48,14 @@ public:
         bool canFollowUp = false;
         bool hasFile = false;
         bool canPaste = false;       // the browser mode: paste the chat's answer back
+        bool canAskAgain = false;    // a reference track's (saved) answer: a new one replaces it
     };
     void setView (View v);
     /** The user wrote a follow-up question (cleared once sent). */
     void clearFollowUp() { followUp.clear(); }
 
     std::function<void()> onAsk, onCancel, onCopyQuestion, onPasteAnswer, onOpenFile, onClose,
-                          onSettingsChanged, onTest, onBrowseCli, onKeepChange, onUndoChange;
+                          onSettingsChanged, onTest, onBrowseCli, onKeepChange, onUndoChange, onAskAgain;
     std::function<void (const juce::String&)> onFollowUp;
     std::function<void (int)> onTry, onTryMaster;
 
@@ -71,7 +72,7 @@ private:
     // header
     juce::TextButton settingsButton, closeButton;
     // answer page
-    juce::TextButton askButton, cancelButton, copyButton, pasteButton, openButton, sendButton, keepButton, undoButton;
+    juce::TextButton askButton, askAgainButton, cancelButton, copyButton, pasteButton, openButton, sendButton, keepButton, undoButton;
     juce::TextEditor answerText, followUp;
     std::vector<std::unique_ptr<ListRow>> cards;
     // settings page

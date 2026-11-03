@@ -256,9 +256,16 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     aiSettings = ai::loadSettings();
     aiPanel.setSettings (aiSettings);
     aiButton.setClickingTogglesState (true);
-    aiButton.onClick = [this] { setAiOpen (aiButton.getToggleState()); };
+    aiButton.onClick = [this]
+    {
+        // the AI button is about the mix: show its last answer, if there is one
+        if (aiButton.getToggleState() && aiSession.key != "mix")
+            restoreAiSession ("mix");
+        setAiOpen (aiButton.getToggleState());
+    };
     aiPanel.onClose = [this] { setAiOpen (false); };
     aiPanel.onAsk = [this] { askAi(); };
+    aiPanel.onAskAgain = [this] { askAiAgain(); };
     aiPanel.onCancel = [this]
     {
         aiWorker.cancel();

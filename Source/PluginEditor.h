@@ -12,6 +12,7 @@
 #include "advice/ListeningReport.h"
 #include "ui/Theme.h"
 #include "advice/StyleGuess.h"
+#include <map>
 
 class WwmaAudioProcessorEditor : public juce::AudioProcessorEditor,
                                  public juce::FileDragAndDropTarget,
@@ -114,7 +115,7 @@ public:
     /** Saves a report and gives it to the chosen assistant (or opens it in the browser). */
     void askAi();
     /** The same about one reference track alone (e.g. an older version of the song), from its big view. */
-    void askAiAboutReference (int slot);
+    void askAiAboutReference (int slot) { askAiAboutReference (slot, false); }
     /** An answer from the assistant (or pasted back from the browser): shown, saved next to the
         report, and its suggestions become cards to try. */
     void showAiAnswer (const juce::String& answer);
@@ -229,16 +230,32 @@ private:
     struct AiSession
     {
         juce::File reportFile, promptFile, answerFile;
+        juce::String key;                   // "mix", or "ref:" + the reference file's path
         juce::String subject;               // a reference track's name when the report is about it alone
         wwma::ai::Provider provider = wwma::ai::Provider::claude;
         wwma::ai::Mode mode = wwma::ai::Mode::browser;
         juce::String prompt;
         wwma::ai::ApiRequest request;       // API mode: the conversation, for follow-up questions
         std::vector<wwma::ai::Suggestion> suggestions;
+        juce::String suggestionsFrom;       // the answer the suggestions were read from (saved, read again on load)
         juce::String answerShown;
         wwma::ui::AiPanel::View::Status status = wwma::ui::AiPanel::View::Status::idle;
         juce::String headline, message;
     } aiSession;
+    /** Earlier answers, by AiSession::key: going back to a track shows its answer again
+        instead of asking (and paying) for a new one. A reference track's answer is also saved
+        to disk, so the same file gets it back next time WWMA is opened. */
+    std::map<juce::String, AiSession> aiStash;
+    void stashAiSession();
+    /** Makes the stashed (or saved) session for `key` the current one; false when there is none (or a question is running). */
+    bool restoreAiSession (const juce::String& key);
+    /** The file's path, size and time: a new bounce under the same name is a new track. */
+    juce::String referenceAiKey (int slot) const;
+    void saveAiSessionToDisk() const;
+    bool loadAiSessionFromDisk (const juce::String& key);
+    /** "Ask again" on a remembered reference answer: a new question about the same track. */
+    void askAiAgain();
+    void askAiAboutReference (int slot, bool fresh);
     std::unique_ptr<juce::FileChooser> aiChooser;
     void setAiStatus (wwma::ui::AiPanel::View::Status status, const juce::String& headline, const juce::String& message);
     void refreshAiView();
