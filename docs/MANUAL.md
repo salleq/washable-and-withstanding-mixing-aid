@@ -277,6 +277,8 @@ Playing the reference inside WWMA:
 - **Click or drag on the small waveform** to jump.
 - **Click the track's name or numbers** for a big view. There you can click to jump, **drag over the waveform to choose a loop**, drag the loop's edges to adjust it, and use **Play the loop** or **Clear loop**.
 - Close the big view and the loop stays: it is shaded on the small waveform, and ▶ plays only that part, over and over. The loop is saved with your project.
+- **Ask AI** in the big view asks about that track alone. The answer is remembered for that file, even after WWMA is closed: press **Ask AI** again and the saved answer comes back without asking again. **Ask again** in the AI panel gets a new answer and saves it over the old one. A new bounce of the file (it changes size or date) counts as a new track. While the AI panel shows a reference's answer, choosing the other reference shows that one's answer instead, or **Ask about this track** when there is none yet.
+- In an answer about a reference track, the song times ("1:05") and parts ("part G", "osa G", "G-kohta") are links: click one and the reference plays from there. A suggestion card that names a time or a part has a **▶** button that does the same. If the track has a loop somewhere else, the loop is cleared so you hear that point.
 
 ![Choosing a loop in the big reference view](images/wwma-reference-loop.png)
 

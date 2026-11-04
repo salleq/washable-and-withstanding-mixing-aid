@@ -52,7 +52,19 @@ void WwmaAudioProcessorEditor::refreshAiView()
     v.answer = aiSession.answerShown;
     v.hasFile = aiSession.answerFile.existsAsFile();
     v.canPaste = aiSession.mode == ai::Mode::browser && aiSession.reportFile != juce::File();
-    v.canFollowUp = aiSession.mode == ai::Mode::api && aiSession.answerShown.isNotEmpty() && v.status != Status::working;
+    v.canFollowUp = aiSession.mode == ai::Mode::api && aiSession.answerShown.isNotEmpty() && ! aiSession.request.turns.empty()
+                    && v.status != Status::working;
+    v.canAskAgain = aiSession.key.startsWith ("ref:") && v.status != Status::working;
+
+    // an answer about a reference that is loaded: its times and parts play the track there
+    std::vector<SongSection> sections;
+    if (const auto info = proc.refs.getInfo (aiSessionSlot()))
+    {
+        v.jumpLength = (float) info->seconds;
+        sections = findSections (info->timeline);
+        for (const auto& s : sections)
+            v.jumpParts << juce::String::charToString ((juce::juce_wchar) s.letter);
+    }
 
     const auto now = proc.getChainSettings();
     for (const auto& s : aiSession.suggestions)
@@ -65,6 +77,22 @@ void WwmaAudioProcessorEditor::refreshAiView()
         c.detail = s.step;
         c.tooltip = s.step + (s.listenFor.isNotEmpty() ? "\n" + tr (lang, "Listen for: ", "Kuuntele: ") + s.listenFor : juce::String());
         c.canTry = true;
+        if (v.jumpLength > 0.0f)
+        {
+            // the time is the more exact; else the start of the part
+            const auto times = ui::findTextLinks (s.at.trim(), {}, v.jumpLength);
+            const auto part = s.part.trim().toUpperCase();
+            if (! times.empty())
+            {
+                c.jumpSeconds = times.front().seconds;
+                c.jumpLabel = s.at.trim();
+            }
+            else if (part.length() == 1 && v.jumpParts.containsChar (part[0]))
+            {
+                c.jumpPart = (char) part[0];
+                c.jumpLabel = tr (lang, "part ", "osa ") + part;
+            }
+        }
         if (! s.chain.empty() && masterChangesAllowed())
         {
             juce::StringArray notes;
@@ -127,12 +155,225 @@ void WwmaAudioProcessorEditor::askAi()
     askAiAbout (file, -1);
 }
 
-void WwmaAudioProcessorEditor::askAiAboutReference (int slot)
+namespace
+{
+    juce::File savedAnswerFile (const juce::String& key)
+    {
+        return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
+            .getChildFile ("WWMA").getChildFile ("ai-answers")
+            .getChildFile (juce::String::toHexString (key.hashCode64()) + ".xml");
+    }
+}
+
+juce::String WwmaAudioProcessorEditor::referenceAiKey (int slot) const
+{
+    const auto info = proc.refs.getInfo (slot);
+    if (info == nullptr)
+        return {};
+    const auto& f = info->file;
+    return "ref:" + f.getFullPathName() + "|" + juce::String (f.getSize()) + "|" + juce::String (f.getLastModificationTime().toMilliseconds());
+}
+
+void WwmaAudioProcessorEditor::stashAiSession()
+{
+    // only sessions worth coming back to: an answer, or the browser waiting for one
+    if (aiSession.key.isNotEmpty() && (aiSession.answerShown.isNotEmpty() || aiSession.status == Status::browser))
+        aiStash[aiSession.key] = aiSession;
+}
+
+void WwmaAudioProcessorEditor::saveAiSessionToDisk() const
+{
+    // a reference file does not change, so its answer stays good; the mix changes all the time
+    if (! aiSession.key.startsWith ("ref:") || aiSession.answerShown.isEmpty())
+        return;
+    juce::XmlElement x ("AiAnswer");
+    x.setAttribute ("key", aiSession.key);
+    x.setAttribute ("subject", aiSession.subject);
+    x.setAttribute ("provider", (int) aiSession.provider);
+    x.setAttribute ("mode", (int) aiSession.mode);
+    x.setAttribute ("model", aiSession.request.model);
+    x.setAttribute ("report", aiSession.reportFile.getFullPathName());
+    x.setAttribute ("answerFile", aiSession.answerFile.getFullPathName());
+    x.setAttribute ("saved", juce::Time::getCurrentTime().toISO8601 (true));
+    x.createNewChildElement ("Prompt")->addTextElement (aiSession.prompt);
+    x.createNewChildElement ("Shown")->addTextElement (aiSession.answerShown);
+    x.createNewChildElement ("SuggestionsFrom")->addTextElement (aiSession.suggestionsFrom);
+    for (const auto& turn : aiSession.request.turns)
+    {
+        auto* e = x.createNewChildElement ("Turn");
+        e->setAttribute ("user", turn.user);
+        e->addTextElement (turn.text);
+    }
+    const auto file = savedAnswerFile (aiSession.key);
+    file.getParentDirectory().createDirectory();
+    x.writeTo (file);
+}
+
+bool WwmaAudioProcessorEditor::loadAiSessionFromDisk (const juce::String& key)
+{
+    const auto x = juce::XmlDocument::parse (savedAnswerFile (key));
+    if (x == nullptr || ! x->hasTagName ("AiAnswer") || x->getStringAttribute ("key") != key)
+        return false;
+    auto text = [&x] (const char* tag) { auto* e = x->getChildByName (tag); return e != nullptr ? e->getAllSubText() : juce::String(); };
+    AiSession s;
+    s.key = key;
+    s.subject = x->getStringAttribute ("subject");
+    s.provider = (ai::Provider) juce::jlimit (0, ai::numProviders - 1, x->getIntAttribute ("provider"));
+    s.mode = (ai::Mode) juce::jlimit (0, 2, x->getIntAttribute ("mode"));
+    s.reportFile = juce::File (x->getStringAttribute ("report"));
+    s.answerFile = juce::File (x->getStringAttribute ("answerFile"));
+    s.prompt = text ("Prompt");
+    s.answerShown = text ("Shown");
+    s.suggestionsFrom = text ("SuggestionsFrom");
+    if (s.answerShown.isEmpty())
+        return false;
+    s.suggestions = ai::parseSuggestions (s.suggestionsFrom);
+
+    // API: the conversation, to ask more; it needs the report files, which may be gone
+    auto& req = s.request;
+    req.provider = s.provider;
+    req.model = x->getStringAttribute ("model");
+    req.apiKey = aiSettings.of (s.provider).apiKey;
+    for (auto* e : x->getChildWithTagNameIterator ("Turn"))
+        req.turns.push_back ({ e->getBoolAttribute ("user"), e->getAllSubText() });
+    const auto folder = s.reportFile.getParentDirectory();
+    const auto base = s.reportFile.getFileNameWithoutExtension();
+    if (s.mode == ai::Mode::api && s.reportFile.existsAsFile())
+    {
+        req.context = folder.getChildFile (base + " AI.md").loadFileAsString() + "\n\n---\n\n" + s.reportFile.loadFileAsString();
+        for (const auto& f : { folder.getChildFile (base + " AI.png"), folder.getChildFile (base + " AI reference.png") })
+        {
+            juce::MemoryBlock png;
+            if (f.existsAsFile() && f.loadFileAsData (png))
+                req.images.push_back (std::move (png));
+        }
+    }
+    else
+        req.turns.clear();
+
+    const auto lang = state.lang;
+    const auto saved = juce::Time::fromISO8601 (x->getStringAttribute ("saved"));
+    s.status = Status::done;
+    s.headline = ai::providerName (s.provider) + tr (lang, " answered on ", " vastasi ") + saved.formatted ("%d.%m.%Y %H:%M");
+    s.message = tr (lang, "A saved answer about this same file: nothing was sent. Ask again for a new one.",
+                          "Tallennettu vastaus tästä samasta tiedostosta: mitään ei lähetetty. Kysy uudelleen saadaksesi uuden.");
+    stashAiSession();
+    aiSession = std::move (s);
+    return true;
+}
+
+bool WwmaAudioProcessorEditor::restoreAiSession (const juce::String& key)
+{
+    if (key.isEmpty() || aiWorker.busy())
+        return false;
+    const bool same = aiSession.key == key;
+    if (same && (aiSession.answerShown.isNotEmpty() || aiSession.status == Status::browser))
+        return true;
+    // (the same track with no answer: Ask again failed or was cancelled, so the earlier answer is back)
+    const auto it = aiStash.find (key);
+    if (it == aiStash.end())
+        return key.startsWith ("ref:") && loadAiSessionFromDisk (key);
+    if (! same)
+        stashAiSession();
+    aiSession = it->second;
+    return true;
+}
+
+int WwmaAudioProcessorEditor::aiSessionSlot() const
+{
+    if (aiSession.key.startsWith ("ref:"))
+        for (int i = 0; i < (int) state.refs.size(); ++i)
+            if (state.refs[(size_t) i].ready() && referenceAiKey (i) == aiSession.key)
+                return i;
+    return -1;
+}
+
+void WwmaAudioProcessorEditor::followAiReference()
+{
+    // a question still running stays on screen; the mix's answer is not about any reference
+    if (aiWorker.busy() || ! aiSession.key.startsWith ("ref:"))
+        return;
+    const int slot = state.activeRef;
+    if (! juce::isPositiveAndBelow (slot, (int) state.refs.size()) || ! state.refs[(size_t) slot].ready())
+        return;
+    const auto key = referenceAiKey (slot);
+    if (key.isEmpty() || key == aiSession.key)
+        return;
+    if (! restoreAiSession (key))
+    {
+        const auto lang = state.lang;
+        stashAiSession();
+        aiSession = {};
+        aiSession.key = key;
+        aiSession.subject = state.refs[(size_t) slot].name;
+        aiSession.provider = aiSettings.provider;
+        aiSession.status = Status::done; // (idle would show the mix's intro instead)
+        aiSession.headline = tr (lang, "No answer about this track yet", "Tästä raidasta ei ole vielä vastausta");
+        aiSession.message = tr (lang, "Press Ask about this track to ask.", "Kysy painamalla Kysy tästä raidasta.");
+    }
+    refreshAiView();
+}
+
+void WwmaAudioProcessorEditor::jumpAiTrack (char part, float seconds)
+{
+    const int slot = aiSessionSlot();
+    const auto info = proc.refs.getInfo (slot);
+    if (info == nullptr || info->seconds <= 0.0)
+        return;
+    if (part != 0)
+    {
+        seconds = -1.0f;
+        const auto& t = info->timeline;
+        for (const auto& s : findSections (t))
+            if (s.letter == part && juce::isPositiveAndBelow (s.first, (int) t.points.size()))
+            {
+                const float song = t.points[(size_t) s.first].songSeconds;
+                seconds = song >= 0.0f ? song : heardTime (t, s.first);
+            }
+    }
+    if (seconds < 0.0f)
+        return;
+    const double f = juce::jlimit (0.0, 1.0, seconds / info->seconds);
+    // a loop elsewhere would keep the playback away from that point
+    const auto loop = proc.refs.getLoop (slot);
+    if (loop.second > loop.first && (f < loop.first || f >= loop.second))
+        proc.refs.clearLoop (slot);
+    proc.refs.setActive (slot);
+    proc.refs.setCue (f);
+    if (! (state.listening && proc.refs.isPlaying()))
+        toggleReferencePlay (slot);
+    readReferences();
+}
+
+void WwmaAudioProcessorEditor::askAiAgain()
+{
+    if (aiWorker.busy() || ! aiSession.key.startsWith ("ref:"))
+        return;
+    for (int i = 0; i < (int) state.refs.size(); ++i)
+        if (referenceAiKey (i) == aiSession.key)
+        {
+            // the old answer stays until the new one comes, then the new one is saved over it
+            askAiAboutReference (i, true);
+            return;
+        }
+    setAiStatus (Status::error, tr (state.lang, "The track is not loaded", "Raitaa ei ole ladattu"),
+                 tr (state.lang, "Load the file as a reference again to ask about it.", "Lataa tiedosto uudelleen referenssiksi kysyäksesi siitä."));
+}
+
+void WwmaAudioProcessorEditor::askAiAboutReference (int slot, bool fresh)
 {
     if (! juce::isPositiveAndBelow (slot, (int) state.refs.size()) || ! state.refs[(size_t) slot].ready())
         return;
     // the panel covers the big view: close it, the answer is about this track
     closeReferenceDetail();
+    const auto key = referenceAiKey (slot);
+    // asked before (or being asked now): show that answer, no new question
+    if (! fresh && (restoreAiSession (key) || (aiWorker.busy() && aiSession.key == key)))
+    {
+        setAiOpen (true);
+        aiPanel.showSettings (false);
+        return;
+    }
     setAiOpen (true);
     aiPanel.showSettings (false);
     if (! aiReady())
@@ -152,7 +393,9 @@ void WwmaAudioProcessorEditor::askAiAbout (const juce::File& file, int reference
     const bool aboutReference = referenceSlot >= 0;
     const auto& assessment = aboutReference ? state.refs[(size_t) referenceSlot].assessment : state.assessment;
 
+    stashAiSession();
     aiSession = {};
+    aiSession.key = aboutReference ? referenceAiKey (referenceSlot) : juce::String ("mix");
     aiSession.reportFile = file;
     if (aboutReference)
         aiSession.subject = state.refs[(size_t) referenceSlot].name;
@@ -308,7 +551,10 @@ void WwmaAudioProcessorEditor::showAiAnswer (const juce::String& answer)
     juce::String shown;
     auto suggestions = ai::parseSuggestions (answer, &shown);
     if (! suggestions.empty() || aiSession.suggestions.empty())
+    {
         aiSession.suggestions = std::move (suggestions); // a follow-up without new suggestions keeps the earlier ones
+        aiSession.suggestionsFrom = answer;
+    }
     if (aiSession.answerShown.isNotEmpty() && aiSession.mode == ai::Mode::api && aiSession.request.turns.size() > 2)
     {
         // a follow-up: the conversation so far, newest last
@@ -319,6 +565,8 @@ void WwmaAudioProcessorEditor::showAiAnswer (const juce::String& answer)
     else
         aiSession.answerShown = shown;
     saveAiAnswerFile();
+    saveAiSessionToDisk(); // a reference track's answer, over any earlier one about the same file
+    aiStash.erase (aiSession.key);
     const int n = (int) aiSession.suggestions.size();
     setAiStatus (Status::done, ai::providerName (aiSession.provider) + tr (lang, " answered", " vastasi"),
                  n > 0 ? juce::String (n) + tr (lang, n == 1 ? " suggestion to try below. Try one at a time: WWMA measures the next pass, then your ears decide."

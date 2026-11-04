@@ -307,6 +307,7 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         inputAnalyzer.prepare (sampleRate);
         preparedRate = sampleRate;
     }
+    profiler.prepare (sampleRate, samplesPerBlock);
     refs.setPlaybackRate (sampleRate);
     mixTrack.setPlaybackRate (sampleRate);
     before.prepare (sampleRate);
@@ -326,6 +327,7 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
+    wwma::CallbackProfiler::Scope profileScope (profiler, buffer.getNumSamples());
 
     // Clear only output channels that have no input.
     for (int c = getTotalNumInputChannels(); c < getTotalNumOutputChannels(); ++c)

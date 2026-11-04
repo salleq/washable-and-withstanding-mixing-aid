@@ -10,6 +10,7 @@
 #include "reference/BeforeTake.h"
 #include "reference/VersionStore.h"
 #include "dsp/MasterChain.h"
+#include "dsp/CallbackProfiler.h"
 #include <atomic>
 #include <optional>
 
@@ -226,6 +227,8 @@ public:
     };
 
 private:
+    wwma::CallbackProfiler profiler; // WWMA_PROFILE=1: logs processBlock() time vs. the buffer's time budget
+
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void restoreReference();
     void restoreReferenceTracks();
