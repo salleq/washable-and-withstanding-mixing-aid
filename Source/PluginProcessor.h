@@ -276,17 +276,23 @@ private:
     float abMix = 0.0f, abStep = 0.0f;
     float beforeMix = 0.0f;
 
-    /** Keeps the before take's spare memory ready and its level match current, editor open or not. */
+    /** Keeps the before take's spare memory ready and its level match current, editor open or not.
+        It also shares this track's low end with the other WWMA instances once a second, so a kick
+        and a bass see each other even when their windows are closed. */
     struct BeforeService : public juce::Timer
     {
         explicit BeforeService (WwmaAudioProcessor& p) : proc (p) {}
         void timerCallback() override
         {
             proc.before.service (proc.songSeconds.load());
-            if (++ticks % 20 == 0)
+            ++ticks;
+            if (ticks % 10 == 0 && proc.analyzer.readSnapshot (busSnap))
+                wwma::TrackBus::shared().publish (proc.busId, wwma::printOf (busSnap, proc.getTrackRole()));
+            if (ticks % 20 == 0)
                 proc.saveSessionIfChanged();
         }
         WwmaAudioProcessor& proc;
+        wwma::Snapshot busSnap;
         int ticks = 0;
     } beforeService { *this };
     int wantedActiveRef = -1, savedRefGeneration = -1;
