@@ -375,10 +375,20 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 
     // An export (bounce) renders offline: start a fresh pass when it begins, even if the host
     // does not report "playing", so SONG covers the whole render from the start. An export always
-    // resets, whether or not "reset on play" is on.
+    // resets, whether or not "reset on play" is on. Some hosts raise the offline flag while stopped,
+    // so the reset waits until the play head is actually moving.
     const bool offline = isNonRealtime();
     if (offline && ! wasOffline)
+        exportArmed = true;
+    if (! offline)
+        exportArmed = false;
+    const bool moving = hostPlaying || hostSample < 0 || hostSample != lastHostSample;
+    if (exportArmed && moving)
+    {
         beginPass (hostSample >= 0 && getSampleRate() > 0.0 ? (double) hostSample / getSampleRate() : 0.0, true);
+        exportArmed = false;
+    }
+    lastHostSample = hostSample;
     wasOffline = offline;
     exporting.store (offline);
     if (offline)

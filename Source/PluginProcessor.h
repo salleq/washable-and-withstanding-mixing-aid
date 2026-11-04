@@ -253,6 +253,8 @@ private:
     std::atomic<bool> autoReset { true };
     bool wasPlaying = false;
     bool wasOffline = false;
+    bool exportArmed = false;      // offline mode began; the forced reset waits until the play head moves
+    int64_t lastHostSample = -1;
     double preparedRate = 0.0;
     int64_t expectedSample = -1; // where the play head should be at the next block
 
