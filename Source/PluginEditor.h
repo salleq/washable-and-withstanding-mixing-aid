@@ -7,6 +7,8 @@
 #include "ui/ChainPanel.h"
 #include "ui/VersionsPanel.h"
 #include "ui/AiPanel.h"
+#include "ui/SettingsPage.h"
+#include "ui/AboutView.h"
 #include "ai/AiClient.h"
 #include "ai/AiPrompt.h"
 #include "advice/ListeningReport.h"
@@ -111,7 +113,18 @@ public:
     // ---- the AI assistant (Claude, Gemini, ChatGPT)
     void setAiOpen (bool open);
     bool isAiOpen() const noexcept { return aiPanel.isVisible(); }
-    void showAiSettings (bool show) { setAiOpen (true); aiPanel.showSettings (show); }
+    /** The settings page (over the whole window between the top bar and the footer). */
+    void openSettings (bool open) { setSettingsOpen (open); }
+    /** Opens the settings page on one tab (the AI's Settings button opens the AI tab). */
+    void openSettingsTab (wwma::ui::SettingsPage::Tab tab) { settingsPage.setTab (tab); setSettingsOpen (true); }
+    wwma::ui::SettingsPage::Tab getSettingsTab() const noexcept { return settingsPage.getTab(); }
+    /** The language, as chosen on the settings page. */
+    void setLanguage (wwma::Lang l);
+    bool isSettingsOpen() const noexcept { return settingsPage.isVisible(); }
+    /** About WWMA: the badge and the version, from the top-left logo (over the whole window). */
+    void openAbout (bool open);
+    bool isAboutOpen() const noexcept { return aboutView.isVisible(); }
+    void showAiSettings (bool show) { if (show) openSettingsTab (wwma::ui::SettingsPage::Tab::ai); else setSettingsOpen (false); }
     /** Saves a report and gives it to the chosen assistant (or opens it in the browser). */
     void askAi();
     /** The same about one reference track alone (e.g. an older version of the song), from its big view. */
@@ -134,6 +147,8 @@ public:
     bool masterChangesAllowed() const;
 
     static constexpr int baseWidth = 1140, baseHeight = 800;
+    /** The self test lays the window out like the standalone app (your own song in the footer). */
+    static inline bool standaloneForTests = false;
 
 private:
     class Content : public juce::Component
@@ -222,6 +237,18 @@ private:
     /** The listening data of the newest report (for the AI question). */
     wwma::ListeningInput lastListening;
 
+    // ---- settings (for now: the stream, "listen anywhere")
+    wwma::ui::SettingsPage settingsPage { state, proc.stream };
+    wwma::ui::SettingsButton settingsButton;
+    void setSettingsOpen (bool open);
+    void syncStreamButton();
+
+    juce::Component topControls; // the top bar's mixing controls, hidden while the settings are open
+
+    // ---- about
+    wwma::ui::LogoButton logoButton;
+    wwma::ui::AboutView aboutView { state };
+
     // ---- the AI assistant
     wwma::ui::AiPanel aiPanel { state };
     juce::TextButton aiButton;
@@ -288,23 +315,31 @@ private:
     juce::ComboBox trackBox; // shown instead of the loudness target in track mode
     juce::TextButton trackButton;
     void fillTrackBox();
-    juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, langButton, mixAButton, beforeButton, refBButton;
+    juce::TextButton mixButton, masterButton, nowButton, songButton, resetButton, mixAButton, beforeButton, refBButton;
     juce::ToggleButton autoResetToggle;
     juce::TextButton mixLoadButton, mixPlayButton; // standalone app only: your own song
 
-    /** Thin progress bar under the mix buttons: shows where the song is, click or drag to jump. */
+    /** Standalone app: your own song in the footer. Its name, where the song is ("1:23 / 3:45")
+        and its waveform, played part lit; click or drag on it to jump, hover to see the time. */
     struct MixSeekBar : public juce::Component
     {
-        explicit MixSeekBar (WwmaAudioProcessor& p) : proc (p) {}
+        MixSeekBar (WwmaAudioProcessor& p, const wwma::ui::ViewState& s) : proc (p), state (s) {}
         void paint (juce::Graphics& g) override;
         void mouseDown (const juce::MouseEvent& e) override { jump (e); }
         void mouseDrag (const juce::MouseEvent& e) override { jump (e); }
+        void mouseMove (const juce::MouseEvent& e) override;
+        void mouseExit (const juce::MouseEvent&) override { hoverX = -1.0f; repaint(); }
+        /** The waveform's area: clicks and drags there jump. */
+        juce::Rectangle<float> waveArea() const;
         WwmaAudioProcessor& proc;
+        const wwma::ui::ViewState& state;
         double shown = 0.0;
+        float hoverX = -1.0f;
     private:
         void jump (const juce::MouseEvent& e);
-    } mixSeek { proc };
+    } mixSeek { proc, state };
     int mixStatusShown = -1;
+    bool isStandalone() const noexcept { return standaloneForTests || proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone; }
     void browseMix();
     void loadMix (const juce::File& file);
 

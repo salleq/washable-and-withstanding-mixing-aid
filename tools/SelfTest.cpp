@@ -13,6 +13,7 @@
 #include "advice/ListeningReport.h"
 #include "ai/AiPrompt.h"
 #include "ai/AiClient.h"
+#include "stream/StreamServer.h"
 #include <complex>
 #include <functional>
 #include <iostream>
@@ -1397,6 +1398,7 @@ namespace
                 s.editor->reloadFromProcessor();
                 shot ("ai-settings-fi.png");
                 s.editor->showAiSettings (false);
+                s.editor->setAiOpen (true);
                 shot ("ai-answer-fi.png");
                 s.p.setLang (Lang::english);
                 s.editor->reloadFromProcessor();
@@ -1424,6 +1426,266 @@ namespace
         }
         ai::setSettingsFileForTests ({});
     }
+
+    // ---- "listen anywhere": the stream for a browser
+    struct HttpReply
+    {
+        juce::String status, head;
+        juce::MemoryBlock body;   // chunks joined (for the stream)
+    };
+
+    /** A plain GET to 127.0.0.1. While waiting, `pump` runs (it feeds the processor in real time). */
+    HttpReply httpGet (int port, const juce::String& target, const juce::String& extraHeaders = {}, size_t maxBody = 1 << 20,
+                       int timeoutMs = 3000, std::function<void()> pump = {})
+    {
+        HttpReply r;
+        juce::StreamingSocket s;
+        if (! s.connect ("127.0.0.1", port, 2000))
+            return r;
+        const auto req = "GET " + target + " HTTP/1.1\r\nHost: 127.0.0.1\r\n" + extraHeaders + "\r\n";
+        s.write (req.toRawUTF8(), (int) req.getNumBytesAsUTF8());
+        juce::MemoryOutputStream raw;
+        char buf[4096];
+        const auto end = juce::Time::getMillisecondCounter() + (juce::uint32) timeoutMs;
+        while (juce::Time::getMillisecondCounter() < end && raw.getDataSize() < maxBody + 4096)
+        {
+            if (pump)
+                pump();
+            const int ready = s.waitUntilReady (true, pump ? 5 : 50);
+            if (ready < 0)
+                break;
+            if (ready == 0)
+                continue;
+            const int n = s.read (buf, (int) sizeof (buf), false);
+            if (n <= 0)
+                break;
+            raw.write (buf, (size_t) n);
+        }
+        const auto data = static_cast<const char*> (raw.getData());
+        const auto size = raw.getDataSize();
+        size_t headEnd = 0;
+        for (size_t i = 0; i + 3 < size; ++i)
+            if (data[i] == '\r' && data[i + 1] == '\n' && data[i + 2] == '\r' && data[i + 3] == '\n') { headEnd = i + 4; break; }
+        if (headEnd == 0)
+            return r;
+        r.head = juce::String::fromUTF8 (data, (int) headEnd);
+        r.status = r.head.upToFirstOccurrenceOf ("\r\n", false, false).fromFirstOccurrenceOf (" ", false, false).upToFirstOccurrenceOf (" ", false, false);
+        if (r.head.containsIgnoreCase ("Transfer-Encoding: chunked"))
+        {
+            size_t i = headEnd;
+            while (i < size)
+            {
+                size_t lineEnd = i;
+                while (lineEnd + 1 < size && ! (data[lineEnd] == '\r' && data[lineEnd + 1] == '\n'))
+                    ++lineEnd;
+                if (lineEnd + 1 >= size)
+                    break;
+                const auto len = (size_t) juce::String::fromUTF8 (data + i, (int) (lineEnd - i)).getHexValue32();
+                i = lineEnd + 2;
+                if (len == 0 || i + len > size)
+                    break;
+                r.body.append (data + i, len);
+                i += len + 2;
+            }
+        }
+        else
+            r.body.append (data + headEnd, size - headEnd);
+        return r;
+    }
+
+    void streamTests (const juce::File& shots = {})
+    {
+        std::cout << "Listen anywhere (stream)" << std::endl;
+        const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-stream-" + juce::Uuid().toDashedString());
+        tmp.createDirectory();
+        struct Cleanup { juce::File f; ~Cleanup() { stream::setSettingsFileForTests ({}); f.deleteRecursively(); } } cleanup { tmp };
+        stream::setSettingsFileForTests (tmp.getChildFile ("stream-settings.xml"));
+
+        auto st = stream::loadSettings();
+        check (st.token.length() >= 10 && stream::loadSettings().token == st.token && ! st.passwordOn,
+               "a secret link token is made once and kept, no password by default");
+        const int port = 21000 + juce::Random::getSystemRandom().nextInt (20000);
+        st.port = port;
+        st.localOnly = true;
+
+        {
+            stream::Server hi;
+            hi.prepare (96000.0, 512);
+            const int r96 = hi.getStreamRate();
+            hi.prepare (192000.0, 512);
+            const int r192 = hi.getStreamRate();
+            hi.prepare (44100.0, 512);
+            check (r96 == 48000 && r192 == 48000 && hi.getStreamRate() == 44100, "96 and 192 kHz go out at 48 kHz, 44.1 kHz as it is",
+                   juce::String (r96) + " " + juce::String (r192) + " " + juce::String (hi.getStreamRate()));
+        }
+
+        WwmaAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, 48000.0, 480);
+        p.prepareToPlay (48000.0, 480);
+        check (! p.stream.isRunning() && p.stream.getState() == stream::Server::State::off, "the stream is off until the user starts it");
+        check (httpGet (port, "/").status.isEmpty(), "  nothing answers on the port while it is off");
+        check (p.stream.start (st) && p.stream.isRunning(), "starts on 127.0.0.1:" + juce::String (port));
+        {
+            stream::Server second;
+            check (! second.start (st) && second.getState() == stream::Server::State::portInUse, "  a second WWMA on the same port: 'port in use'");
+        }
+        const auto links = p.stream.getLinks();
+        check (links.size() == 1 && links[0].kind == stream::Link::Kind::thisComputer && links[0].url.endsWith ("/?k=" + st.token),
+               "  'this computer only' gives just the local link", links.empty() ? juce::String() : links[0].url);
+        check (stream::normalisePublicUrl ("mydaw.example.com") == "https://mydaw.example.com/"
+                   && stream::normalisePublicUrl (" HTTPS://mydaw.example.com/wwma?x=1#y ") == "https://mydaw.example.com/wwma/"
+                   && stream::normalisePublicUrl ("ftp://x").isEmpty() && stream::normalisePublicUrl ("https://").isEmpty()
+                   && stream::normalisePublicUrl ("a b").isEmpty(),
+               "  your own address: https added, the query dropped, ends in /, nonsense refused");
+        {
+            auto own = st;
+            own.publicUrl = "https://mydaw.example.com/";
+            stream::saveSettings (own);
+            p.stream.updateSecurity (stream::loadSettings());
+            const auto withOwn = p.stream.getLinks();
+            check (withOwn.size() == 2 && withOwn[0].kind == stream::Link::Kind::ownAddress
+                       && withOwn[0].url == "https://mydaw.example.com/?k=" + st.token,
+                   "  with your own address: its link first, WWMA adds only ?k=", withOwn.empty() ? juce::String() : withOwn[0].url);
+            stream::saveSettings (st);
+            p.stream.updateSecurity (st);
+        }
+
+        check (httpGet (port, "/").status == "403" && httpGet (port, "/?k=wrong").status == "403", "without the link's secret: 403");
+        const auto page = httpGet (port, "/?k=" + st.token);
+        check (page.status == "200" && page.body.toString().contains ("WWMA") && page.body.toString().contains ("JitterBuffer"),
+               "with it: the player page", page.status + ", " + juce::String ((int) page.body.getSize()) + " bytes");
+        const auto info = httpGet (port, "/info?k=" + st.token);
+        check (info.status == "200" && (int) juce::JSON::parse (info.body.toString())["sampleRate"] == 48000, "  /info tells the rate", info.body.toString());
+
+        // the audio: a -6 dBFS sine through WWMA (EQ and limiter off: bit for bit, only delayed)
+        {
+            juce::AudioBuffer<float> buf (2, 480);
+            juce::MidiBuffer midi;
+            double phase = 0.0;
+            auto last = juce::Time::getMillisecondCounterHiRes();
+            int blocks = 0;
+            auto pump = [&]
+            {
+                const auto now = juce::Time::getMillisecondCounterHiRes();
+                while (now - last >= 10.0) // 480 samples at 48 kHz = 10 ms: real time
+                {
+                    last += 10.0;
+                    for (int i = 0; i < 480; ++i)
+                    {
+                        const float v = 0.5f * (float) std::sin (phase);
+                        phase += 2.0 * pi * 1000.0 / 48000.0;
+                        buf.setSample (0, i, v);
+                        buf.setSample (1, i, -v);
+                    }
+                    p.processBlock (buf, midi);
+                    ++blocks;
+                }
+            };
+            const auto audio = httpGet (port, "/stream?k=" + st.token, {}, 48000 * 4, 2500, pump);
+            const auto* pcm = static_cast<const juce::int16*> (audio.body.getData());
+            const int frames = (int) audio.body.getSize() / 4;
+            int peakL = 0, peakR = 0;
+            bool opposite = frames > 0;
+            for (int i = 0; i < frames; ++i)
+            {
+                peakL = juce::jmax (peakL, std::abs ((int) pcm[2 * i]));
+                peakR = juce::jmax (peakR, std::abs ((int) pcm[2 * i + 1]));
+                opposite = opposite && std::abs (pcm[2 * i] + pcm[2 * i + 1]) <= 1;
+            }
+            check (audio.status == "200" && audio.head.contains ("chunked") && frames > 24000,
+                   "the stream: chunked 16-bit PCM in about real time", juce::String (frames) + " frames from " + juce::String (blocks) + " blocks");
+            check (peakL > 16000 && peakL < 16500 && peakR > 16000 && peakR < 16500 && opposite,
+                   "  it is WWMA's output: -6 dBFS stays -6 dBFS, left and right kept apart", juce::String (peakL) + " / " + juce::String (peakR));
+            for (int k = 0; k < 100 && p.stream.wantsAudio(); ++k)
+                juce::Thread::sleep (10);
+            check (! p.stream.wantsAudio(), "  when the listener goes, the audio thread stops writing");
+        }
+
+        // password: the browser asks (Basic auth), any user name
+        {
+            st.salt = stream::newSalt();
+            st.hash = stream::hashPassword (st.salt, "correct horse");
+            st.passwordOn = true;
+            stream::saveSettings (st);
+            p.stream.updateSecurity (st);
+            const auto none = httpGet (port, "/?k=" + st.token);
+            const auto good = httpGet (port, "/?k=" + st.token, "Authorization: Basic " + juce::Base64::toBase64 ("phone:correct horse") + "\r\n");
+            const auto bad = httpGet (port, "/?k=" + st.token, "Authorization: Basic " + juce::Base64::toBase64 ("phone:wrong") + "\r\n");
+            check (none.status == "401" && none.head.contains ("WWW-Authenticate: Basic") && good.status == "200" && bad.status == "401",
+                   "with a password: 401 without it, in with it, 401 with a wrong one", none.status + " " + good.status + " " + bad.status);
+            const auto saved = stream::settingsFile().loadFileAsString();
+            check (! saved.contains ("correct horse") && stream::loadSettings().hash == st.hash, "  only a salted hash of the password is saved");
+            for (int i = 0; i < 11; ++i)
+                httpGet (port, "/?k=nope");
+            check (httpGet (port, "/?k=" + st.token, "Authorization: Basic " + juce::Base64::toBase64 ("x:correct horse") + "\r\n").status == "429",
+                   "  more than 10 wrong tries in a minute: locked for a minute");
+        }
+
+        // the settings page, with the stream on (screenshots)
+        if (shots != juce::File())
+        {
+            shots.createDirectory();
+            st.localOnly = false;
+            st.passwordOn = false;
+            st.publicUrl = "https://mydaw.example.com/";
+            stream::saveSettings (st);
+            p.stream.start (st);
+            for (auto lang : { Lang::english, Lang::finnish })
+            {
+                p.setLang (lang);
+                std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+                auto* e = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+                e->setSize (WwmaAudioProcessorEditor::baseWidth, WwmaAudioProcessorEditor::baseHeight);
+                e->refresh (true);
+                auto snap = [&] (const char* fileName)
+                {
+                    const auto img = e->createComponentSnapshot (e->getLocalBounds(), true, 1.0f);
+                    juce::FileOutputStream out (shots.getChildFile (fileName));
+                    out.setPosition (0);
+                    out.truncate();
+                    juce::PNGImageFormat().writeImageToStream (img, out);
+                    std::cout << "  wrote " << fileName << std::endl;
+                };
+                // the General tab (the language), and the language changed from it
+                e->openSettings (true);
+                check (e->getSettingsTab() == ui::SettingsPage::Tab::general, "  the settings open on the General tab");
+                snap (lang == Lang::english ? "wwma-settings-general-en.png" : "wwma-settings-general-fi.png");
+                const auto other = lang == Lang::english ? Lang::finnish : Lang::english;
+                e->setLanguage (other);
+                check (p.getLang() == other, "  the language is changed on the settings page");
+                e->setLanguage (lang);
+                e->openSettingsTab (ui::SettingsPage::Tab::ai);
+                snap (lang == Lang::english ? "wwma-settings-ai-en.png" : "wwma-settings-ai-fi.png");
+                e->openSettingsTab (ui::SettingsPage::Tab::stream);
+                const auto name = lang == Lang::english ? "wwma-settings-en.png" : "wwma-settings-fi.png";
+                const auto img = e->createComponentSnapshot (e->getLocalBounds(), true, 1.0f);
+                juce::FileOutputStream out (shots.getChildFile (name));
+                out.setPosition (0);
+                out.truncate();
+                juce::PNGImageFormat().writeImageToStream (img, out);
+                std::cout << "  wrote " << name << std::endl;
+
+                // the About view, from the top-left logo
+                e->openSettings (false);
+                e->openAbout (true);
+                check (e->isAboutOpen(), "  the logo opens the About view");
+                const auto aboutName = lang == Lang::english ? "wwma-about-en.png" : "wwma-about-fi.png";
+                const auto about = e->createComponentSnapshot (e->getLocalBounds(), true, 1.0f);
+                juce::FileOutputStream aboutOut (shots.getChildFile (aboutName));
+                aboutOut.setPosition (0);
+                aboutOut.truncate();
+                juce::PNGImageFormat().writeImageToStream (about, aboutOut);
+                std::cout << "  wrote " << aboutName << std::endl;
+                e->openAbout (false);
+            }
+        }
+
+        p.stream.stop();
+        check (! p.stream.isRunning() && httpGet (port, "/").status.isEmpty(), "stopped: the port is free again");
+        stream::Server again;
+        check (again.start (st), "  and can be taken again");
+        again.stop();
+    }
 }
 
 int main (int argc, char* argv[])
@@ -1448,6 +1710,56 @@ int main (int argc, char* argv[])
     if (argc > 1 && juce::String (argv[1]) == "ai")
     {
         aiTests (argc > 2 ? juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) : juce::File());
+        std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
+        return failures == 0 ? 0 : 1;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "stream-serve")
+    {
+        // for trying the player in a browser: a soft chord through WWMA, streamed for a while
+        const int seconds = argc > 2 ? juce::String (argv[2]).getIntValue() : 60;
+        const auto tmp = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("wwma-stream-serve.xml");
+        stream::setSettingsFileForTests (tmp);
+        auto st = stream::loadSettings();
+        st.port = argc > 3 ? juce::String (argv[3]).getIntValue() : 8738;
+        WwmaAudioProcessor p;
+        p.setPlayConfigDetails (2, 2, 48000.0, 480);
+        p.prepareToPlay (48000.0, 480);
+        if (! p.stream.start (st))
+        {
+            std::cout << "could not start on port " << st.port << std::endl;
+            return 1;
+        }
+        for (const auto& l : p.stream.getLinks())
+            std::cout << "LINK " << l.url << std::endl;
+        juce::AudioBuffer<float> buf (2, 480);
+        juce::MidiBuffer midi;
+        double t = 0.0;
+        auto last = juce::Time::getMillisecondCounterHiRes();
+        const auto end = last + seconds * 1000.0;
+        while (juce::Time::getMillisecondCounterHiRes() < end)
+        {
+            juce::Thread::sleep (2);
+            while (juce::Time::getMillisecondCounterHiRes() - last >= 10.0)
+            {
+                last += 10.0;
+                for (int i = 0; i < 480; ++i, t += 1.0 / 48000.0)
+                {
+                    const double env = 0.5 + 0.5 * std::sin (2.0 * pi * 0.5 * t);
+                    const double v = 0.12 * env * (std::sin (2.0 * pi * 220.0 * t) + std::sin (2.0 * pi * 277.18 * t) + std::sin (2.0 * pi * 329.63 * t));
+                    buf.setSample (0, i, (float) v);
+                    buf.setSample (1, i, (float) (v * 0.8));
+                }
+                p.processBlock (buf, midi);
+            }
+        }
+        p.stream.stop();
+        stream::setSettingsFileForTests ({});
+        tmp.deleteFile();
+        return 0;
+    }
+    if (argc > 1 && juce::String (argv[1]) == "stream")
+    {
+        streamTests (argc > 2 ? juce::File::getCurrentWorkingDirectory().getChildFile (argv[2]) : juce::File());
         std::cout << (failures == 0 ? "ALL PASSED" : juce::String (failures) + " FAILED") << std::endl;
         return failures == 0 ? 0 : 1;
     }
@@ -2756,6 +3068,9 @@ int main (int argc, char* argv[])
         }
     }
 
+    // ------------------------------------------------------------------ listen anywhere
+    streamTests (argc > 1 ? juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]) : juce::File());
+
     // ------------------------------------------------------------------ screenshots
     if (argc > 1)
     {
@@ -2821,6 +3136,38 @@ int main (int argc, char* argv[])
             append (better, kickAndBass (sr, 6.0, 4.0));
             const_cast<Shot&> (shots[13]).audio = better;
             const_cast<Shot&> (shots[14]).audio = better;
+        }
+
+        // the standalone app: your own song in the footer, part of it played
+        for (auto lang : { Lang::english, Lang::finnish })
+        {
+            WwmaAudioProcessorEditor::standaloneForTests = true;
+            WwmaAudioProcessor p;
+            p.setPlayConfigDetails (2, 2, sr, 512);
+            p.prepareToPlay (sr, 512);
+            p.setLang (lang);
+            check (p.mixTrack.loadNow (0, refA), "standalone: your own song loads");
+            p.mixTrack.setActive (0);
+            std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
+            auto* editor = dynamic_cast<WwmaAudioProcessorEditor*> (ed.get());
+            editor->setSize (WwmaAudioProcessorEditor::baseWidth, WwmaAudioProcessorEditor::baseHeight);
+            p.mixTrack.setPlaying (true);
+            p.mixTrack.setCue (0.37);
+            juce::AudioBuffer<float> buf (2, 512);
+            buf.clear();
+            p.mixTrack.render (buf.getWritePointer (0), buf.getWritePointer (1), 512, -1, false, 0.0f);
+            check (std::abs (p.mixTrack.getPlayPosition() - 0.37) < 0.02, "  its player jumps where clicked");
+            editor->refresh (true);
+            const auto name = lang == Lang::english ? "wwma-standalone-en.png" : "wwma-standalone-fi.png";
+            const auto img = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+            juce::FileOutputStream out (dir.getChildFile (name));
+            out.setPosition (0);
+            out.truncate();
+            juce::PNGImageFormat().writeImageToStream (img, out);
+            std::cout << "  wrote " << name << std::endl;
+            p.mixTrack.setPlaying (false);
+            ed.reset();
+            WwmaAudioProcessorEditor::standaloneForTests = false;
         }
 
         for (const auto& shot : shots)

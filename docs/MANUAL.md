@@ -25,7 +25,7 @@ WWMA (Washable and Withstanding Mixing Aid) listens to your master bus and teach
 
 ### The standalone app
 
-WWMA also runs on its own, without a DAW: **WWMA Mixing Aid** in Applications (macOS), in the Start menu (Windows), or the `WWMA Mixing Aid` program in the Linux zip. It is handy for trying out reference tracks quickly: drag them onto the window, compare their numbers and play them with ▶. There is no DAW transport, so a reference plays only with its own ▶: **REF** only chooses what you hear, and the reference keeps its play state and position when you switch to MIX or BEFORE and back. The audio interface input is not used. Your own song is a file: load it with **LOAD YOUR MIX** at the bottom right (or drop it on that button), play it with ▶ and jump around with the thin bar under the buttons. Reference tracks go in the boxes at the top. Each reference remembers where you left it when you switch between them, and a loop starts from its marked point.
+WWMA also runs on its own, without a DAW: **WWMA Mixing Aid** in Applications (macOS), in the Start menu (Windows), or the `WWMA Mixing Aid` program in the Linux zip. It is handy for trying out reference tracks quickly: drag them onto the window, compare their numbers and play them with ▶. There is no DAW transport, so a reference plays only with its own ▶: **REF** only chooses what you hear, and the reference keeps its play state and position when you switch to MIX or BEFORE and back. The audio interface input is not used. Your own song is a file, in the player at the bottom left: load it with **LOAD MIX** (or drop it on the player) and play it with ▶. The player shows the song's name, where you are (`0:42 / 3:15`) and its waveform, the played part lit: click or drag on the waveform to jump, and hover to see the time a click goes to. Reference tracks go in the boxes at the top. Each reference remembers where you left it when you switch between them, and a loop starts from its marked point.
 
 While **B · REF** plays, the loudness, tonal balance, findings, score and translation panels show the reference's numbers, and your mix becomes the dashed comparison line and marker. Switch back to **A · MIX** to see your own again.
 
@@ -238,7 +238,7 @@ Start a chat with an AI assistant, attach the files and paste the question. Then
 
 ### Ask an AI from inside WWMA
 
-Press **AI** at the bottom. The panel opens over the spectrum and the findings. **Ask** saves a report (the same files as **Report**) and gives it to the assistant you chose under **Settings**:
+Press **AI** at the bottom. The panel opens over the spectrum and the findings. **Ask** saves a report (the same files as **Report**) and gives it to the assistant you chose under **Settings → AI assistant** (the gear at the bottom right, or **Settings** in the AI panel):
 
 | Way | Key? | What happens |
 |---|---|---|
@@ -250,7 +250,7 @@ Claude can't be used with a Claude Pro or Max subscription through a key-less AP
 
 - Only the report goes: numbers, the song part by part and the spectrogram pictures. **Never audio.** The app and API ways need your OK first (the box under Settings).
 - The settings and keys are kept in WWMA's own folder on this computer (`ai-settings.xml`, readable by you only on macOS and Linux), never in the DAW project or a report.
-- The answer is saved next to the report as `... AI answer (Claude).md` (or Gemini, ChatGPT). **Open file** opens it.
+- The answer is saved next to the report (in `Documents/WWMA Reports` unless you chose another folder) as `... AI answer (Claude).md` (or Gemini, ChatGPT), with the suggestions listed at the end. Follow-up questions and answers are added to the same file. **Open file** opens it and **Show in folder** shows it; the AI tab of the settings shows the folder too.
 - The question asks the assistant to end with a short block for WWMA. Its suggestions (at most three) become cards:
   - **Try**: make the change yourself, then play the same part again. WWMA judges the pass against the one before, then asks your ears (BEFORE vs MIX), as in "Try the top fix". A suggestion about one of WWMA's own findings is judged on that finding; others on the whole pass.
   - **Try on master** (only while mastering, or when you already use the EQ, and never in track mode): the change goes straight to WWMA's own EQ and limiter. It is kept small: at most 3 dB per EQ band from where it is, the limiter gain at most 6 dB up, and the ceiling at −0.3 dBTP or lower. The card's tooltip shows every knob that will move, and what had to be limited. The knobs move through the host, like a turned knob, so automation sees them. BEFORE is frozen first, and the EQ + limiter panel opens with **Keep** and **Undo**. **Undo** puts every knob back exactly as it was.
@@ -383,7 +383,45 @@ Each WWMA must be playing for a few seconds before the other one sees it. This w
 
 **With a reference track** loaded, the kick's tuning is compared with the reference's strongest low peak (usually its kick), and on a kick + bass bus the sub vs bass balance, the kick's rise over the bass and the ducking are compared with the reference's low end.
 
-## 11. Good habits
+## 11. Listen anywhere: stream to a phone
+
+![The settings page with the stream on](images/wwma-settings-en.png)
+
+
+WWMA can send what it plays out to a browser: on your phone, a tablet or another computer. Handy when you tweak the mix over a remote desktop, or want to hear it on the phone's speaker or in another room. The sound is lossless (16-bit PCM, 44.1 or 48 kHz; 88.2–192 kHz projects go out at half or a quarter of the rate) and arrives about a quarter of a second late. It is exactly what WWMA sends on, so **A · MIX**, **BEFORE** and **B · REF** are heard there too.
+
+1. Click the **gear** at the bottom right. The settings page opens.
+2. Press **Start stream**. Nothing is shared before this, and opening a project never starts it.
+3. Open one of the links on the phone (copy it, or type it). The phone must be in the same network (Wi-Fi), or use a Tailscale link (below). Tap **▶**.
+4. The gear shows a green dot and how many are listening while the stream is on. It keeps running with WWMA's window closed and stops when you press **Stop stream** or remove WWMA.
+
+On the player, **Buffer** sets the delay: 0.1 s is quick but drops out on a weak connection, 1 s is safe. The first time, Windows or macOS may ask whether your DAW may accept connections: allow it for private networks.
+
+Every link has a secret part (`?k=...`): only people who have the link can listen. **New link** makes a new one, and the old links stop working.
+
+**Settings**
+
+| Setting | What it does |
+|---|---|
+| Port | 8737 by default. Two WWMAs can't stream on the same port: the second one says "port in use". |
+| Listen on: Home network | Phones and computers in the same network, and over VPNs like Tailscale. |
+| Listen on: This computer only | Only programs on this computer can connect. For a reverse proxy (Traefik) that shares the stream outside your home. |
+| Your address | Optional, e.g. `https://mydaw.example.com/`: where your reverse proxy shares WWMA. Its link is shown first in the list, WWMA adds only `?k=...` after it. `https://` is added if you leave it out. |
+| Ask for a password | The browser asks for it before anything plays (any user name). Only a salted hash is saved, in WWMA's own folder, never in the project. After 10 wrong tries in a minute nobody gets in for a minute. |
+
+**Outside your home**
+
+- **Easiest and safest: Tailscale** (free). Install it on the studio computer and on the phone, and sign in to both with the same account. WWMA then shows a *Tailscale / VPN* link (100.x.x.x) that works wherever the phone is, over mobile data too. Nothing is opened to the internet.
+- **A link for anyone: Traefik with HTTPS.** WWMA itself has no HTTPS, so never open its port straight to the internet: the password and the audio would travel unencrypted. Instead let a reverse proxy like Traefik take the connections with HTTPS (Let's Encrypt) and a password, and pass them on to WWMA. Choose **This computer only** in WWMA. A ready example is in [docs/stream/traefik-wwma.yml](stream/traefik-wwma.yml). Type `https://your.domain/` in **Your address**, and the link to share (`https://your.domain/?k=<token>`) is the first one in the list.
+
+**Good to know**
+
+- With plain `http://` in the home network, browsers don't allow their newer audio engine, so the page uses an older one. It sounds the same; on a busy phone it may drop out more easily. Through HTTPS (Traefik) or on this computer the newer one is used.
+- On an iPhone, the ringer switch can mute browser audio. The player routes the sound so that it keeps playing with the screen locked where the phone allows it.
+- When the DAW stops, the player hears silence and waits; it picks up again by itself when you press play. Exports are never streamed.
+- Some hosts (e.g. sandboxed ones) don't let a plugin open a network port. WWMA then says so: use the VST3 or CLAP version, or the standalone app.
+
+## 12. Good habits
 
 1. Balance first, plugins later: kick and bass, then snare, then the lead, then the rest.
 2. Decide who owns the sub (kick or bass), and keep everything below about 120 Hz mono.
@@ -392,7 +430,7 @@ Each WWMA must be playing for a few seconds before the other one sees it. This w
 5. Keep important parts in the centre, and check in mono.
 6. Master last: leave headroom while mixing, then set the limiter ceiling to −1 dBTP. Compare with **Hear without** before you decide.
 
-## 12. Remember
+## 13. Remember
 
 - The score tells you how close you are to a typical master in the style. It does not tell you whether the song is good.
 - The presets are educated guesses from common practice. The most accurate target is a reference track you like.

@@ -16,7 +16,7 @@ WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia ilman klik
 4. Valitse **Target** eli äänekkyystavoite. Tyylin oma on hyvä alku. Jos kappale menee vain suoratoistoon, −14 LUFS riittää.
 5. Soita koko kappale **BIISI**-tilassa tai looppaa työstettävää kohtaa **NYT**-tilassa. Kielen vaihdat oikean yläkulman FI/EN-napista.
 
-**Standalone-sovellus:** WWMA toimii myös ilman DAW:ia. Sen löydät nimellä **WWMA Mixing Aid** macOS:n Ohjelmat-kansiosta, Windowsin Käynnistä-valikosta tai Linux-zipistä. Sillä on kätevä kokeilla referenssibiisejä nopeasti: raahaa kappaleet ikkunaan, vertaa lukemia ja soita ▶-napilla. Koska DAW:in transporttia ei ole, referenssi soi vain oman ▶-nappinsa kautta: **REF** vain valitsee, mitä kuulet, ja referenssi muistaa soittotilansa ja kohtansa, kun vaihdat MIKSI- tai ENNEN-ääneen ja takaisin. Äänikortin sisääntuloa ei käytetä. Oma biisisi on tiedosto: lataa se oikean alakulman **LATAA MIKSISI** -napilla (tai pudota se siihen), soita ▶-napilla ja hyppää kohtaan napin alla olevasta ohuesta palkista. Referenssit menevät ylälaatikoihin. Jokainen referenssi muistaa kohdan, johon se jäi, kun vaihdat niiden välillä, ja loop alkaa merkitystä kohdasta.
+**Standalone-sovellus:** WWMA toimii myös ilman DAW:ia. Sen löydät nimellä **WWMA Mixing Aid** macOS:n Ohjelmat-kansiosta, Windowsin Käynnistä-valikosta tai Linux-zipistä. Sillä on kätevä kokeilla referenssibiisejä nopeasti: raahaa kappaleet ikkunaan, vertaa lukemia ja soita ▶-napilla. Koska DAW:in transporttia ei ole, referenssi soi vain oman ▶-nappinsa kautta: **REF** vain valitsee, mitä kuulet, ja referenssi muistaa soittotilansa ja kohtansa, kun vaihdat MIKSI- tai ENNEN-ääneen ja takaisin. Äänikortin sisääntuloa ei käytetä. Oma biisisi on tiedosto vasemman alakulman soittimessa: lataa se **LATAA MIKSI** -napilla (tai pudota se soittimeen) ja soita ▶-napilla. Soitin näyttää biisin nimen, kohdan (`0:42 / 3:15`) ja aaltomuodon, soitettu osa korostettuna: klikkaa tai vedä aaltomuodosta hypätäksesi, ja vie hiiri sen päälle nähdäksesi, mihin aikaan klikkaus hyppää. Referenssit menevät ylälaatikoihin. Jokainen referenssi muistaa kohdan, johon se jäi, kun vaihdat niiden välillä, ja loop alkaa merkitystä kohdasta.
 
 ## 2. Näytön osat
 
@@ -160,7 +160,7 @@ Aloita keskustelu tekoälyavustajan kanssa, liitä tiedostot ja liitä kysymys. 
 
 ### Kysy tekoälyltä suoraan WWMA:sta
 
-Paina alareunan **AI**-nappia. Paneeli aukeaa spektrin ja havaintojen päälle. **Kysy** tallentaa raportin (samat tiedostot kuin **Raportti**) ja antaa sen **Asetuksissa** valitsemallesi avustajalle (Claude, Gemini tai ChatGPT). Tapoja on kolme:
+Paina alareunan **AI**-nappia. Paneeli aukeaa spektrin ja havaintojen päälle. **Kysy** tallentaa raportin (samat tiedostot kuin **Raportti**) ja antaa sen **Asetukset → Tekoälyavustaja** -välilehdellä valitsemallesi avustajalle (Claude, Gemini tai ChatGPT). Asetukset aukeavat oikean alakulman rattaasta tai AI-paneelin **Asetukset**-napista. Tapoja on kolme:
 
 - **Selain (ei avainta):** WWMA avaa palvelun selaimeen. Windowsissa tiedostot ovat leikepöydällä (Ctrl+V keskusteluun); muualla raporttikansio aukeaa ja vedät tiedostot mukaan. **Kopioi kysymys** laittaa kysymyksen leikepöydälle. WWMA ei lähetä itse mitään. Kopioi vastaus ja paina **Liitä vastaus**, niin saat Kokeile-napit.
 - **Sovellus koneella (ei avainta):** WWMA ajaa koneelle asennetun **Claude Coden**, **Gemini CLI:n** tai **Codex CLI:n** omalla tilauksellasi kirjautuneena. Se saa lukea vain raporttikansiota. Asenna sovellus ja kirjaudu kerran päätteessä. Jotkin DAW:t eivät anna pluginien käynnistää muita ohjelmia: käytä silloin selainta tai avainta.
@@ -170,7 +170,7 @@ Claude Pro- tai Max-tilausta ei voi käyttää muista sovelluksista ilman avaint
 
 - Vain raportti lähtee: luvut, kappaleen osat ja spektrogrammikuvat. **Ei koskaan ääntä.** Sovellus- ja API-tavat kysyvät ensin luvan (ruutu Asetuksissa).
 - Asetukset ja avaimet ovat WWMA:n omassa kansiossa tällä koneella, eivät koskaan DAW-projektissa tai raportissa.
-- Vastaus tallentuu raportin viereen (`... AI answer (Claude).md`).
+- Vastaus tallentuu raportin viereen (oletuksena `Tiedostot/WWMA Reports`) nimellä `... AI answer (Claude).md`, ehdotukset lopussa listana. Jatkokysymykset ja -vastaukset lisätään samaan tiedostoon. **Avaa tiedosto** avaa sen ja **Näytä kansiossa** näyttää sen; kansio näkyy myös asetusten Tekoälyavustaja-välilehdellä.
 - Ehdotuksista (enintään kolme) tulee kortteja:
   - **Kokeile:** tee muutos itse ja soita sama kohta uudelleen. WWMA vertaa soittoa edelliseen ja kysyy sitten korvaltasi (ENNEN vai MIKSI), kuten "Kokeile ylintä vinkkiä".
   - **Kokeile masterissa** (vain masteroidessa tai kun EQ on jo käytössä, ei raitatilassa): muutos menee suoraan WWMA:n omaan EQ:hon ja limitteriin, esim. vähän lisää bassoa koko masteriin. Muutos pidetään pienenä: enintään 3 dB kaistaa kohti, limitterin gain enintään 6 dB ylös ja katto aina −0,3 dBTP tai alempana. ENNEN-ääni jäädytetään ensin, ja EQ + limitteri -paneeli aukeaa **Pidä**- ja **Peru**-napein. **Peru** palauttaa jokaisen nupin täsmälleen ennalleen.
@@ -246,7 +246,45 @@ Kummankin WWMA:n pitää soida muutama sekunti, ennen kuin toinen näkee sen. T�
 
 **Kun referenssiraita on ladattu**, kickin viritystä verrataan referenssin vahvimpaan matalaan huippuun (yleensä sen kickiin), ja kick + basso -väylällä sub/basso-tasapainoa, kickin nousua basson yli ja duckausta verrataan referenssin bassopäähän.
 
-## 9. Hyvä työjärjestys
+## 9. Kuuntele missä vain: stream puhelimeen
+
+![Asetukset-sivu, stream päällä](images/wwma-settings-fi.png)
+
+
+WWMA voi lähettää soittamansa äänen selaimeen: puhelimeen, tablettiin tai toiselle koneelle. Kätevä, kun säädät miksiä etätyöpöydän kautta tai haluat kuulla sen puhelimen kaiuttimesta tai toisesta huoneesta. Ääni on häviötön (16-bit PCM, 44,1 tai 48 kHz; 88,2–192 kHz projektit lähtevät puolella tai neljäsosalla taajuudesta) ja tulee noin neljännessekunnin jäljessä. Se on täsmälleen sama ääni, jonka WWMA lähettää eteenpäin, joten **A · MIX**, **ENNEN** ja **B · REF** kuuluvat myös siellä.
+
+1. Klikkaa **ratasta** oikeassa alakulmassa. Asetukset-sivu aukeaa.
+2. Paina **Käynnistä stream**. Mitään ei jaeta ennen tätä, eikä projektin avaaminen koskaan käynnistä sitä.
+3. Avaa jokin linkeistä puhelimella (kopioi tai kirjoita se). Puhelimen pitää olla samassa verkossa (Wi-Fi), tai käytä Tailscale-linkkiä (alla). Napauta **▶**.
+4. Rattaassa näkyy vihreä pallo ja kuuntelijoiden määrä, kun stream on päällä. Se soi myös WWMA:n ikkunan ollessa kiinni ja pysähtyy, kun painat **Pysäytä stream** tai poistat WWMA:n.
+
+Soittimen **Puskuri** säätää viivettä: 0,1 s on nopea mutta katkeilee heikolla yhteydellä, 1 s on varma. Ensimmäisellä kerralla Windows tai macOS voi kysyä, saako DAW ottaa vastaan yhteyksiä: salli yksityisissä verkoissa.
+
+Jokaisessa linkissä on salainen osa (`?k=...`): vain linkin saaneet voivat kuunnella. **Uusi linkki** tekee uuden, ja vanhat linkit lakkaavat toimimasta.
+
+**Asetukset**
+
+| Asetus | Mitä se tekee |
+|---|---|
+| Portti | Oletus 8737. Kaksi WWMA:ta ei voi streamata samassa portissa: toinen kertoo "portti käytössä". |
+| Kuuntelee: Kotiverkko | Puhelimet ja koneet samassa verkossa sekä VPN:t kuten Tailscale. |
+| Kuuntelee: Vain tämä kone | Vain tämän koneen ohjelmat pääsevät kiinni. Välityspalvelimelle (Traefik), joka jakaa streamin kodin ulkopuolelle. |
+| Oma osoite | Valinnainen, esim. `https://mydaw.example.com/`: osoite, jossa välityspalvelimesi jakaa WWMA:n. Sen linkki näkyy listassa ensimmäisenä, WWMA lisää perään vain `?k=...`. `https://` lisätään, jos jätät sen pois. |
+| Kysy salasana | Selain kysyy sen ennen kuin mitään soi (käyttäjänimi on vapaa). Vain suolattu tiiviste tallennetaan WWMA:n omaan kansioon, ei koskaan projektiin. 10 väärän yrityksen jälkeen minuutin sisällä kukaan ei pääse sisään minuuttiin. |
+
+**Kodin ulkopuolelta**
+
+- **Helpoin ja turvallisin: Tailscale** (ilmainen). Asenna se studiokoneelle ja puhelimeen ja kirjaudu molempiin samalla tilillä. WWMA näyttää silloin *Tailscale / VPN* -linkin (100.x.x.x), joka toimii missä puhelin onkin, myös mobiilidatalla. Mitään ei avata internetiin.
+- **Linkki kenelle tahansa: Traefik ja HTTPS.** WWMA:ssa itsessään ei ole HTTPS:ää, joten älä koskaan avaa sen porttia suoraan internetiin: salasana ja ääni kulkisivat salaamatta. Anna sen sijaan välityspalvelimen kuten Traefikin ottaa yhteydet vastaan HTTPS:llä (Let's Encrypt) ja salasanalla ja välittää ne WWMA:lle. Valitse WWMA:ssa **Vain tämä kone**. Valmis esimerkki on tiedostossa [docs/stream/traefik-wwma.yml](stream/traefik-wwma.yml). Kirjoita `https://oma.domain/` kohtaan **Oma osoite**, niin jaettava linkki (`https://oma.domain/?k=<tunnus>`) on listassa ensimmäisenä.
+
+**Hyvä tietää**
+
+- Tavallisella `http://`-osoitteella kotiverkossa selaimet eivät salli uudempaa äänimoottoriaan, joten sivu käyttää vanhempaa. Se kuulostaa samalta, mutta kuormitetulla puhelimella voi katkeilla helpommin. HTTPS:n (Traefik) kautta tai tällä koneella käytetään uudempaa.
+- iPhonessa äänetön-kytkin voi mykistää selaimen äänen. Soitin ohjaa äänen niin, että se soi lukitulla näytölläkin, jos puhelin sen sallii.
+- Kun DAW pysähtyy, soitin kuulee hiljaisuutta ja odottaa; se jatkaa itsestään, kun painat play. Exporttia ei koskaan streamata.
+- Jotkin hostit (esim. hiekkalaatikoidut) eivät anna pluginin avata verkkoporttia. WWMA kertoo silloin siitä: käytä VST3- tai CLAP-versiota tai standalone-sovellusta.
+
+## 10. Hyvä työjärjestys
 
 1. **Tasapaino ensin.** Säädä faderit ennen pluginien lisäämistä. Kick ja basso ensin, sitten virveli, sitten liidi tai vokaali, sitten loput.
 2. **Matalat kuntoon.** Päätä, kumpi omistaa subin, kick vai basso. Pidä kaikki alle noin 120 Hz monona. Ylipäästösuodata muut äänet.
@@ -255,7 +293,7 @@ Kummankin WWMA:n pitää soida muutama sekunti, ennen kuin toinen näkee sen. T�
 5. **Tila ja leveys.** Pidä tärkeät äänet keskellä ja levitä tukiosat sivuille. Tarkista monona.
 6. **Masterointi vasta lopuksi.** Jätä miksaukseen tilaa (huiput noin −6…−3 dBFS). Lisää limitteri vasta MASTER-vaiheessa ja säädä katto (−1 dBTP) sekä äänekkyys tyylin mukaan. Vertaa **Kuuntele ilman** -napilla ennen kuin päätät.
 
-## 10. Perusasiat lyhyesti
+## 11. Perusasiat lyhyesti
 
 ### EQ
 
@@ -281,7 +319,7 @@ Kummankin WWMA:n pitää soida muutama sekunti, ennen kuin toinen näkee sen. T�
 - **Virveli tarvitsee** runkoa noin 200 Hz:ssä ja napsua 2–5 kHz:ssä.
 - Jos rummuista puuttuu terävyys, syyllinen on usein limitteri tai väyläkompressori, ei EQ.
 
-## 11. Yleiset sudenkuopat (WWMA huomaa nämä)
+## 12. Yleiset sudenkuopat (WWMA huomaa nämä)
 
 | Sudenkuoppa | Mitä tapahtuu | Mitä tehdä |
 |---|---|---|
@@ -311,7 +349,7 @@ Kummankin WWMA:n pitää soida muutama sekunti, ennen kuin toinen näkee sen. T�
 - **Kovempi kuulostaa paremmalta.** Tasaa äänekkyys aina ennen vertailua. A/B-kytkin tekee sen referenssille.
 - **Soolo johtaa harhaan.** Tee päätökset kaiken soidessa.
 
-## 12. Muista
+## 13. Muista
 
 - Pisteet kertovat, kuinka lähellä tyylin tyypillistä masteria olet. Ne eivät kerro, onko biisi hyvä.
 - Presetit ovat valistuneita arvauksia yleisestä käytännöstä. Tarkin tavoite on referenssiraita, josta pidät.

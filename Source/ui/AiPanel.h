@@ -20,7 +20,7 @@ std::vector<TextLink> findTextLinks (const juce::String& text, const juce::Strin
 
 /** "Ask an AI": hands the report to Claude, Gemini or ChatGPT and shows the answer, with its
     suggestions as cards to try (and, for the mastering EQ / limiter, to try on the master with
-    one click). The settings page picks the service and how WWMA reaches it.
+    one click). The service and how WWMA reaches it are chosen on WWMA's settings page.
     Shown over the spectrum and the findings. Nothing is sent before the user clicks Ask. */
 class AiPanel : public juce::Component
 {
@@ -30,15 +30,8 @@ public:
     void resized() override;
     void updateTexts();
 
-    // ---- settings page
+    /** The chosen service (shown in the header and on the Ask button); edited on the settings page. */
     void setSettings (const ai::Settings& s);
-    const ai::Settings& getSettings() const noexcept { return settings; }
-    void showSettings (bool show);
-    bool isShowingSettings() const noexcept { return settingsShown; }
-    void setTestStatus (const juce::String& text, bool ok);
-    void setModels (const juce::StringArray& models);
-    /** Where the app was found, or empty when it was not. */
-    void setCliFound (const juce::File& exe);
 
     // ---- answer page
     struct Card
@@ -59,7 +52,8 @@ public:
         juce::String answer;
         std::vector<Card> cards;
         bool canFollowUp = false;
-        bool hasFile = false;
+        bool hasFile = false;        // the answer is saved: Open file / Show in folder
+        juce::String savedFile;      // its full path, shown under the answer
         bool canPaste = false;       // the browser mode: paste the chat's answer back
         bool canAskAgain = false;    // a reference track's (saved) answer: a new one replaces it
         // the track the answer is about can be played: its times ("1:05") and parts ("part G")
@@ -71,8 +65,8 @@ public:
     /** The user wrote a follow-up question (cleared once sent). */
     void clearFollowUp() { followUp.clear(); }
 
-    std::function<void()> onAsk, onCancel, onCopyQuestion, onPasteAnswer, onOpenFile, onClose,
-                          onSettingsChanged, onTest, onBrowseCli, onKeepChange, onUndoChange, onAskAgain;
+    std::function<void()> onAsk, onCancel, onCopyQuestion, onPasteAnswer, onOpenFile, onShowFile, onClose,
+                          onOpenSettings, onKeepChange, onUndoChange, onAskAgain;
     std::function<void (const juce::String&)> onFollowUp;
     std::function<void (int)> onTry, onTryMaster;
     /** A link in the answer, or a card's play button: a part letter (0 when none) or a time in seconds (-1 when none). */
@@ -93,42 +87,24 @@ private:
 
     const ViewState& state;
     ai::Settings settings;
-    bool settingsShown = false;
     View view;
-    juce::String testStatus;
-    bool testOk = false;
-    juce::File cliFound;
-    bool cliChecked = false;
 
     // header
     juce::TextButton settingsButton, closeButton;
     // answer page
-    juce::TextButton askButton, askAgainButton, cancelButton, copyButton, pasteButton, openButton, sendButton, keepButton, undoButton;
+    juce::TextButton askButton, askAgainButton, cancelButton, copyButton, pasteButton, openButton, showFileButton, sendButton, keepButton, undoButton;
     LinkText answerText;
     juce::TextEditor followUp;
     juce::String answerShownFor;   // the answer and links the text was built for
     void setAnswerText();
     std::vector<std::unique_ptr<ListRow>> cards;
-    // settings page
-    std::array<juce::TextButton, ai::numProviders> providerButtons;
-    std::array<juce::TextButton, 3> modeButtons;
-    juce::TextEditor keyEditor, modelEditor, cliEditor;
-    juce::ToggleButton showKey, consent;
-    juce::TextButton modelsButton, testButton, browseCliButton;
-    juce::PopupMenu modelMenu;
-    juce::StringArray models;
 
     void layoutAnswer (juce::Rectangle<int> r);
-    void layoutSettings (juce::Rectangle<int> r);
-    void syncSettingsControls();
-    void settingsEdited();
     void rebuildCards();
     juce::Rectangle<int> body() const;
     void paintAnswer (juce::Graphics&, juce::Rectangle<int> r);
-    void paintSettings (juce::Graphics&, juce::Rectangle<int> r);
-    ai::Mode mode() const { return settings.current().mode; }
 
-    juce::Rectangle<int> statusArea, modeTextArea, keyLabelArea, modelLabelArea, cliLabelArea, cliStatusArea, testStatusArea, privacyArea, pendingArea;
+    juce::Rectangle<int> statusArea, pendingArea, savedArea;
 };
 
 /** The answer as plain text for the panel: Markdown marks taken out, headings kept as lines. */

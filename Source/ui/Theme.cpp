@@ -21,6 +21,18 @@ namespace
         return {};
     }
 
+    const char* asset (const char* filename, int& size)
+    {
+        for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
+        {
+            const char* name = BinaryData::namedResourceList[i];
+            if (juce::String (BinaryData::getNamedResourceOriginalFilename (name)) == filename)
+                return BinaryData::getNamedResource (name, size);
+        }
+        jassertfalse;
+        return nullptr;
+    }
+
     struct Faces
     {
         juce::Typeface::Ptr body = load ("Barlow-Regular.ttf");
@@ -217,5 +229,13 @@ void LookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, 
         g.setColour (state == 2 ? colours::good : colours::suggest);
         g.fillPath (marker);
     }
+}
+
+juce::Image logoImage()
+{
+    int size = 0;
+    if (const char* data = asset ("wwma-icon-small.png", size))
+        return juce::ImageCache::getFromMemory (data, size);
+    return {};
 }
 } // namespace wwma::ui

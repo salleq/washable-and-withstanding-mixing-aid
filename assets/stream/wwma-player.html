@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#14191c">
+<title>WWMA · Listen</title>
+<style>
+  :root { --bg:#14191c; --panel:#1b2226; --raised:#232c31; --line:#2f3a40; --text:#dfe7e9; --soft:#c4cfd2; --dim:#8b9aa0; --accent:#7fd1c7; --good:#5cc17a; --warn:#e8a33a; --bad:#e2574c; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 440px; margin: 0 auto; padding: 28px 16px 40px; display: flex; flex-direction: column; gap: 18px; }
+  header { display: flex; align-items: baseline; gap: 10px; }
+  header b { color: var(--accent); font-size: 28px; letter-spacing: .04em; }
+  header span { color: var(--dim); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 16px; display: flex; flex-direction: column; gap: 14px; }
+  #play { width: 112px; height: 112px; border-radius: 50%; border: 2px solid var(--accent); background: var(--raised); color: var(--accent);
+          font-size: 40px; align-self: center; cursor: pointer; display: grid; place-items: center; }
+  #play.on { background: var(--accent); color: var(--bg); }
+  #status { text-align: center; color: var(--soft); min-height: 1.4em; }
+  #status.good { color: var(--good); } #status.warn { color: var(--warn); } #status.bad { color: var(--bad); }
+  .row { display: grid; grid-template-columns: 96px 1fr; align-items: center; gap: 12px; }
+  label { color: var(--dim); font-size: 14px; text-transform: uppercase; letter-spacing: .06em; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  select { width: 100%; background: var(--raised); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit; }
+  #stats { font: 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--dim); text-align: center; min-height: 1.5em; }
+  #meter { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  #meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  p { margin: 0; color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <header><b>WWMA</b><span id="sub">listen anywhere</span></header>
+  <div class="card">
+    <button id="play" aria-label="Play">&#9654;</button>
+    <div id="status">Tap to listen</div>
+    <div id="meter" aria-hidden="true"><i></i></div>
+    <div id="stats"></div>
+  </div>
+  <div class="card">
+    <div class="row"><label for="vol" id="lvol">Volume</label><input id="vol" type="range" min="0" max="1" step="0.01" value="1"></div>
+    <div class="row"><label for="lat" id="llat">Buffer</label>
+      <select id="lat">
+        <option value="0.1">0.1 s</option>
+        <option value="0.25" selected>0.25 s</option>
+        <option value="0.5">0.5 s</option>
+        <option value="1">1 s</option>
+      </select></div>
+    <p id="note"></p>
+  </div>
+  <audio id="out" playsinline></audio>
+</main>
+<script>
+"use strict";
+/* The audio comes as 16-bit little-endian stereo PCM, as it comes out of WWMA. This buffer smooths
+   out the network: it starts playing once it holds the chosen amount, and keeps that amount by
+   now and then sliding one sample earlier or later, smoothly (the two computers' clocks drift a
+   little). Bigger corrections crossfade, so nothing ever clicks.
+   The same class runs in the AudioWorklet (HTTPS / this computer) and in the fallback player. */
+class JitterBuffer {
+  constructor(capacity, rate) {
+    this.cap = capacity; this.l = new Float32Array(capacity); this.r = new Float32Array(capacity);
+    this.rate = rate; this.ratio = 1; this.target = Math.round(0.25 * rate); this.reset();
+  }
+  reset() {
+    this.w = 0; this.rd = 0; this.fill = 0; this.avg = -1; this.frac = 0; this.playing = false; this.under = 0; this.trims = 0;
+    this.count = 0; this.slide = 0; this.spos = 0; this.xfFrom = -1; this.xfPos = 0; this.fade = 0;
+  }
+  setTarget(frames) { this.target = Math.max(256, Math.min(frames, this.cap - 8192)); }
+  /** Moves the read position by `skip` frames, crossfading from the old spot (no click). */
+  jump(skip) {
+    if (this.xfFrom < 0) { this.xfFrom = this.rd; this.xfPos = 0; }
+    this.rd = (this.rd + skip) % this.cap; this.fill -= skip; this.avg = this.fill; this.slide = 0; this.trims++;
+  }
+  write(pcm) {
+    const n = pcm.length >> 1;
+    for (let i = 0; i < n; i++) {
+      this.l[this.w] = pcm[2 * i] / 32768; this.r[this.w] = pcm[2 * i + 1] / 32768;
+      this.w = (this.w + 1) % this.cap;
+    }
+    this.fill += n;
+    const max = Math.min(this.cap - 4096, this.target * 2 + this.rate); // far too much: a long stall caught up
+    if (this.fill > max) { if (this.playing) this.jump(this.fill - this.target); else { const s = this.fill - this.target; this.rd = (this.rd + s) % this.cap; this.fill -= s; } }
+  }
+  read(outL, outR) {
+    const n = outL.length;
+    if (!this.playing) {
+      if (this.fill < this.target) { outL.fill(0); outR.fill(0); return; }
+      this.playing = true; this.avg = this.fill; this.fade = 0; // fades in, never starts with a click
+    }
+    this.avg = this.avg < 0 ? this.fill : this.avg + (this.fill - this.avg) * 0.004;
+    let i = 0;
+    if (this.ratio === 1) {
+      // Bit exact, except while following the clock: then the read position slides by one sample,
+      // spread over 64 samples (a tiny local resample), at most once in 1000 samples.
+      const L = 64, XF = 512, cap = this.cap, l = this.l, r = this.r;
+      const band = Math.max(0.03 * this.rate, this.target * 0.25);
+      const excess = this.avg - this.target;
+      if (excess > Math.max(0.25 * this.rate, this.target) && this.fill > this.target + XF) this.jump(this.fill - this.target);
+      const fix = excess > band ? 1 : excess < -band && this.fill > n + L ? -1 : 0;
+      for (; i < n; i++) {
+        if (this.fill <= 1) break;
+        if (this.slide === 0 && fix !== 0 && ++this.count >= 1000) { this.count = 0; this.slide = fix; this.spos = 0; }
+        const a = this.rd;
+        let vl = l[a], vr = r[a];
+        if (this.slide !== 0) {
+          const b = this.slide > 0 ? (a + 1) % cap : (a + cap - 1) % cap, t = ++this.spos / L;
+          vl += (l[b] - vl) * t; vr += (r[b] - vr) * t;
+          if (this.spos >= L) {
+            // the slide is done: one sample gained (dropped) or lost (repeated)
+            if (this.slide > 0) { this.rd = (this.rd + 1) % cap; this.fill--; } else { this.rd = (this.rd + cap - 1) % cap; this.fill++; }
+            this.slide = 0; this.trims++;
+          }
+        }
+        if (this.xfFrom >= 0) {
+          // a jump: the old spot fades out while the new one fades in
+          const g = ++this.xfPos / XF;
+          vl = l[this.xfFrom] + (vl - l[this.xfFrom]) * g; vr = r[this.xfFrom] + (vr - r[this.xfFrom]) * g;
+          this.xfFrom = this.xfPos >= XF ? -1 : (this.xfFrom + 1) % cap;
+        }
+        if (this.fade < 256) { const g = ++this.fade / 256; vl *= g; vr *= g; }
+        outL[i] = vl; outR[i] = vr;
+        this.rd = (this.rd + 1) % cap; this.fill--;
+      }
+      // running dry: fade out the last samples instead of stopping dead
+      if (i < n) for (let k = 1; k <= Math.min(i, 64); k++) { const g = (k - 1) / 64; outL[i - k] *= g; outR[i - k] *= g; }
+    } else {
+      // the device runs at another rate: follow it (linear, not bit exact)
+      for (; i < n; i++) {
+        if (this.fill < 2) break;
+        const a = this.rd, b = (a + 1) % this.cap, f = this.frac;
+        outL[i] = this.l[a] + (this.l[b] - this.l[a]) * f; outR[i] = this.r[a] + (this.r[b] - this.r[a]) * f;
+        this.frac += this.ratio;
+        while (this.frac >= 1) { this.frac -= 1; this.rd = (this.rd + 1) % this.cap; this.fill--; }
+      }
+    }
+    if (i < n) { outL.fill(0, i); outR.fill(0, i); this.playing = false; this.under++; }
+  }
+}
+
+const fi = (navigator.language || "").toLowerCase().startsWith("fi");
+const T = fi ? {
+  sub: "kuuntele missä vain", tap: "Napauta kuunnellaksesi", connecting: "Yhdistetään...", playing: "Soi", buffering: "Puskuroidaan...",
+  stopped: "Pysäytetty", retry: "Yhteys katkesi, yritetään uudelleen...", denied: "Linkki ei kelpaa: kopioi se uudelleen WWMA:n asetuksista.",
+  password: "Väärä salasana.", locked: "Liian monta väärää yritystä, odota minuutti.", noStream: "Selain ei tue streamia.",
+  vol: "Voimakkuus", lat: "Puskuri", under: "katkoksia", lossless: "häviötön", resampled: "muunnettu", silent: "WWMA ei soi juuri nyt (DAW pysäytetty?)",
+  note: "Viive on suunnilleen puskurin pituus. Lyhyt puskuri = vähemmän viivettä, mutta heikolla yhteydellä katkoksia. iPhonessa pidä äänet päällä (ei äänetöntä tilaa)."
+} : {
+  sub: "listen anywhere", tap: "Tap to listen", connecting: "Connecting...", playing: "Playing", buffering: "Buffering...",
+  stopped: "Stopped", retry: "Connection lost, trying again...", denied: "This link is not valid: copy it again from WWMA's settings.",
+  password: "Wrong password.", locked: "Too many wrong tries, wait a minute.", noStream: "This browser can't play the stream.",
+  vol: "Volume", lat: "Buffer", under: "dropouts", lossless: "lossless", resampled: "resampled", silent: "WWMA is not playing right now (DAW stopped?)",
+  note: "The delay is about the buffer's length. A short buffer means less delay, but more dropouts on a weak connection. On an iPhone, keep the ringer on (not silent)."
+};
+document.documentElement.lang = fi ? "fi" : "en";
+const $ = id => document.getElementById(id);
+$("sub").textContent = T.sub; $("status").textContent = T.tap; $("lvol").textContent = T.vol; $("llat").textContent = T.lat; $("note").textContent = T.note;
+
+const q = location.search;
+let knownRate = 48000, ctx = null, gain = null, node = null, fallback = null, want = false, session = 0, controller = null;
+let stats = { fill: 0, under: 0, playing: false, trims: 0 }, lastBytesAt = 0, silentSince = 0;
+
+function store(k, v) { try { localStorage.setItem("wwma." + k, v); } catch (e) {} }
+function recall(k) { try { return localStorage.getItem("wwma." + k); } catch (e) { return null; } }
+if (recall("lat")) $("lat").value = recall("lat");
+if (recall("vol")) $("vol").value = recall("vol");
+
+function status(text, cls) { const s = $("status"); s.textContent = text; s.className = cls || ""; }
+function targetFrames() { return Math.round(parseFloat($("lat").value) * knownRate); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function readInfo() {
+  const res = await fetch("info" + q, { cache: "no-store" });
+  if (!res.ok) throw Object.assign(new Error("http"), { status: res.status });
+  const info = await res.json();
+  return info.sampleRate | 0 || 48000;
+}
+readInfo().then(r => { knownRate = r; }).catch(() => {});
+
+const workletSource = JitterBuffer.toString() + `
+class WwmaPlayer extends AudioWorkletProcessor {
+  constructor(o) { super(); const p = o.processorOptions; this.jb = new JitterBuffer(p.capacity, p.rate); this.jb.ratio = p.ratio; this.jb.setTarget(p.target); this.t = 0;
+    this.port.onmessage = e => { const d = e.data;
+      if (d.pcm) this.jb.write(new Int16Array(d.pcm));
+      if (d.target !== undefined) this.jb.setTarget(d.target);
+      if (d.ratio !== undefined) this.jb.ratio = d.ratio;
+      if (d.reset) this.jb.reset(); }; }
+  process(inputs, outputs) { const o = outputs[0]; this.jb.read(o[0], o[1] || new Float32Array(o[0].length));
+    if ((this.t += o[0].length) >= 6000) { this.t = 0; this.port.postMessage({ fill: this.jb.fill, under: this.jb.under, playing: this.jb.playing, trims: this.jb.trims }); }
+    return true; }
+}
+registerProcessor("wwma-player", WwmaPlayer);`;
+
+/* Must run inside the tap (phones only start audio from a user gesture). */
+function startAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  try { ctx = new AC({ sampleRate: knownRate, latencyHint: "playback" }); } catch (e) { ctx = new AC(); }
+  ctx.resume();
+  gain = ctx.createGain(); gain.gain.value = parseFloat($("vol").value);
+  // iPhone: through an <audio> element the sound keeps playing with the screen locked
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (ios && ctx.createMediaStreamDestination) {
+    const dest = ctx.createMediaStreamDestination(); const el = $("out");
+    el.srcObject = dest.stream;
+    gain.connect(dest);
+    el.play().catch(() => { gain.disconnect(); gain.connect(ctx.destination); });
+  } else gain.connect(ctx.destination);
+  if ("mediaSession" in navigator && window.MediaMetadata) {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: "WWMA", artist: fi ? "Studion miksi" : "Studio mix" });
+    navigator.mediaSession.setActionHandler("pause", () => { if (want) toggle(); });
+    navigator.mediaSession.setActionHandler("play", () => { if (!want) toggle(); });
+    navigator.mediaSession.setActionHandler("stop", () => { if (want) toggle(); });
+  }
+}
+
+async function makeNode(rate) {
+  const ratio = rate / ctx.sampleRate, capacity = 1 << 18;
+  if (node) { node.port.postMessage({ reset: true, ratio, target: targetFrames() }); return; }
+  if (fallback) { fallback.jb.reset(); fallback.jb.rate = rate; fallback.jb.ratio = ratio; fallback.jb.setTarget(targetFrames()); return; }
+  if (ctx.audioWorklet && window.isSecureContext) {
+    const url = URL.createObjectURL(new Blob([workletSource], { type: "application/javascript" }));
+    await ctx.audioWorklet.addModule(url);
+    node = new AudioWorkletNode(ctx, "wwma-player", { numberOfInputs: 0, outputChannelCount: [2],
+      processorOptions: { capacity, rate, ratio, target: targetFrames() } });
+    node.port.onmessage = e => { stats = e.data; };
+    node.connect(gain);
+  } else {
+    // plain http in the home network: AudioWorklet needs HTTPS, so the older player takes over
+    const jb = new JitterBuffer(capacity, rate); jb.ratio = ratio; jb.setTarget(targetFrames());
+    const sp = ctx.createScriptProcessor(2048, 1, 2);
+    sp.onaudioprocess = e => { jb.read(e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1));
+      stats = { fill: jb.fill, under: jb.under, playing: jb.playing, trims: jb.trims }; };
+    const src = ctx.createConstantSource ? ctx.createConstantSource() : ctx.createOscillator();
+    const mute = ctx.createGain(); mute.gain.value = 0; src.connect(mute); mute.connect(sp); src.start();
+    sp.connect(gain);
+    fallback = { jb, sp };
+  }
+}
+
+function feed(buf) {
+  if (node) node.port.postMessage({ pcm: buf }, [buf]);
+  else if (fallback) fallback.jb.write(new Int16Array(buf));
+}
+
+async function run(my) {
+  while (want && my === session) {
+    try {
+      status(T.connecting);
+      const rate = await readInfo();
+      knownRate = rate;
+      await makeNode(rate);
+      controller = new AbortController();
+      const res = await fetch("stream" + q, { cache: "no-store", signal: controller.signal });
+      if (!res.ok) throw Object.assign(new Error("http"), { status: res.status });
+      if (!res.body || !res.body.getReader) throw Object.assign(new Error("nostream"), { fatal: T.noStream });
+      const reader = res.body.getReader();
+      let rest = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done || !want || my !== session) break;
+        let bytes = value;
+        if (rest) { const b = new Uint8Array(rest.length + bytes.length); b.set(rest); b.set(bytes, rest.length); bytes = b; rest = null; }
+        const whole = bytes.length - (bytes.length % 4);
+        if (whole < bytes.length) rest = bytes.slice(whole);
+        if (whole > 0) {
+          const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + whole);
+          // all zeros for a while: WWMA keeps the line open with silence while the DAW is stopped
+          const v = new Uint32Array(buf); let silent = true;
+          for (let i = 0; i < v.length; i += 7) if (v[i] !== 0) { silent = false; break; }
+          lastBytesAt = performance.now();
+          silentSince = silent ? (silentSince || lastBytesAt) : 0;
+          feed(buf);
+        }
+      }
+    } catch (e) {
+      if (!want || my !== session) break;
+      if (e.fatal) { status(e.fatal, "bad"); want = false; setButton(); break; }
+      if (e.status === 403) { status(T.denied, "bad"); want = false; setButton(); break; }
+      if (e.status === 401) { status(T.password, "bad"); want = false; setButton(); break; }
+      if (e.status === 429) { status(T.locked, "bad"); await sleep(60000); continue; }
+    }
+    if (want && my === session) { status(T.retry, "warn"); await sleep(1200); }
+  }
+}
+
+function setButton() {
+  const b = $("play");
+  b.classList.toggle("on", want);
+  b.innerHTML = want ? "&#10073;&#10073;" : "&#9654;";
+  b.setAttribute("aria-label", want ? "Pause" : "Play");
+}
+
+let pauseTimer = 0;
+function toggle() {
+  want = !want; session++;
+  setButton();
+  clearTimeout(pauseTimer);
+  const el = $("out");
+  if (want) {
+    if (!ctx) startAudio();
+    else {
+      ctx.resume();
+      gain.gain.cancelScheduledValues(ctx.currentTime);
+      gain.gain.setTargetAtTime(parseFloat($("vol").value), ctx.currentTime, 0.02);
+      if (el.srcObject) el.play().catch(() => {});
+    }
+    run(session);
+  } else {
+    if (controller) controller.abort();
+    // first silence, then stop: a device stopped mid-sound (or an <audio> element left
+    // without new audio) keeps repeating its last bit of sound
+    if (node) node.port.postMessage({ reset: true }); else if (fallback) fallback.jb.reset();
+    if (ctx) {
+      gain.gain.cancelScheduledValues(ctx.currentTime);
+      gain.gain.setTargetAtTime(0, ctx.currentTime, 0.01);
+      const my = session;
+      pauseTimer = setTimeout(() => {
+        if (want || my !== session) return;
+        if (el.srcObject) el.pause();
+        ctx.suspend();
+      }, 250);
+    }
+    status(T.stopped);
+  }
+}
+
+$("play").addEventListener("click", toggle);
+$("vol").addEventListener("input", e => { store("vol", e.target.value); if (gain) gain.gain.setTargetAtTime(parseFloat(e.target.value), ctx.currentTime, 0.02); });
+$("lat").addEventListener("change", e => {
+  store("lat", e.target.value);
+  if (node) node.port.postMessage({ target: targetFrames() }); else if (fallback) fallback.jb.setTarget(targetFrames());
+});
+
+setInterval(() => {
+  if (!want) { $("stats").textContent = ""; $("meter").firstChild.style.width = "0"; return; }
+  const ms = Math.round(stats.fill / knownRate * 1000), target = parseFloat($("lat").value) * 1000;
+  $("meter").firstChild.style.width = Math.min(100, ms / target * 50) + "%";
+  const exact = ctx && Math.abs(knownRate - ctx.sampleRate) < 1;
+  $("stats").textContent = (knownRate / 1000).toFixed(1) + " kHz · 16 bit · " + (exact ? T.lossless : T.resampled) + " · " + ms + " ms · " + stats.under + " " + T.under;
+  if (performance.now() - lastBytesAt < 2000) {
+    if (silentSince && performance.now() - silentSince > 3000) status(T.silent, "warn");
+    else status(stats.playing ? T.playing : T.buffering, stats.playing ? "good" : "");
+  }
+}, 500);
+</script>
+</body>
+</html>

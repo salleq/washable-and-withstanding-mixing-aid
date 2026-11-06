@@ -372,6 +372,7 @@ private:
     juce::TextButton earNowButton, earBeforeButton, earSameButton;
     juce::Rectangle<int> plotArea() const;
     static constexpr int bannerHeight = 66;
+    static constexpr int headerHeight = 21; // the heading and the Versions button, above the try button
     void paintBanner (juce::Graphics& g, juce::Rectangle<float> r);
 };
 

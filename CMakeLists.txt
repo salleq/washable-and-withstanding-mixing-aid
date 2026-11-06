@@ -48,6 +48,8 @@ juce_add_plugin(WWMA
     DESCRIPTION "Washable and Withstanding Mixing Aid - tells you what is too much or too little in your mix"
     FORMATS ${WWMA_FORMATS}
     VST3_CATEGORIES Fx Analyzer Tools
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/wwma-icon.png"         # a mixing desk in a laundry basket
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/wwma-icon-small.png" # simpler, for 16-48 px (tools/make_icon.py)
     LV2URI "https://github.com/salleq/washable-withstandable-mixing-aid"  # fixed plugin ID, kept from the first repo name so LV2 hosts still find the plugin
     AU_MAIN_TYPE kAudioUnitType_Effect
     IS_SYNTH FALSE
@@ -104,6 +106,10 @@ set(WWMA_UI_SOURCES
     Source/ui/TimelineImage.cpp
     Source/ui/VersionsPanel.cpp
     Source/ui/AiPanel.cpp
+    Source/ui/AiSettingsView.cpp
+    Source/ui/SettingsPage.cpp
+    Source/ui/AboutView.cpp
+    Source/stream/StreamServer.cpp
     Source/ai/AiSettings.cpp
     Source/ai/AiPrompt.cpp
     Source/ai/AiClient.cpp)
@@ -115,7 +121,10 @@ juce_add_binary_data(WWMAAssets SOURCES
     assets/fonts/BarlowCondensed-SemiBold.ttf
     assets/fonts/BarlowCondensed-Bold.ttf
     assets/fonts/IBMPlexMono-Medium.ttf
-    assets/fonts/IBMPlexMono-SemiBold.ttf)
+    assets/fonts/IBMPlexMono-SemiBold.ttf
+    assets/stream/wwma-player.html   # the "listen anywhere" player, served to the browser
+    assets/icon/wwma-icon-small.png  # the logo in the top bar
+    assets/logo/wwma-badge.png)      # the badge in the About view
 set_target_properties(WWMAAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_sources(WWMA PRIVATE ${WWMA_CORE_SOURCES} ${WWMA_UI_SOURCES})
@@ -125,7 +134,8 @@ target_compile_definitions(WWMA PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     JUCE_DISPLAY_SPLASH_SCREEN=0
-    JUCE_USE_MP3AUDIOFORMAT=1)
+    JUCE_USE_MP3AUDIOFORMAT=1
+    WWMA_VERSION="${PROJECT_VERSION}")
 
 target_link_libraries(WWMA
     PRIVATE
@@ -133,6 +143,7 @@ target_link_libraries(WWMA
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_opengl
+        juce::juce_cryptography
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -145,9 +156,10 @@ if(WWMA_BUILD_TOOLS)
     target_sources(wwma_selftest PRIVATE tools/SelfTest.cpp ${WWMA_CORE_SOURCES} ${WWMA_UI_SOURCES})
     target_include_directories(wwma_selftest PRIVATE Source tools)
     target_compile_definitions(wwma_selftest PRIVATE
-        JUCE_WEB_BROWSER=0 JucePlugin_Name="WWMA" JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_USE_MP3AUDIOFORMAT=1)
+        JUCE_WEB_BROWSER=0 JucePlugin_Name="WWMA" JUCE_DISPLAY_SPLASH_SCREEN=0 JUCE_USE_MP3AUDIOFORMAT=1
+        WWMA_VERSION="${PROJECT_VERSION}")
     target_link_libraries(wwma_selftest PRIVATE
-        WWMAAssets juce::juce_audio_utils juce::juce_dsp juce::juce_opengl
+        WWMAAssets juce::juce_audio_utils juce::juce_dsp juce::juce_opengl juce::juce_cryptography
         juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
     # main() keeps many processors (each with two analysers) on the stack; Windows' default 1 MB is too small
     if(MSVC)

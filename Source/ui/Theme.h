@@ -64,6 +64,9 @@ namespace fonts
     juce::Typeface::Ptr bodyTypeface();
 }
 
+/** The WWMA logo (a mixing desk in a laundry basket), compiled in. */
+juce::Image logoImage();
+
 /** Upper case that also handles the Finnish letters, whatever the C locale is. */
 juce::String upper (const juce::String& s);
 

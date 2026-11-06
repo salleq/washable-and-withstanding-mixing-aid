@@ -77,15 +77,31 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     addAndMakeVisible (content);
     for (juce::Component* c : std::initializer_list<juce::Component*> {
              &loudness, &meters, &history, &compare, &refBox, &tonal, &findings, &score, &translation, &progress,
-             &profileBox, &targetBox, &trackBox, &mixButton, &masterButton, &trackButton, &nowButton, &songButton, &mixAButton, &beforeButton, &refBButton,
-             &resetButton, &langButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton, &aiButton })
+             &nowButton, &songButton, &resetButton, &autoResetToggle, &styleButton, &learnButton, &reportButton, &chainButton, &aiButton })
         content.addAndMakeVisible (c);
+    // the top bar's mixing controls, in one layer the settings page hides (same coordinates as content)
+    for (juce::Component* c : std::initializer_list<juce::Component*> {
+             &profileBox, &targetBox, &trackBox, &mixButton, &masterButton, &trackButton, &mixAButton, &beforeButton, &refBButton })
+        topControls.addAndMakeVisible (c);
+    topControls.setInterceptsMouseClicks (false, true);
+    content.addAndMakeVisible (topControls);
     content.addChildComponent (versionsPanel);
     content.addChildComponent (beforeAfter);
     content.addChildComponent (chainPanel);
     content.addChildComponent (lessonBox);
     content.addChildComponent (refDetail);
     content.addChildComponent (aiPanel);
+    content.addChildComponent (settingsPage);
+    content.addAndMakeVisible (settingsButton);
+    settingsButton.setClickingTogglesState (true);
+    settingsButton.onClick = [this] { setSettingsOpen (settingsButton.getToggleState()); };
+    settingsPage.onClose = [this] { setSettingsOpen (false); };
+    settingsPage.onStreamChanged = [this] { syncStreamButton(); };
+    settingsPage.onLanguageChanged = [this] (Lang l) { setLanguage (l); };
+    content.addAndMakeVisible (logoButton);
+    content.addChildComponent (aboutView);
+    logoButton.onClick = [this] { openAbout (true); };
+    aboutView.onClose = [this] { openAbout (false); };
 
     profileBox.getProperties().set ("caption", "Preset");
     profileBox.onChange = [this]
@@ -186,14 +202,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
         state.scoreHistory.clear();
         state.shortTermHistory.clear();
     };
-    langButton.onClick = [this]
-    {
-        proc.setLang (proc.getLang() == Lang::finnish ? Lang::english : Lang::finnish);
-        state.lang = proc.getLang();
-        updateTexts();
-        reassess();
-    };
-    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    if (isStandalone())
     {
         content.addAndMakeVisible (mixLoadButton);
         content.addAndMakeVisible (mixPlayButton);
@@ -255,6 +264,8 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     // the AI assistant: nothing is sent before the user presses Ask
     aiSettings = ai::loadSettings();
     aiPanel.setSettings (aiSettings);
+    settingsPage.aiSettings().setSettings (aiSettings);
+    settingsPage.aiSettings().setAnswerFolder (proc.getReportFolder());
     aiButton.setClickingTogglesState (true);
     aiButton.onClick = [this]
     {
@@ -290,19 +301,29 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
             showAiAnswer (text);
     };
     aiPanel.onOpenFile = [this] { if (aiSession.answerFile.existsAsFile()) aiSession.answerFile.startAsProcess(); };
+    aiPanel.onShowFile = [this] { if (aiSession.answerFile.existsAsFile()) aiSession.answerFile.revealToUser(); };
+    aiPanel.onOpenSettings = [this] { openSettingsTab (ui::SettingsPage::Tab::ai); };
     aiPanel.onFollowUp = [this] (const juce::String& q) { aiFollowUp (q); };
     aiPanel.onTry = [this] (int i) { tryAiSuggestion (i); };
     aiPanel.onTryMaster = [this] (int i) { tryAiSuggestionOnMaster (i); };
     aiPanel.onKeepChange = [this] { keepChainChange(); };
     aiPanel.onUndoChange = [this] { undoChainChange(); };
-    aiPanel.onSettingsChanged = [this]
+    auto& aiSettingsView = settingsPage.aiSettings();
+    aiSettingsView.onSettingsChanged = [this]
     {
-        aiSettings = aiPanel.getSettings();
+        aiSettings = settingsPage.aiSettings().getSettings();
         ai::saveSettings (aiSettings);
+        aiPanel.setSettings (aiSettings);
         refreshAiView();
     };
-    aiPanel.onTest = [this] { testAiConnection(); };
-    aiPanel.onBrowseCli = [this]
+    aiSettingsView.onTest = [this] { testAiConnection(); };
+    aiSettingsView.onOpenAnswerFolder = [this]
+    {
+        auto folder = proc.getReportFolder();
+        folder.createDirectory();
+        folder.startAsProcess();
+    };
+    aiSettingsView.onBrowseCli = [this]
     {
         aiChooser = std::make_unique<juce::FileChooser> (tr (state.lang, "Where is ", "Missä on ") + ai::cliAppName (aiSettings.provider) + "?",
                                                          juce::File::getSpecialLocation (juce::File::userHomeDirectory));
@@ -314,6 +335,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
             self->aiSettings.of (self->aiSettings.provider).cliPath = fc.getResult().getFullPathName();
             ai::saveSettings (self->aiSettings);
             self->aiPanel.setSettings (self->aiSettings);
+            self->settingsPage.aiSettings().setSettings (self->aiSettings);
             self->testAiConnection();
         });
     };
@@ -490,18 +512,36 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setColour (colours::line);
     g.drawHorizontalLine (topBar - 1, 0.0f, (float) baseWidth);
 
+    // the logo (washable and withstanding: a mixing desk in a laundry basket), name stacked beside it
+    const auto logo = ui::logoImage(); // ImageCache: decoded once
+    if (logo.isValid())
+    {
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        g.drawImage (logo, juce::Rectangle<float> ((float) margin - 2.0f, 9.0f, 38.0f, 38.0f), juce::RectanglePlacement::centred);
+    }
     g.setColour (colours::accent);
-    g.setFont (fonts::labelBold (26.0f));
-    g.drawText ("WWMA", margin, 0, 80, topBar, juce::Justification::centredLeft);
+    g.setFont (fonts::labelBold (24.0f));
+    g.drawText ("WWMA", margin + 44, 7, 90, 26, juce::Justification::bottomLeft);
     g.setColour (colours::dim);
-    g.setFont (fonts::body (12.5f));
-    g.drawText (tr (lang, "mixing aid", "miksausapu"), margin + 64, 2, 80, topBar, juce::Justification::centredLeft);
+    g.setFont (fonts::body (11.5f));
+    g.drawText (tr (lang, "mixing aid", "miksausapu"), margin + 45, 33, 90, 16, juce::Justification::topLeft);
 
+    const auto& st = editor.state;
+    if (editor.isSettingsOpen())
+    {
+        // the settings page has the top bar to itself: its title, no mixing controls
+        g.setColour (colours::line);
+        g.fillRect (margin + 146, 14, 1, topBar - 28);
+        g.setColour (colours::text);
+        g.setFont (fonts::labelBold (20.0f));
+        g.drawText (ui::upper (tr (lang, "Settings", "Asetukset")), margin + 164, 0, 300, topBar, juce::Justification::centredLeft);
+    }
+    else
+    {
     // A/B
     g.setColour (colours::dim);
     g.setFont (fonts::label (11.5f));
     g.drawText (ui::upper (tr (lang, "Listen", "Kuuntele")), 716, 0, 48, topBar, juce::Justification::centredRight);
-    const auto& st = editor.state;
     // under BEFORE: which parts of the song the before take has (brighter: from the newest snapshot)
     {
         const auto strip = juce::Rectangle<float> (832.0f, 46.0f, 80.0f, 4.0f);
@@ -560,6 +600,7 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setColour (statusCol);
     g.setFont (strong ? fonts::bodyBold (11.5f) : fonts::body (11.5f));
     g.drawFittedText (status, safe.withTrimmedLeft (14), juce::Justification::centredLeft, 2, 0.9f);
+    }
 
     // footer
     const int fy = baseHeight - footer;
@@ -568,6 +609,8 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setColour (colours::line);
     g.drawHorizontalLine (fy, 0.0f, (float) baseWidth);
 
+    if (editor.isStandalone())
+        return; // your own song's player is there instead
     ui::drawEarIcon (g, juce::Rectangle<float> ((float) margin, (float) fy + 11.0f, 28.0f, 28.0f), colours::accent);
     g.setColour (colours::accent);
     g.setFont (fonts::labelBold (15.0f));
@@ -578,7 +621,7 @@ void WwmaAudioProcessorEditor::Content::paint (juce::Graphics& g)
     g.setFont (fonts::body (12.5f));
     g.drawFittedText (tr (lang, "Numbers are advice, not rules. If it sounds good on a phone and in a car, it is good.",
                                 "Luvut ovat neuvoja, eivät sääntöjä. Jos se kuulostaa hyvältä puhelimessa ja autossa, se on hyvä."),
-                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, editor.footerTextRight - 8 - (margin + 36 + earW + 14), footer), juce::Justification::centredLeft, 2, 0.85f);
+                      juce::Rectangle<int> (margin + 36 + earW + 14, fy, editor.footerTextRight - 8 - (margin + 36 + earW + 14), footer), juce::Justification::centredLeft, 3, 0.85f);
 }
 
 void WwmaAudioProcessorEditor::Content::resized()
@@ -586,6 +629,7 @@ void WwmaAudioProcessorEditor::Content::resized()
     auto& e = editor;
 
     // top bar
+    e.topControls.setBounds (0, 0, baseWidth, topBar);
     e.profileBox.setBounds (160, 12, 190, 32);
     e.mixButton.setBounds (358, 12, 64, 32);
     e.masterButton.setBounds (422, 12, 72, 32);
@@ -595,21 +639,14 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.mixAButton.setBounds (766, 12, 64, 32);
     e.beforeButton.setBounds (830, 12, 84, 32);
     e.refBButton.setBounds (914, 12, 64, 32);
-    e.langButton.setBounds (baseWidth - margin - 40, 12, 40, 32);
 
     // footer, right to left
     const int fy = baseHeight - footer + 10;
     int x = baseWidth - margin;
     auto place = [&x, fy] (juce::Component& c, int w, int space = 8) { x -= w; c.setBounds (x, fy, w, 30); x -= space; };
+    const bool standalone = e.isStandalone();
     place (e.resetButton, 130, 12);
-    if (e.proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
-    {
-        // no DAW transport here, so "reset on play" has no use: your own song's controls take its place
-        e.mixSeek.setBounds (x - 124, fy + 32, 124, 6);
-        place (e.mixLoadButton, 90, 4);
-        place (e.mixPlayButton, 30, 10);
-    }
-    else
+    if (! standalone)
         place (e.autoResetToggle, 124, 10);
     place (e.songButton, 66, 0);
     place (e.nowButton, 58, 14);
@@ -617,7 +654,19 @@ void WwmaAudioProcessorEditor::Content::resized()
     place (e.reportButton, 80, 8);
     place (e.learnButton, 74, 8);
     place (e.chainButton, 100, 8);
+    place (e.settingsButton, 34, 8);
     e.footerTextRight = x;
+    if (standalone)
+    {
+        // no DAW transport here, so "reset on play" has no use: your own song's player takes the
+        // footer's left side (where the "your ears decide" note is in the plugin)
+        auto left = juce::Rectangle<int> (margin, fy - 6, x - 6 - margin, 42);
+        e.mixPlayButton.setBounds (left.removeFromLeft (38).withSizeKeepingCentre (38, 32));
+        left.removeFromLeft (10);
+        e.mixLoadButton.setBounds (left.removeFromRight (96).withSizeKeepingCentre (96, 30));
+        left.removeFromRight (12);
+        e.mixSeek.setBounds (left);
+    }
 
     // columns
     const int top = topBar + gap, bottom = baseHeight - footer - gap;
@@ -641,6 +690,9 @@ void WwmaAudioProcessorEditor::Content::resized()
     e.sessionOffer.setBounds (0, 0, baseWidth, baseHeight);
     e.refDetail.setBounds (e.tonal.getBounds());
     e.aiPanel.setBounds (e.tonal.getBounds().getUnion (e.findings.getBounds()));
+    e.settingsPage.setBounds (0, topBar, baseWidth, baseHeight - topBar - footer);
+    e.logoButton.setBounds (margin - 6, 5, 136, topBar - 10);
+    e.aboutView.setBounds (0, 0, baseWidth, baseHeight);
 
     e.score.setBounds (rx, top, rightWidth, 196);
     e.translation.setBounds (rx, top + 196 + gap, rightWidth, 222);
@@ -745,12 +797,12 @@ void WwmaAudioProcessorEditor::updateTexts()
                                        "Alla oleva palkki näyttää, mitkä kohdat on nauhoitettu. Projektiisi ei kosketa."));
     refBButton.setTooltip (tr (lang, "Hear the active reference track instead of your mix, at the same loudness, so the louder one does not win just by being louder. Follows the song position; click its waveform to jump.",
                                      "Kuuntele aktiivista referenssiraitaa miksin sijaan samalla äänekkyydellä, jottei kovempi voita vain siksi, että se on kovempi. Seuraa kappaleen kohtaa; klikkaa aaltomuotoa hypätäksesi."));
-    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    if (isStandalone())
     {
         const auto status = proc.mixTrack.getStatus (0);
         const auto name = proc.mixTrack.getInfo (0) != nullptr ? proc.mixTrack.getInfo (0)->name : juce::String();
-        mixLoadButton.setButtonText (status == ReferenceTracks::Status::loading ? tr (lang, "Loading...", "Ladataan...")
-                                     : name.isNotEmpty() ? name : ui::upper (tr (lang, "Load your mix", "Lataa miksisi")));
+        mixLoadButton.setButtonText (ui::upper (name.isNotEmpty() ? tr (lang, "Change", "Vaihda") : tr (lang, "Load mix", "Lataa miksi")));
+        mixLoadButton.getProperties().set ("primary", name.isEmpty() && status != ReferenceTracks::Status::loading);
         mixLoadButton.setTooltip ((name.isNotEmpty() ? name + "\n" : juce::String()) + tr (lang, "Your own song: click to choose a file, or drop it here. The audio interface input is not used in the standalone app. Reference tracks go in the boxes below.",
                                             "Oma biisisi: klikkaa ja valitse tiedosto tai pudota se tähän. Äänikortin sisääntuloa ei käytetä standalone-sovelluksessa. Referenssiraidat menevät alla oleviin laatikoihin."));
         mixPlayButton.setButtonText (mixPlayButton.getToggleState() ? juce::String (juce::CharPointer_UTF8 ("\xe2\x8f\xb8")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x96\xb6")));
@@ -758,8 +810,6 @@ void WwmaAudioProcessorEditor::updateTexts()
         mixPlayButton.setTooltip (tr (lang, "Play / pause your mix (when REF is on you hear the reference instead).",
                                             "Soita / pysäytä miksisi (kun REF on päällä, kuulet referenssin)."));
     }
-    langButton.setButtonText (lang == Lang::finnish ? "EN" : "FI");
-    langButton.setTooltip (lang == Lang::finnish ? juce::String ("In English") : juce::String (juce::CharPointer_UTF8 ("Suomeksi")));
     progress.updateTexts();
     score.updateTexts();
     beforeAfter.updateTexts();
@@ -775,6 +825,10 @@ void WwmaAudioProcessorEditor::updateTexts()
                                    "Kysy tekoälyavustajalta (Claude, Gemini tai ChatGPT) tästä miksistä. WWMA tallentaa raportin ja antaa sen tekoälylle: luvut ja spektrogrammikuvat, ei koskaan ääntä. "
                                    "Ehdotuksista tulee Kokeile-nappeja, ja WWMA:n omaan EQ:hon tai limitteriin sopivia korjauksia voi kokeilla masterissa yhdellä klikkauksella (ja perua)."));
     aiPanel.updateTexts();
+    settingsPage.updateTexts();
+    aboutView.updateTexts();
+    logoButton.setTooltip (tr (lang, "About WWMA", "Tietoja WWMA:sta"));
+    syncStreamButton();
     learnButton.setButtonText (ui::upper (tr (lang, "Learn", "Opettele")));
     learnButton.setTooltip (tr (lang, "Lesson mode: short hands-on tasks (like ducking the bass under the kick). WWMA watches the last 3 seconds and tells you when you've made it.",
                                       "Oppimistila: lyhyitä käytännön tehtäviä (esim. basson duckaus kickin alle). WWMA seuraa viimeisiä 3 sekuntia ja kertoo, kun onnistuit."));
@@ -824,6 +878,12 @@ void WwmaAudioProcessorEditor::timerCallback()
     if (ticks % 15 == 0)
         pushHistory();
     aiWorker.tick();
+    if (ticks % 15 == 0)
+    {
+        syncStreamButton();
+        if (settingsPage.isVisible())
+            settingsPage.refresh();
+    }
     if (aiWorker.busy() && aiSession.status == ui::AiPanel::View::Status::working && ticks % 15 == 0)
         refreshAiView(); // shows how long the assistant has been at it
     refresh (ticks % 10 == 0);
@@ -873,7 +933,7 @@ void WwmaAudioProcessorEditor::pushHistory()
 
 void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
 {
-    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    if (isStandalone())
     {
         const auto status = proc.mixTrack.getStatus (0);
         if (status == ReferenceTracks::Status::ready && proc.mixTrack.getActive() != 0)
@@ -886,7 +946,7 @@ void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
         }
     }
 
-    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone)
+    if (isStandalone())
     {
         const bool playing = proc.mixTrack.isPlaying();
         if (playing && ! mixWasPlaying)
@@ -1019,7 +1079,7 @@ void WwmaAudioProcessorEditor::reassess()
 void WwmaAudioProcessorEditor::updatePasses()
 {
     // passes are told apart by the analyser restarting at every play
-    state.passesOn = proc.getAutoReset() || proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone;
+    state.passesOn = proc.getAutoReset() || isStandalone();
     const int count = proc.passCount.load();
     if (count != passSeen)
     {
@@ -1287,6 +1347,56 @@ void WwmaAudioProcessorEditor::setLearnMode (bool on)
     lessonSeconds = -1.0f;
     state.lessonHeld = 0.0f;
     reassess();
+}
+
+void WwmaAudioProcessorEditor::setSettingsOpen (bool open)
+{
+    settingsPage.setVisible (open);
+    topControls.setVisible (! open);
+    content.repaint (0, 0, baseWidth, topBar);
+    if (open)
+    {
+        settingsPage.aiSettings().setAnswerFolder (proc.getReportFolder());
+        settingsPage.refresh();
+        settingsPage.toFront (false);
+        if (sessionOffer.isVisible())
+            sessionOffer.toFront (false);
+    }
+    settingsButton.setToggleState (open, juce::dontSendNotification);
+}
+
+void WwmaAudioProcessorEditor::setLanguage (Lang l)
+{
+    if (l == proc.getLang())
+        return;
+    proc.setLang (l);
+    state.lang = proc.getLang();
+    updateTexts();
+    reassess();
+}
+
+void WwmaAudioProcessorEditor::openAbout (bool open)
+{
+    aboutView.setVisible (open);
+    if (open)
+    {
+        aboutView.toFront (true);
+        aboutView.grabKeyboardFocus(); // Esc closes it
+    }
+}
+
+void WwmaAudioProcessorEditor::syncStreamButton()
+{
+    const auto lang = state.lang;
+    const bool on = proc.stream.isRunning();
+    const int n = proc.stream.getListeners();
+    settingsButton.setStream (on, n);
+    auto tip = tr (lang, "Settings: language, the AI assistant, and listen anywhere (stream WWMA's output to a phone or another computer).",
+                         "Asetukset: kieli, tekoälyavustaja ja kuuntele missä vain (WWMA:n ääni puhelimeen tai toiselle koneelle).");
+    if (on)
+        tip << "\n" << (n > 0 ? tr (lang, "The stream is on: ", "Stream on päällä: ") + juce::String (n) + tr (lang, " listening.", " kuuntelee.")
+                               : tr (lang, "The stream is on (nobody listening).", "Stream on päällä (ei kuuntelijoita)."));
+    settingsButton.setTooltip (tip);
 }
 
 void WwmaAudioProcessorEditor::updatePanels()
@@ -1850,26 +1960,111 @@ void WwmaAudioProcessorEditor::loadReference (int slot, const juce::File& file)
     readReferences();
 }
 
+namespace
+{
+    juce::String songClock (double seconds)
+    {
+        const int s = juce::jmax (0, (int) std::floor (seconds));
+        return juce::String (s / 60) + ":" + juce::String (s % 60).paddedLeft ('0', 2);
+    }
+}
+
+juce::Rectangle<float> WwmaAudioProcessorEditor::MixSeekBar::waveArea() const
+{
+    return getLocalBounds().toFloat().withTrimmedTop (21.0f);
+}
+
 void WwmaAudioProcessorEditor::MixSeekBar::paint (juce::Graphics& g)
 {
-    const bool ready = proc.mixTrack.getStatus (0) == ReferenceTracks::Status::ready;
-    if (proc.mixTrack.isPlaying())
+    const auto lang = state.lang;
+    const auto status = proc.mixTrack.getStatus (0);
+    const bool ready = status == ReferenceTracks::Status::ready;
+    const auto info = proc.mixTrack.getInfo (0);
+    if (proc.mixTrack.isPlaying() && ready)
         shown = proc.mixTrack.getPlayPosition();
-    auto r = getLocalBounds().toFloat().reduced (0.0f, 1.0f);
+
+    auto top = getLocalBounds().removeFromTop (18).toFloat();
+    const auto wave = waveArea();
     g.setColour (colours::raised);
-    g.fillRoundedRectangle (r, 2.0f);
-    if (ready)
+    g.fillRoundedRectangle (wave, 3.0f);
+
+    if (! ready || info == nullptr)
     {
-        g.setColour (colours::accent);
-        g.fillRoundedRectangle (r.withWidth (juce::jmax (3.0f, r.getWidth() * (float) juce::jlimit (0.0, 1.0, shown))), 2.0f);
+        g.setColour (status == ReferenceTracks::Status::failed ? colours::bad : colours::soft);
+        g.setFont (fonts::body (13.0f));
+        g.drawFittedText (status == ReferenceTracks::Status::loading ? tr (lang, "Loading your mix...", "Ladataan miksiäsi...")
+                          : status == ReferenceTracks::Status::failed ? tr (lang, "Could not read the file: ", "Tiedostoa ei voitu lukea: ") + proc.mixTrack.getError (0)
+                                                                      : tr (lang, "Your mix: press Load mix, or drop a file here", "Miksisi: paina Lataa miksi tai pudota tiedosto tähän"),
+                          top.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+        return;
     }
+
+    const double length = juce::jmax (0.001, info->seconds);
+    const float playX = wave.getX() + wave.getWidth() * (float) juce::jlimit (0.0, 1.0, shown);
+
+    // the waveform: peaks, the played part lit
+    if (! info->wave.empty())
+    {
+        const int cols = juce::jmax (1, (int) wave.getWidth() / 2);
+        const float midY = wave.getCentreY(), half = wave.getHeight() * 0.5f - 2.0f;
+        const size_t n = info->wave.size();
+        for (int c = 0; c < cols; ++c)
+        {
+            const size_t from = (size_t) c * n / (size_t) cols;
+            const size_t to = juce::jmax (from + 1, (size_t) (c + 1) * n / (size_t) cols);
+            float peak = 0.0f;
+            for (size_t i = from; i < to && i < n; ++i)
+                peak = juce::jmax (peak, info->wave[i]);
+            const float x = wave.getX() + (float) c * 2.0f;
+            const float h = juce::jmax (0.5f, peak * half);
+            g.setColour (x < playX ? colours::accent : colours::faint);
+            g.fillRect (x, midY - h, 1.4f, 2.0f * h);
+        }
+    }
+    else
+    {
+        g.setColour (colours::accent.withAlpha (0.5f));
+        g.fillRoundedRectangle (wave.withRight (playX), 3.0f);
+    }
+    // the play head
+    g.setColour (colours::text);
+    g.fillRect (playX - 1.0f, wave.getY(), 2.0f, wave.getHeight());
+    // where a click would jump
+    const bool hovering = hoverX >= wave.getX() && hoverX <= wave.getRight();
+    if (hovering)
+    {
+        g.setColour (colours::text.withAlpha (0.45f));
+        g.fillRect (hoverX - 0.5f, wave.getY(), 1.0f, wave.getHeight());
+    }
+
+    // the name, and the time
+    const auto timeText = hovering ? juce::String (juce::CharPointer_UTF8 ("\xe2\x86\x92 ")) + songClock (length * (hoverX - wave.getX()) / wave.getWidth())
+                                   : songClock (length * shown) + " / " + songClock (length);
+    g.setFont (fonts::num (13.0f));
+    const float timeW = (float) juce::GlyphArrangement::getStringWidthInt (g.getCurrentFont(), timeText) + 4.0f;
+    g.setColour (hovering ? colours::accent : colours::text);
+    g.drawText (timeText, top.removeFromRight (timeW), juce::Justification::centredRight);
+    top.removeFromRight (10.0f);
+    g.setColour (colours::text);
+    g.setFont (fonts::bodyBold (13.5f));
+    g.drawFittedText (info->name, top.toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+}
+
+void WwmaAudioProcessorEditor::MixSeekBar::mouseMove (const juce::MouseEvent& e)
+{
+    const bool ready = proc.mixTrack.getStatus (0) == ReferenceTracks::Status::ready;
+    hoverX = ready && waveArea().expanded (0.0f, 4.0f).contains (e.position) ? e.position.x : -1.0f;
+    setMouseCursor (hoverX >= 0.0f ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    repaint();
 }
 
 void WwmaAudioProcessorEditor::MixSeekBar::jump (const juce::MouseEvent& e)
 {
     if (proc.mixTrack.getStatus (0) != ReferenceTracks::Status::ready)
         return;
-    shown = juce::jlimit (0.0, 1.0, (double) e.position.x / (double) juce::jmax (1, getWidth()));
+    const auto wave = waveArea();
+    shown = juce::jlimit (0.0, 1.0, (double) (e.position.x - wave.getX()) / (double) juce::jmax (1.0f, wave.getWidth()));
+    hoverX = e.position.x;
     proc.mixTrack.setCue (shown);
     repaint();
 }
@@ -1918,8 +2113,8 @@ void WwmaAudioProcessorEditor::fileDragExit (const juce::StringArray&)
 void WwmaAudioProcessorEditor::filesDropped (const juce::StringArray& files, int x, int y)
 {
     state.dragOver = false;
-    // standalone: a file dropped on the top bar is your own mix, anywhere else a reference
-    if (proc.wrapperType == juce::AudioProcessor::wrapperType_Standalone && mixLoadButton.getBounds().expanded (40, 20).contains (content.getLocalPoint (this, juce::Point<int> (x, y))))
+    // standalone: a file dropped on the footer's player is your own mix, anywhere else a reference
+    if (isStandalone() && mixLoadButton.getBounds().getUnion (mixSeek.getBounds()).getUnion (mixPlayButton.getBounds()).expanded (10, 10).contains (content.getLocalPoint (this, juce::Point<int> (x, y))))
     {
         for (const auto& f : files)
             if (proc.refs.canRead (juce::File (f)))

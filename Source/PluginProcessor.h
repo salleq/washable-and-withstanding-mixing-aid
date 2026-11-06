@@ -11,6 +11,7 @@
 #include "reference/VersionStore.h"
 #include "dsp/MasterChain.h"
 #include "dsp/CallbackProfiler.h"
+#include "stream/StreamServer.h"
 #include <atomic>
 #include <optional>
 
@@ -213,6 +214,10 @@ public:
     /** Message thread: keeps the saved state in step with the slots, and finishes restoring them. */
     void updateReferenceState();
 
+    /** "Listen anywhere": WWMA's output as a stream for a browser (a phone). Started and stopped
+        only by the user from the settings page; it keeps running with the window closed. */
+    wwma::stream::Server stream;
+
     static constexpr const char* profileParamId = "profile";
     struct ChainIds
     {
@@ -229,6 +234,8 @@ public:
 private:
     wwma::CallbackProfiler profiler; // WWMA_PROFILE=1: logs processBlock() time vs. the buffer's time budget
 
+    /** Everything processBlock() does to the sound; processBlock() then hands the result to the stream. */
+    void processAudio (juce::AudioBuffer<float>& buffer);
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void restoreReference();
     void restoreReferenceTracks();

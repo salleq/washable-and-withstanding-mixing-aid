@@ -54,6 +54,7 @@ WwmaAudioProcessor::WwmaAudioProcessor()
 WwmaAudioProcessor::~WwmaAudioProcessor()
 {
     beforeService.stopTimer();
+    stream.stop(); // frees the port before anything else goes
     closing.store (true);
     alive->store (false);
     // the last changes, so nothing is lost when WWMA is taken out of the project
@@ -308,6 +309,7 @@ void WwmaAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
         preparedRate = sampleRate;
     }
     profiler.prepare (sampleRate, samplesPerBlock);
+    stream.prepare (sampleRate, samplesPerBlock);
     refs.setPlaybackRate (sampleRate);
     mixTrack.setPlaybackRate (sampleRate);
     before.prepare (sampleRate);
@@ -328,7 +330,20 @@ void WwmaAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::M
 {
     juce::ScopedNoDenormals noDenormals;
     wwma::CallbackProfiler::Scope profileScope (profiler, buffer.getNumSamples());
+    processAudio (buffer);
 
+    // "listen anywhere": exactly what goes out (A/B and BEFORE included), only while someone
+    // listens, and never an export (it renders faster than real time)
+    const int numCh = juce::jmin (buffer.getNumChannels(), getTotalNumInputChannels());
+    if (stream.wantsAudio() && numCh > 0 && buffer.getNumSamples() > 0 && ! isNonRealtime())
+    {
+        const float* l = buffer.getReadPointer (0);
+        stream.push (l, numCh > 1 ? buffer.getReadPointer (1) : l, buffer.getNumSamples());
+    }
+}
+
+void WwmaAudioProcessor::processAudio (juce::AudioBuffer<float>& buffer)
+{
     // Clear only output channels that have no input.
     for (int c = getTotalNumInputChannels(); c < getTotalNumOutputChannels(); ++c)
         buffer.clear (c, 0, buffer.getNumSamples());

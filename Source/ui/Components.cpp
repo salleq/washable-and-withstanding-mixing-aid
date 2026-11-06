@@ -1304,7 +1304,7 @@ void ProgressBox::syncButtons()
 juce::Rectangle<int> ProgressBox::plotArea() const
 {
     auto r = content (*this);
-    r.removeFromTop (16);
+    r.removeFromTop (headerHeight);
     r.removeFromBottom (32);
     r.removeFromTop (bannerHeight + 26);
     return r;
@@ -1347,8 +1347,9 @@ void ProgressBox::resized()
     compareButton.setBounds (buttons.removeFromLeft (98));
     buttons.removeFromLeft (6);
     clearButton.setBounds (buttons);
-    versionsButton.setBounds (r.getRight() - 72, r.getY() - 3, 72, 20);
-    r.removeFromTop (16);
+    // on the heading's row, clear of the try button below it
+    versionsButton.setBounds (r.getRight() - 72, r.getY() - 4, 72, 19);
+    r.removeFromTop (headerHeight);
     auto tryRow = r.removeFromTop (22);
     tryButton.setBounds (tryRow);
     {
@@ -1452,6 +1453,7 @@ void ProgressBox::paint (juce::Graphics& g)
     drawBox (g, getLocalBounds().toFloat());
     auto r = content (*this);
     auto head = r.removeFromTop (16);
+    r.removeFromTop (headerHeight - 16);
     drawLabel (g, t (lang, "Progress", "Edistyminen"), head);
 
     const auto& snaps = state.snapshots;

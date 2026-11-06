@@ -1,0 +1,62 @@
+# Traefik (v2 or v3) dynamic configuration: share WWMA's "listen anywhere" stream outside
+# your home with HTTPS and a password. Load it with the file provider, e.g. in traefik.yml:
+#
+#   providers:
+#     file:
+#       filename: /etc/traefik/dynamic/traefik-wwma.yml
+#   entryPoints:
+#     websecure:
+#       address: ":443"
+#   certificatesResolvers:
+#     letsencrypt:
+#       acme:
+#         email: you@example.com
+#         storage: /etc/traefik/acme.json
+#         tlsChallenge: {}
+#
+# In WWMA: Settings > Listen on: "This computer only" (when Traefik runs on the same computer),
+# turn on "Ask for a password" too if you like (a second lock), then Start stream.
+# The link to share: https://wwma.example.com/?k=<the token from WWMA's settings>
+#
+# Traefik in Docker on the same computer: use http://host.docker.internal:8737 below, and
+# choose "Home network" in WWMA (Docker's network cannot reach 127.0.0.1 of the host).
+
+http:
+  routers:
+    wwma:
+      rule: "Host(`wwma.example.com`)"        # your own domain, pointing to your home IP
+      entryPoints: [websecure]
+      service: wwma
+      middlewares: [wwma-auth, wwma-headers]
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    wwma-auth:
+      basicAuth:
+        # make a line with:  htpasswd -nbB listener 'a long password'
+        users:
+          - "listener:$2y$05$replace.this.with.your.own.htpasswd.line"
+        removeHeader: false                   # true if you do NOT use WWMA's own password
+    wwma-headers:
+      headers:
+        stsSeconds: 31536000
+        frameDeny: true
+        contentTypeNosniff: true
+
+  services:
+    wwma:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8737"     # WWMA's port (Settings > Port)
+        # the stream is a long response that never ends: Traefik passes it on as it comes
+        # (no buffering middleware here, keep it that way), and the timeouts below keep it open
+        responseForwarding:
+          flushInterval: "50ms"
+
+# If you use both Traefik's basicAuth and WWMA's password, use the same password in both
+# (the browser sends one), or set removeHeader: true above and keep only Traefik's.
+#
+# Long streams: in the static configuration, do not set a short read/write timeout for
+# websecure (Traefik's default has none for responses). If your listeners drop after a fixed
+# time, check entryPoints.websecure.transport.respondingTimeouts.writeTimeout (0 = none).

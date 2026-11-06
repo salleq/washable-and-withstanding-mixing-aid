@@ -25,6 +25,8 @@ void WwmaAudioProcessorEditor::setAiOpen (bool open)
     aiButton.setToggleState (open, juce::dontSendNotification);
     if (open)
     {
+        if (isSettingsOpen())
+            setSettingsOpen (false);
         aiPanel.toFront (false);
         refreshAiView();
     }
@@ -51,6 +53,8 @@ void WwmaAudioProcessorEditor::refreshAiView()
         v.message << "  " << clock (aiWorker.elapsedSeconds());
     v.answer = aiSession.answerShown;
     v.hasFile = aiSession.answerFile.existsAsFile();
+    if (v.hasFile)
+        v.savedFile = aiSession.answerFile.getFullPathName();
     v.canPaste = aiSession.mode == ai::Mode::browser && aiSession.reportFile != juce::File();
     v.canFollowUp = aiSession.mode == ai::Mode::api && aiSession.answerShown.isNotEmpty() && ! aiSession.request.turns.empty()
                     && v.status != Status::working;
@@ -120,17 +124,15 @@ bool WwmaAudioProcessorEditor::aiReady()
     const auto& ps = aiSettings.current();
     if (ps.mode != ai::Mode::browser && ! aiSettings.consent)
     {
-        setAiOpen (true);
-        aiPanel.showSettings (true);
-        aiPanel.setTestStatus (tr (lang, "First allow WWMA to send the report (the box above), or use the browser.",
+        openSettingsTab (ui::SettingsPage::Tab::ai);
+        settingsPage.aiSettings().setTestStatus (tr (lang, "First allow WWMA to send the report (the box above), or use the browser.",
                                          "Salli ensin raportin lähetys (yllä oleva ruutu) tai käytä selainta."), false);
         return false;
     }
     if (ps.mode == ai::Mode::api && ps.apiKey.isEmpty())
     {
-        setAiOpen (true);
-        aiPanel.showSettings (true);
-        aiPanel.setTestStatus (tr (lang, "Paste your API key first.", "Liitä ensin API-avaimesi."), false);
+        openSettingsTab (ui::SettingsPage::Tab::ai);
+        settingsPage.aiSettings().setTestStatus (tr (lang, "Paste your API key first.", "Liitä ensin API-avaimesi."), false);
         return false;
     }
     return true;
@@ -371,11 +373,9 @@ void WwmaAudioProcessorEditor::askAiAboutReference (int slot, bool fresh)
     if (! fresh && (restoreAiSession (key) || (aiWorker.busy() && aiSession.key == key)))
     {
         setAiOpen (true);
-        aiPanel.showSettings (false);
         return;
     }
     setAiOpen (true);
-    aiPanel.showSettings (false);
     if (! aiReady())
         return;
     const auto file = writeReferenceReport (slot);
@@ -517,7 +517,9 @@ void WwmaAudioProcessorEditor::sendAiRequest()
                 self->aiSettings.of (r.provider).model = r.model;
                 ai::saveSettings (self->aiSettings);
                 self->aiPanel.setSettings (self->aiSettings);
-                self->aiPanel.setModels (reply.models);
+            self->settingsPage.aiSettings().setSettings (self->aiSettings);
+                self->settingsPage.aiSettings().setSettings (self->aiSettings);
+                self->settingsPage.aiSettings().setModels (reply.models);
                 self->sendAiRequest();
             }))
             setAiStatus (Status::working, tr (lang, "Looking up ", "Haetaan ") + name + tr (lang, "'s models...", " -malleja..."), {});
@@ -590,6 +592,22 @@ void WwmaAudioProcessorEditor::saveAiAnswerFile()
     if (aiSession.request.model.isNotEmpty())
         md << dot << aiSession.request.model;
     md << "\n\n" << aiSession.answerShown << "\n";
+    if (! aiSession.suggestions.empty())
+    {
+        // the suggestions WWMA read from the answer (they become Try cards in the AI panel)
+        md << "\n## " << tr (state.lang, "Suggestions to try", "Kokeiltavat ehdotukset") << "\n\n";
+        int i = 0;
+        for (const auto& s : aiSession.suggestions)
+        {
+            juce::StringArray where;
+            if (s.part.isNotEmpty()) where.add (tr (state.lang, "part ", "osa ") + s.part);
+            if (s.at.isNotEmpty()) where.add (s.at);
+            md << ++i << ". **" << s.title << "**" << (where.isEmpty() ? juce::String() : " (" + where.joinIntoString (", ") + ")") << "  \n   " << s.step;
+            if (s.listenFor.isNotEmpty())
+                md << "  \n   " << tr (state.lang, "Listen for: ", "Kuuntele: ") << s.listenFor;
+            md << "\n";
+        }
+    }
     aiSession.answerFile.replaceWithText (md);
 }
 
@@ -610,8 +628,8 @@ void WwmaAudioProcessorEditor::testAiConnection()
     if (ps.mode == ai::Mode::cli)
     {
         const auto exe = ai::findCli (provider, ps.cliPath);
-        aiPanel.setCliFound (exe);
-        aiPanel.setTestStatus (exe.existsAsFile() ? tr (lang, "Found. The first question tells whether it is signed in.", "Löytyi. Ensimmäinen kysymys kertoo, onko se kirjautunut.")
+        settingsPage.aiSettings().setCliFound (exe);
+        settingsPage.aiSettings().setTestStatus (exe.existsAsFile() ? tr (lang, "Found. The first question tells whether it is signed in.", "Löytyi. Ensimmäinen kysymys kertoo, onko se kirjautunut.")
                                                   : ai::cliAppName (provider) + tr (lang, " was not found.", " ei löytynyt."),
                                exe.existsAsFile());
         return;
@@ -620,16 +638,16 @@ void WwmaAudioProcessorEditor::testAiConnection()
         return;
     if (ps.apiKey.isEmpty())
     {
-        aiPanel.setTestStatus (tr (lang, "Paste your API key first.", "Liitä ensin API-avaimesi."), false);
+        settingsPage.aiSettings().setTestStatus (tr (lang, "Paste your API key first.", "Liitä ensin API-avaimesi."), false);
         return;
     }
     if (aiWorker.busy())
     {
-        aiPanel.setTestStatus (tr (lang, "Busy with a question: try again in a moment.", "Kysymys on kesken: yritä hetken päästä uudelleen."), false);
+        settingsPage.aiSettings().setTestStatus (tr (lang, "Busy with a question: try again in a moment.", "Kysymys on kesken: yritä hetken päästä uudelleen."), false);
         return;
     }
     juce::Component::SafePointer<WwmaAudioProcessorEditor> self (this);
-    aiPanel.setTestStatus (tr (lang, "Checking the key...", "Tarkistetaan avainta..."), true);
+    settingsPage.aiSettings().setTestStatus (tr (lang, "Checking the key...", "Tarkistetaan avainta..."), true);
     aiWorker.listModels (provider, ps.apiKey, [self, provider] (const ai::Reply& reply)
     {
         if (self == nullptr)
@@ -637,7 +655,7 @@ void WwmaAudioProcessorEditor::testAiConnection()
         const auto l = self->state.lang;
         if (! reply.ok)
         {
-            self->aiPanel.setTestStatus (reply.error, false);
+            self->settingsPage.aiSettings().setTestStatus (reply.error, false);
             return;
         }
         auto& p = self->aiSettings.of (provider);
@@ -646,11 +664,12 @@ void WwmaAudioProcessorEditor::testAiConnection()
             p.model = ai::pickModel (provider, reply.models);
             ai::saveSettings (self->aiSettings);
             self->aiPanel.setSettings (self->aiSettings);
+            self->settingsPage.aiSettings().setSettings (self->aiSettings);
         }
-        self->aiPanel.setModels (reply.models);
+        self->settingsPage.aiSettings().setModels (reply.models);
         const auto model = p.model.isNotEmpty() ? p.model : ai::defaultModel (provider);
         const bool known = reply.models.contains (model);
-        self->aiPanel.setTestStatus (tr (l, "The key works. Model: ", "Avain toimii. Malli: ") + model
+        self->settingsPage.aiSettings().setTestStatus (tr (l, "The key works. Model: ", "Avain toimii. Malli: ") + model
                                          + (known ? juce::String() : tr (l, " (not in your account's list: pick another)", " (ei tilisi listassa: valitse toinen)")),
                                      known);
     });
