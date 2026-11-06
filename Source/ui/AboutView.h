@@ -28,11 +28,11 @@ public:
 
 private:
     const ViewState& state;
-    juce::Image badge;
     juce::HyperlinkButton link;
     juce::Rectangle<float> badgeArea;
 };
 
-/** The badge (Washable and Withstanding Mixing Aid), compiled in. */
-juce::Image badgeImage();
+/** The badge in the given language (Washable and Withstanding Mixing Aid / Kestävä ja pestävä
+    sekoitusapu), compiled in. */
+juce::Image badgeImage (Lang lang);
 } // namespace wwma::ui

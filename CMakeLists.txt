@@ -124,7 +124,8 @@ juce_add_binary_data(WWMAAssets SOURCES
     assets/fonts/IBMPlexMono-SemiBold.ttf
     assets/stream/wwma-player.html   # the "listen anywhere" player, served to the browser
     assets/icon/wwma-icon-small.png  # the logo in the top bar
-    assets/logo/wwma-badge.png)      # the badge in the About view
+    assets/logo/wwma-badge.png       # the badge in the About view
+    assets/logo/wwma-badge-fi.png)   # ... and in Finnish
 set_target_properties(WWMAAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_sources(WWMA PRIVATE ${WWMA_CORE_SOURCES} ${WWMA_UI_SOURCES})

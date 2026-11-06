@@ -7,12 +7,13 @@
 
 namespace wwma::ui
 {
-juce::Image badgeImage()
+juce::Image badgeImage (Lang lang)
 {
+    const juce::String file (lang == Lang::finnish ? "wwma-badge-fi.png" : "wwma-badge.png");
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
     {
         const char* name = BinaryData::namedResourceList[i];
-        if (juce::String (BinaryData::getNamedResourceOriginalFilename (name)) == "wwma-badge.png")
+        if (juce::String (BinaryData::getNamedResourceOriginalFilename (name)) == file)
         {
             int size = 0;
             if (const char* data = BinaryData::getNamedResource (name, size))
@@ -31,7 +32,7 @@ void LogoButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
     g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (1.0f), 8.0f);
 }
 
-AboutView::AboutView (const ViewState& s) : state (s), badge (badgeImage())
+AboutView::AboutView (const ViewState& s) : state (s)
 {
     setWantsKeyboardFocus (true);
     link.setURL (juce::URL ("https://github.com/salleq/washable-and-withstanding-mixing-aid"));
@@ -44,12 +45,14 @@ AboutView::AboutView (const ViewState& s) : state (s), badge (badgeImage())
 void AboutView::updateTexts()
 {
     link.setButtonText ("github.com/salleq/washable-and-withstanding-mixing-aid");
+    resized(); // the badge follows the language, and its shape with it
     repaint();
 }
 
 void AboutView::resized()
 {
     auto r = getLocalBounds().toFloat();
+    const auto badge = badgeImage (state.lang); // ImageCache: decoded once
     const float h = juce::jmin (440.0f, r.getHeight() - 200.0f);
     const float w = badge.isValid() ? h * (float) badge.getWidth() / (float) badge.getHeight() : h;
     badgeArea = juce::Rectangle<float> (w, h).withCentre ({ r.getCentreX(), r.getY() + 40.0f + h * 0.5f });
@@ -61,7 +64,7 @@ void AboutView::paint (juce::Graphics& g)
     const auto lang = state.lang;
     g.fillAll (colours::background.withAlpha (0.96f));
 
-    if (badge.isValid())
+    if (const auto badge = badgeImage (lang); badge.isValid())
     {
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
         g.drawImage (badge, badgeArea, juce::RectanglePlacement::centred);
