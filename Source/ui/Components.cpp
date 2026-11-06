@@ -2511,9 +2511,12 @@ RefDetailBox::RefDetailBox (const ViewState& s) : state (s)
     earlierButton.onClick = [this] { if (onToggleEarlier) onToggleEarlier(); };
     reportButton.onClick = [this] { if (onReport) onReport(); };
     aiButton.onClick = [this] { if (onAskAi) onAskAi(); };
+    syncButton.onClick = [this] { if (onToggleSync) onToggleSync(); };
     earlierButton.setClickingTogglesState (false);
     earlierButton.getProperties().set ("onColour", (juce::int64) colours::earlier.getARGB());
-    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton, &earlierButton, &reportButton, &aiButton })
+    syncButton.setClickingTogglesState (false);
+    syncButton.getProperties().set ("onColour", (juce::int64) colours::ref.getARGB());
+    for (auto* b : { &closeButton, &playButton, &loopButton, &clearButton, &earlierButton, &reportButton, &aiButton, &syncButton })
         addAndMakeVisible (b);
     updateTexts();
 }
@@ -2548,6 +2551,16 @@ void RefDetailBox::updateTexts()
     earlierButton.setEnabled (v != nullptr);
     earlierButton.setTooltip (t (lang, "Mark this track as an earlier version of your own song. WWMA then shows whether your mix now is closer to the reference than that version was.",
                                        "Merkitse tämä raita oman biisisi aiemmaksi versioksi. WWMA näyttää silloin, onko miksisi nyt lähempänä referenssiä kuin tuo versio oli."));
+    syncButton.setButtonText (upper (t (lang, "Sync to mix", "Synkkaa miksiin")));
+    syncButton.setToggleState (state.syncRefs, juce::dontSendNotification);
+    syncButton.setEnabled (v != nullptr && ! v->earlier);
+    syncButton.setTooltip (v != nullptr && v->earlier
+        ? t (lang, "Your earlier version is the same song: WWMA keeps it at the same spot of the song by itself.",
+                   "Aiempi versiosi on sama kappale: WWMA pitää sen itse samassa kohdassa kappaletta.")
+        : t (lang, "Pair spots of your song with spots of the reference: put the DAW at a spot (say, your chorus), then click the same part here. "
+                   "Playback then follows the pairs: your verse plays against its verse, your chorus against its chorus. Saved with the project.",
+                   "Yhdistä kappaleesi kohtia referenssin kohtiin: vie DAW johonkin kohtaan (vaikka kertosäkeeseen) ja klikkaa samaa osaa täällä. "
+                   "Toisto seuraa sitten pareja: säkeistösi soi sen säkeistöä vasten, kertosäkeesi sen kertosäettä vasten. Tallentuu projektiin."));
 }
 
 void RefDetailBox::resized()
@@ -2563,14 +2576,86 @@ void RefDetailBox::resized()
     row.removeFromLeft (8);
     clearButton.setBounds (row.removeFromLeft (130));
     earlierButton.setBounds (row.removeFromRight (170));
+    row.removeFromRight (8);
+    syncButton.setBounds (row.removeFromRight (140));
 }
 
 juce::Rectangle<int> RefDetailBox::waveArea() const
 {
     auto r = content (*this);
     r.removeFromTop (18 + 22);
-    r.removeFromBottom (26 + 30);
+    r.removeFromBottom (26 + 30 + 26);   // buttons, the hint, the sync row
     return r.withTrimmedBottom (16); // room for the time ruler
+}
+
+void RefDetailBox::paintSyncRow (juce::Graphics& g, const RefView& v, juce::Rectangle<int> row)
+{
+    const auto lang = state.lang;
+    removeAreas.clear();
+    g.setFont (fonts::body (12.0f));
+    auto note = [&] (const juce::String& text, juce::Colour c)
+    {
+        g.setColour (c);
+        g.drawFittedText (text, row, juce::Justification::centredLeft, 1, 0.85f);
+    };
+    if (v.earlier)
+    {
+        const double off = v.earlierOffset;
+        const juce::String by = (off >= 0.0 ? "+" : "-") + juce::String (std::abs (off), 2) + " s";
+        switch (v.align)
+        {
+            case ReferenceTracks::Align::running:
+                note (t (lang, "Lining it up with your song...", "Kohdistetaan kappaleeseesi..."), colours::dim);
+                break;
+            case ReferenceTracks::Align::done:
+                note (t (lang, "In step with your song: it plays at the same spot (found from the BEFORE recording, ",
+                               "Tahdissa kappaleesi kanssa: soi samassa kohdassa (löydetty BEFORE-äänityksestä, ") + by + ").", colours::earlier);
+                break;
+            case ReferenceTracks::Align::failed:
+                note (t (lang, "Could not find this bounce in the BEFORE recording, so it plays with ", "Tätä bouncea ei löytynyt BEFORE-äänityksestä, joten se soi siirrolla ")
+                          + by + t (lang, ". Click a spot to move it by hand.", ". Klikkaa kohtaa siirtääksesi käsin."), colours::dim);
+                break;
+            case ReferenceTracks::Align::none:
+                note (std::abs (off) > 1.0e-6
+                          ? t (lang, "In step with your song (", "Tahdissa kappaleesi kanssa (") + by + ")."
+                          : t (lang, "0:00 of the bounce plays at the start of the project. Once BEFORE has recorded a part of the song, WWMA lines it up by itself.",
+                                     "Bouncen 0:00 soi projektin alussa. Kun BEFORE on äänittänyt osan kappaleesta, WWMA kohdistaa sen itse."),
+                      colours::dim);
+                break;
+        }
+        return;
+    }
+    if (! state.syncRefs)
+        return;
+    if (v.pairs.empty())
+    {
+        note (t (lang, "No pairs yet: put the DAW at a spot of your song, then click the same part of the reference.",
+                       "Ei vielä pareja: vie DAW kappaleesi johonkin kohtaan ja klikkaa referenssin samaa osaa."), colours::dim);
+        return;
+    }
+    const auto arrow = juce::String (juce::CharPointer_UTF8 (" \xe2\x86\x92 "));
+    auto x = (float) row.getX();
+    const auto font = fonts::num (11.0f);
+    for (size_t i = 0; i < v.pairs.size(); ++i)
+    {
+        const auto text = juce::String ((int) i + 1) + "  " + duration (v.pairs[i].song) + arrow + duration (v.pairs[i].ref);
+        const float w = juce::GlyphArrangement::getStringWidth (font, text) + 34.0f;
+        if (x + w > (float) row.getRight())
+            break; // the rest don't fit; they still play
+        const auto chip = juce::Rectangle<float> (x, (float) row.getY() + 1.0f, w, (float) row.getHeight() - 2.0f);
+        g.setColour (colours::ref.withAlpha (0.14f));
+        g.fillRoundedRectangle (chip, 4.0f);
+        g.setColour (colours::ref);
+        g.setFont (font);
+        g.drawText (text, chip.withTrimmedLeft (8.0f).withTrimmedRight (22.0f), juce::Justification::centredLeft);
+        const auto cross = juce::Rectangle<float> (chip.getRight() - 20.0f, chip.getY(), 18.0f, chip.getHeight());
+        g.setColour (colours::dim);
+        const auto c = cross.getCentre();
+        g.drawLine (c.x - 3.5f, c.y - 3.5f, c.x + 3.5f, c.y + 3.5f, 1.4f);
+        g.drawLine (c.x - 3.5f, c.y + 3.5f, c.x + 3.5f, c.y - 3.5f, 1.4f);
+        removeAreas.push_back (cross);
+        x += w + 6.0f;
+    }
 }
 
 double RefDetailBox::fractionAt (float x) const
@@ -2617,6 +2702,19 @@ void RefDetailBox::paint (juce::Graphics& g)
     const bool act = slot == state.activeRef;
     drawRefWave (g, shown, wa, true, act, state.playPosition);
 
+    // the sync pairs, numbered as in the row below
+    if (state.syncRefs && ! v->earlier && v->seconds > 0.0)
+    {
+        g.setFont (fonts::num (10.0f));
+        for (size_t i = 0; i < v->pairs.size(); ++i)
+        {
+            const float x = wa.getX() + wa.getWidth() * (float) juce::jlimit (0.0, 1.0, v->pairs[i].ref / v->seconds);
+            g.setColour (colours::ref);
+            g.fillRect (x - 0.75f, wa.getY() - 4.0f, 1.5f, wa.getHeight() + 8.0f);
+            g.drawText (juce::String ((int) i + 1), juce::Rectangle<float> (x + 3.0f, wa.getY() - 4.0f, 20.0f, 12.0f), juce::Justification::centredLeft);
+        }
+    }
+
     // time ruler
     if (v->seconds > 0.0)
     {
@@ -2635,18 +2733,30 @@ void RefDetailBox::paint (juce::Graphics& g)
         }
     }
 
+    paintSyncRow (g, *v, juce::Rectangle<int> (r.getX(), r.getBottom() - 26 - 26 - 26, r.getWidth(), 22));
+
     // how to use it
     auto hint = juce::Rectangle<int> (r.getX(), r.getBottom() - 26 - 26, r.getWidth(), 20);
     g.setColour (colours::faint);
     g.setFont (fonts::body (12.0f));
-    g.drawFittedText (t (lang, "Click to jump. Drag over the waveform to choose a loop, drag its edges to adjust. The loop stays when you close this view.",
-                               "Klikkaa hypätäksesi. Raahaa aaltomuodon yli valitaksesi loopin, raahaa reunoista säätääksesi. Looppi säilyy, kun suljet näkymän."),
+    const bool pairing = state.syncRefs && ! v->earlier;
+    g.drawFittedText (pairing ? t (lang, "Sync is on: a click pairs the DAW's spot with the spot clicked. Drag over the waveform to choose a loop.",
+                                         "Synkkaus on päällä: klikkaus yhdistää DAW:n kohdan klikattuun kohtaan. Raahaa aaltomuodon yli valitaksesi loopin.")
+                              : t (lang, "Click to jump. Drag over the waveform to choose a loop, drag its edges to adjust. The loop stays when you close this view.",
+                                         "Klikkaa hypätäksesi. Raahaa aaltomuodon yli valitaksesi loopin, raahaa reunoista säätääksesi. Looppi säilyy, kun suljet näkymän."),
                       hint, juce::Justification::centredLeft, 1, 0.85f);
 }
 
 void RefDetailBox::mouseDown (const juce::MouseEvent& e)
 {
     drag = Drag::none;
+    for (int i = 0; i < (int) removeAreas.size(); ++i)
+        if (removeAreas[(size_t) i].contains (e.position))
+        {
+            if (onRemovePair)
+                onRemovePair (i);
+            return;
+        }
     const auto* v = view();
     const auto wa = waveArea().toFloat().expanded (0.0f, 8.0f);
     if (v == nullptr || ! wa.contains (e.position))

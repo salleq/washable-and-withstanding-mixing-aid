@@ -2289,6 +2289,184 @@ int main (int argc, char* argv[])
         check (q2.refs.isEarlier (1) && ! q2.refs.isEarlier (0), "  the mark is saved with the project");
         q2.refs.loadNow (1, refFile);
         check (! q2.refs.isEarlier (1), "  a new file in the slot starts as a normal reference");
+
+        // ---------------------------------------------- references in step with the mix
+        {
+            const double rate = 48000.0;
+            // a "song" whose hits come at uneven times, so it lines up only one way
+            juce::Random rnd (7);
+            const int songLen = (int) (60.0 * rate);
+            Stereo song { std::vector<float> ((size_t) songLen, 0.0f), {} };
+            for (double at = 0.3; at < 59.0; at += 0.18 + 0.4 * rnd.nextDouble())
+            {
+                const int s0 = (int) (at * rate);
+                const float amp = 0.2f + 0.6f * rnd.nextFloat();
+                const double hz = 80.0 + 900.0 * rnd.nextDouble();
+                for (int i = 0; i < (int) (0.12 * rate) && s0 + i < songLen; ++i)
+                    song.l[(size_t) (s0 + i)] += amp * (float) (std::exp (-i / (0.03 * rate)) * std::sin (juce::MathConstants<double>::twoPi * hz * i / rate));
+            }
+            for (auto& v : song.l)
+                v += 0.01f * (rnd.nextFloat() - 0.5f);
+            song.r = song.l;
+            // the earlier bounce: another mix of it (darker, 6 dB quieter) that starts 2.345 s later
+            const int lead = (int) std::lround (2.345 * rate);
+            Stereo bounce { std::vector<float> ((size_t) (songLen + lead), 0.0f), {} };
+            float lp = 0.0f;
+            for (int i = 0; i < songLen; ++i)
+            {
+                lp += 0.3f * (song.l[(size_t) i] - lp);
+                bounce.l[(size_t) (i + lead)] = 0.5f * lp;
+            }
+            bounce.r = bounce.l;
+            const int from = (int) (20.0 * rate), len = (int) (30.0 * rate);
+            const auto found = ReferenceTracks::findInReference (song.l.data() + from, len, bounce.l.data(), (int) bounce.l.size(), rate, from);
+            check (found >= 0 && std::abs (found - (from + lead)) <= 4,
+                   "an earlier bounce is found from the BEFORE recording within 0.1 ms (another mix, starting 2.345 s late)",
+                   juce::String (found - (from + lead)) + " samples off");
+            std::vector<float> other ((size_t) len);
+            for (auto& v : other)
+                v = 0.3f * (rnd.nextFloat() - 0.5f);
+            check (ReferenceTracks::findInReference (other.data(), len, bounce.l.data(), (int) bounce.l.size(), rate, from) < 0,
+                   "  a recording of something else is not matched");
+
+            // a reference whose samples tell where they are: 0..1 over its 30 s
+            const int rlen = (int) (30.0 * rate);
+            Stereo ramp { std::vector<float> ((size_t) rlen), {} };
+            for (int i = 0; i < rlen; ++i)
+                ramp.l[(size_t) i] = (float) i / (float) rlen;
+            ramp.r = ramp.l;
+            const auto rampFile = writeWav (ramp, rate, "ramp.wav");
+            const auto bounceFile = writeWav (bounce, rate, "earlier bounce.wav");
+
+            ReferenceTracks r;
+            r.setPlaybackRate (rate);
+            r.loadNow (0, rampFile);
+            std::vector<float> bl (256), br (256);
+            auto play = [&] (int64_t host) { r.render (bl.data(), br.data(), 256, host, true, 0.0f); };
+            auto where = [&] (double songSec) // the reference second heard at this song second
+            {
+                play ((int64_t) std::llround (songSec * rate));
+                return (double) bl[0] * rlen / rate;
+            };
+            check (near (where (5.0), 0.0, 0.001), "with no pairs a reference starts where it was left (0:00) and follows the song from there");
+            r.setSyncToMix (true);
+            r.addPair (0, 10.0, 20.0 / 30.0);
+            r.addPair (0, 40.0, 5.0 / 30.0);
+            const double a1 = where (12.0), a0 = where (3.0), a2 = where (41.0), a3 = where (39.0);
+            check (near (a1, 22.0, 0.001) && near (a0, 13.0, 0.001) && near (a2, 6.0, 0.001) && near (a3, 19.0, 0.001), // 0:49 of a 30 s track wraps to 0:19
+                   "pairs: song 0:10 -> ref 0:20 and 0:40 -> 0:05; each spot plays from the pair at or before it (the first before them)",
+                   juce::String (a1, 3) + " " + juce::String (a0, 3) + " " + juce::String (a2, 3) + " " + juce::String (a3, 3));
+            r.addPair (0, 40.4, 6.0 / 30.0);
+            check (r.getPairs (0).size() == 2 && near (where (41.0), 6.6, 0.001), "  a pair at nearly the same song spot replaces the old one");
+
+            // playing on past a pair: the reference jumps there with a short crossfade
+            const auto pairAt = (int64_t) std::llround (40.4 * rate);
+            int64_t host = pairAt - 256 * 10;
+            for (; host + 256 <= pairAt; host += 256)
+                play (host);
+            const double lastBefore = (double) bl[255] * rlen / rate;
+            play (host);
+            const double startOfFade = (double) bl[0] * rlen / rate;
+            for (int k = 0; k < 6; ++k) // past the 20 ms
+            {
+                host += 256;
+                play (host);
+            }
+            const double afterFade = (double) bl[0] * rlen / rate;
+            const double wantAfter = 6.0 + (double) (host - pairAt) / rate;
+            check (near (startOfFade, lastBefore, 0.002) && near (afterFade, wantAfter, 0.001),
+                   "  playing past the next pair, the reference crossfades to its spot without a click",
+                   juce::String (lastBefore, 3) + " -> " + juce::String (startOfFade, 3) + " ... " + juce::String (afterFade, 3) + " (" + juce::String (wantAfter, 3) + ")");
+            check (near (ReferenceTracks::refSecondsAt (r.getPairs (0), 45.0), 10.6, 1.0e-9), "  the same mapping for the view");
+            r.setSyncToMix (false);
+            check (near (where (41.0), 6.0, 0.001), "  with the setting off the pairs are kept but not used (back to the one offset: 0:41 - 5 s)");
+            r.removePair (0, 0);
+            check (r.getPairs (0).size() == 1 && near (r.getPairs (0)[0].song, 40.4, 1.0e-9), "  a pair can be removed");
+
+            // the earlier version lines itself up, and keeps that when another slot was chosen between
+            ReferenceTracks e;
+            e.setPlaybackRate (rate);
+            e.loadNow (0, bounceFile);
+            e.loadNow (1, rampFile);
+            e.setEarlier (0, true);
+            e.setActive (0);
+            const bool aligned = e.alignNow (0, std::vector<float> (song.l.begin() + from, song.l.begin() + from + len), rate, 20.0, "test");
+            check (aligned && near (e.getEarlierOffset (0), 2.345, 0.0002) && e.getAlignState (0) == ReferenceTracks::Align::done,
+                   "an earlier version marked as such knows how far its bounce is from the song", juce::String (e.getEarlierOffset (0), 4) + " s");
+            auto errorAt = [&] (double songSec)
+            {
+                const auto h = (int64_t) std::llround (songSec * rate);
+                e.render (bl.data(), br.data(), 256, h, true, 0.0f);
+                float err = 0.0f;
+                for (int k = 0; k < 256; ++k)
+                    err = juce::jmax (err, std::abs (bl[(size_t) k] - bounce.l[(size_t) (h + lead + k)]));
+                return err;
+            };
+            const float err1 = errorAt (30.0);
+            e.setActive (1);
+            e.render (bl.data(), br.data(), 256, (int64_t) (10.0 * rate), true, 0.0f);
+            e.setActive (0);
+            const float err2 = errorAt (45.0);
+            check (err1 < 0.002f && err2 < 0.002f, "  so it plays at the same spot of the song, also after the other slot was chosen",
+                   juce::String (err1, 5) + " " + juce::String (err2, 5));
+            check (! e.alignNow (0, other, rate, 20.0, "noise") && near (e.getEarlierOffset (0), 2.345, 0.0002) && e.getAlignState (0) == ReferenceTracks::Align::failed,
+                   "  a failed match keeps the offset it had");
+
+            // saved with the project
+            WwmaAudioProcessor sp;
+            sp.refs.loadNow (0, rampFile);
+            sp.refs.loadNow (1, bounceFile);
+            sp.refs.setSyncToMix (true);
+            sp.refs.addPair (0, 10.0, 0.5);
+            sp.refs.addPair (0, 50.0, 0.1);
+            sp.refs.setEarlier (1, true);
+            sp.refs.setEarlierOffset (1, 2.345);
+            sp.updateReferenceState();
+            juce::MemoryBlock smb;
+            sp.getStateInformation (smb);
+            WwmaAudioProcessor sq;
+            sq.setStateInformation (smb.getData(), (int) smb.getSize());
+            sq.refs.loadNow (0, rampFile);
+            sq.refs.loadNow (1, bounceFile);
+            sq.updateReferenceState();
+            const auto back = sq.refs.getPairs (0);
+            check (sq.refs.getSyncToMix() && back.size() == 2 && near (back[1].song, 50.0, 1.0e-6) && near (back[1].ref, 3.0, 1.0e-3)
+                       && sq.refs.isEarlier (1) && near (sq.refs.getEarlierOffset (1), 2.345, 1.0e-6),
+                   "the pairs, the sync setting and the earlier version's offset are saved with the project");
+
+            // in the editor: with the DAW stopped at 0:30, a click at the middle pairs 0:30 with 0:15
+            struct AtHost : juce::AudioPlayHead
+            {
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setIsPlaying (false);
+                    info.setTimeInSamples ((int64_t) (30.0 * 48000.0));
+                    return info;
+                }
+            } at30;
+            WwmaAudioProcessor cp;
+            cp.setPlayConfigDetails (2, 2, rate, 512);
+            cp.prepareToPlay (rate, 512);
+            cp.setPlayHead (&at30);
+            cp.refs.loadNow (0, rampFile);
+            juce::AudioBuffer<float> cb (2, 512);
+            juce::MidiBuffer cmidi;
+            cp.processBlock (cb, cmidi);
+            std::unique_ptr<juce::AudioProcessorEditor> ced (cp.createEditor());
+            auto* ce = dynamic_cast<WwmaAudioProcessorEditor*> (ced.get());
+            ce->referencesChanged();
+            ce->cueReference (0.5);
+            const bool noPairWhenOff = cp.refs.getPairs (0).empty();
+            cp.refs.setSyncToMix (true);
+            ce->cueReference (0.5);
+            const auto cpairs = cp.refs.getPairs (0);
+            check (noPairWhenOff && cpairs.size() == 1 && near (cpairs[0].song, 30.0, 0.02) && near (cpairs[0].ref, 15.0, 0.001),
+                   "with \"Sync to mix\" on, a click on the reference pairs the DAW's spot with it (off: just a jump)");
+            ced.reset();
+            rampFile.deleteFile();
+            bounceFile.deleteFile();
+        }
         {
             // the target comes from the real reference even while my earlier version is the selected track
             WwmaAudioProcessor w;

@@ -213,6 +213,9 @@ public:
     std::atomic<int> versionsGeneration { 0 };
     /** Message thread: keeps the saved state in step with the slots, and finishes restoring them. */
     void updateReferenceState();
+    /** Message thread: a slot marked as the earlier version is lined up against the BEFORE take
+        (again whenever that changes), so it plays at the same spot of the song. */
+    void alignEarlierVersions();
 
     /** "Listen anywhere": WWMA's output as a stream for a browser (a phone). Started and stopped
         only by the user from the settings page; it keeps running with the window closed. */
@@ -297,6 +300,8 @@ private:
                 wwma::TrackBus::shared().publish (proc.busId, wwma::printOf (busSnap, proc.getTrackRole()));
             if (ticks % 20 == 0)
                 proc.saveSessionIfChanged();
+            if (ticks % 5 == 0)
+                proc.updateReferenceState();   // restoring and lining up references, window open or not
         }
         WwmaAudioProcessor& proc;
         wwma::Snapshot busSnap;
@@ -305,6 +310,8 @@ private:
     int wantedActiveRef = -1, savedRefGeneration = -1;
     std::array<std::pair<double, double>, wwma::ReferenceTracks::numSlots> wantedLoops {}; // loops saved with the project, set once the file is loaded
     std::array<bool, wwma::ReferenceTracks::numSlots> wantedEarlier {};                     // "my earlier version" marks, the same way
+    std::array<std::vector<wwma::SyncPair>, wwma::ReferenceTracks::numSlots> wantedPairs {}; // sync pairs, the same way
+    std::array<std::optional<double>, wwma::ReferenceTracks::numSlots> wantedOffset {};      // an earlier version's offset, the same way
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WwmaAudioProcessor)
 };

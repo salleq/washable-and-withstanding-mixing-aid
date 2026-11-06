@@ -7,6 +7,7 @@
 #include "advice/ChainAdvice.h"
 #include "advice/TrackAdvice.h"
 #include "advice/Passes.h"
+#include "reference/ReferenceTracks.h"
 #include <functional>
 #include <array>
 #include <map>
@@ -26,6 +27,9 @@ struct RefView
     std::vector<float> wave;
     double loopStart = 0.0, loopEnd = 0.0;   // 0..1, end <= start: no loop
     bool earlier = false;           // marked "my earlier version" (not a real reference)
+    std::vector<SyncPair> pairs;    // song spot <-> reference spot, seconds, by song position
+    double earlierOffset = 0.0;     // an earlier version: reference time - song time, seconds
+    ReferenceTracks::Align align = ReferenceTracks::Align::none;
     bool hasLoop() const { return loopEnd > loopStart; }
     bool ready() const { return status == Status::ready; }
 };
@@ -92,6 +96,7 @@ struct ViewState
     double playPosition = 0.0;
     bool refPlaying = false;         // WWMA's own play button runs the reference (not the DAW)
     bool refAudible = false;         // the reference is heard right now (B on and playing, by the DAW or its own button)
+    bool syncRefs = false;           // "Sync references to mix": a click pairs the DAW's spot with the reference's
     bool dragOver = false;
 
     // "before": WWMA's own recording of the mix at the last snapshot, played by song position
@@ -261,16 +266,21 @@ public:
     int getSlot() const noexcept { return slot; }
     juce::Rectangle<int> waveArea() const;
 
-    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop, onToggleEarlier, onReport, onAskAi;
+    std::function<void()> onClose, onPlayPause, onClearLoop, onPlayLoop, onToggleEarlier, onReport, onAskAi, onToggleSync;
     std::function<void (double fraction)> onCue;
     std::function<void (double start, double end)> onLoop;
+    std::function<void (int index)> onRemovePair;
+    /** Where the remove cross of each sync pair was drawn (tests click them). */
+    const std::vector<juce::Rectangle<float>>& pairRemoveAreas() const noexcept { return removeAreas; }
 
 private:
     const RefView* view() const;
     double fractionAt (float x) const;
+    void paintSyncRow (juce::Graphics&, const RefView&, juce::Rectangle<int> row);
     const ViewState& state;
     int slot = 0;
-    juce::TextButton closeButton, playButton, loopButton, clearButton, earlierButton, reportButton, aiButton;
+    juce::TextButton closeButton, playButton, loopButton, clearButton, earlierButton, reportButton, aiButton, syncButton;
+    std::vector<juce::Rectangle<float>> removeAreas;
     enum class Drag { none, pending, select, startEdge, endEdge } drag = Drag::none;
     double dragFrom = 0.0, selA = 0.0, selB = 0.0;
 };

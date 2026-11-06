@@ -156,7 +156,7 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     refBox.onBrowse = [this] (int slot) { browseReference (slot); };
     refBox.onSelect = [this] (int slot) { proc.refs.setActive (slot); readReferences(); reassess(); };
     refBox.onRemove = [this] (int slot) { proc.removeReference (slot); readReferences(); reassess(); };
-    refBox.onCue = [this] (int, double fraction) { proc.refs.setCue (fraction); };
+    refBox.onCue = [this] (int, double fraction) { cueReference (fraction); readReferences(); };
     refBox.onPlayPause = [this] (int slot) { toggleReferencePlay (slot); };
     refBox.onOpenDetail = [this] (int slot) { openReferenceDetail (slot); };
     refBox.onToggleEarlier = [this] (int slot) { proc.refs.setEarlier (slot, ! proc.refs.isEarlier (slot)); readReferences(); reassess(); };
@@ -168,9 +168,11 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     refDetail.onCue = [this] (double f)
     {
         proc.refs.setActive (refDetail.getSlot());
-        proc.refs.setCue (f);
+        cueReference (f);
         readReferences();
     };
+    refDetail.onToggleSync = [this] { proc.refs.setSyncToMix (! proc.refs.getSyncToMix()); readReferences(); };
+    refDetail.onRemovePair = [this] (int i) { proc.refs.removePair (refDetail.getSlot(), i); readReferences(); };
     refDetail.onLoop = [this] (double a, double b)
     {
         proc.refs.setLoop (refDetail.getSlot(), a, b);
@@ -1684,6 +1686,9 @@ void WwmaAudioProcessorEditor::readReferences()
                 v.wave = info->wave;
                 std::tie (v.loopStart, v.loopEnd) = refs.getLoop (i);
                 v.earlier = refs.isEarlier (i);
+                v.pairs = refs.getPairs (i);
+                v.earlierOffset = refs.getEarlierOffset (i);
+                v.align = refs.getAlignState (i);
                 v.assessment = assess (v.snap, state.profile, Window::song, state.lang, v.earlier ? state.stage : Stage::mastering, ! v.earlier);
             }
             else if (v.status != ui::RefView::Status::loading)
@@ -1694,6 +1699,7 @@ void WwmaAudioProcessorEditor::readReferences()
             }
         }
         state.activeRef = refs.getActive();
+        state.syncRefs = refs.getSyncToMix();
         // the big loop view follows the reference chosen in the boxes (by its card, waveform or play button)
         if (refDetail.isVisible() && refDetail.getSlot() != state.activeRef
             && juce::isPositiveAndBelow (state.activeRef, (int) state.refs.size()) && state.refs[(size_t) state.activeRef].ready())
@@ -1746,6 +1752,19 @@ void WwmaAudioProcessorEditor::toggleReferencePlay (int slot)
     refs.setPlaying (true);
     state.refPlaying = true;
     setListening (true);
+}
+
+void WwmaAudioProcessorEditor::cueReference (double fraction)
+{
+    auto& refs = proc.refs;
+    const int slot = refs.getActive();
+    const double song = proc.songSeconds.load();
+    // "Sync references to mix": with the DAW at a spot, the click pairs that spot with this one.
+    // Not on WWMA's own play button (no song position to pair with), and not for an earlier
+    // version, which lines itself up.
+    if (refs.getSyncToMix() && song >= 0.0 && ! refs.isPlaying() && ! refs.isEarlier (slot))
+        refs.addPair (slot, song, fraction);
+    refs.setCue (fraction);
 }
 
 void WwmaAudioProcessorEditor::openReferenceDetail (int slot)

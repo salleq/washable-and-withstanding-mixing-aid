@@ -2,11 +2,23 @@
 
 Ideas and requests that are not scheduled yet. Newest first.
 
-## Sync references to the mix
+## Promo video
 
-Today a reference follows the DAW's song position with one offset (`cueSamples` in `ReferenceTracks::render`), set by the last click on its waveform. The offset is reset when another slot is chosen (`ReferenceTracks::updateAudioSide`) and is not saved with the project, so the same spot of the song does not land on the same spot of the reference twice.
+A short video (60–90 s, plus a 15–30 s cut for social media) that shows what WWMA does, with one of my own unfinished songs as the mix and a well-known track as the reference.
 
-Decided:
-- **Earlier versions sync by themselves.** A slot marked EARLIER is the same song, so WWMA lines it up: cross-correlate the bounce against the BEFORE take (`BeforeTake`, recorded by song position) to find the offset, so it works even if the bounce starts at bar 2. With nothing recorded yet, 0:00 of the bounce = the start of the project.
-- **Different songs: a setting "Sync references to mix".** While it is on, choosing a spot on the reference with the DAW at a spot pairs the two (DAW 1:12 → ref 0:58). A reference can have many pairs: your verse to its verse, your chorus to its chorus. Playing from DAW position X uses the nearest pair at or before X; when playback passes the next pair, the reference jumps to that pair's spot (with a short crossfade).
-- Pairs are kept per slot and saved with the project, like the loop and the EARLIER mark. The big reference view lists them, with a way to remove one.
+Plan:
+- **Use the standalone app, not the plugin.** No DAW on screen, nothing extra to explain: the song is loaded in the player at the bottom left and the reference is dropped onto the window. Features that need a DAW (BEFORE, "Did my change help?", two WWMAs seeing each other in track mode) are left out, or get one short clip from a DAW at the end.
+- **Record once, zoom afterwards.** Record the whole window in high resolution (OBS, 1440p or 4K, window made large, mouse pointer highlighted), one take per scene. The zooms and slow scrolls onto each part are made afterwards: [Cap](https://cap.so) (free, zooms automatically on clicks) or keyframes in DaVinci Resolve. Then the recording can be done again without redoing the editing.
+- **Prepare two bounces of the song**: v1 with a clear problem WWMA finds (say, too much mud or a kick drowning in the bass) and v2 with it fixed. Switching from v1 to v2 shows the meter and the findings getting better, which the standalone can't do from a single file.
+- **The reference is never heard.** The point is the comparison: show its name, curve and numbers, never its audio (a commercial track would be caught by YouTube's Content ID). No A/B in the video.
+- Narration as captions on screen (English, a Finnish version is cheap to add), music = my own song.
+
+Scenes:
+1. Hook (0–5 s): the song plays, the spectrum moves, the meter says "Not quite there yet". Caption: "A mixing teacher that tells you what's wrong, in plain words."
+2. Findings: zoom onto the list, click the top one, the why and the steps open.
+3. Reference: drag the track onto the window, the dashed curve appears, scroll down the "mix vs reference" table.
+4. Translation and mono check: phone, car, headphones, club.
+5. Fixing: switch to bounce v2, the finding goes away and the meter rises.
+6. Mastering: the EQ and limiter with their suggested values, **Use suggested**, **Hear without**.
+7. Stream to a phone: a short camera clip of the phone playing the mix.
+8. End card: free and open source, VST3 / CLAP / AU / LV2 + standalone, link to the releases.

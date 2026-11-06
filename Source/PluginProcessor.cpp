@@ -8,7 +8,7 @@ namespace
     const juce::Identifier windowId ("window"), langId ("lang"), autoResetId ("autoReset"), referenceId ("Reference"),
                            stageId ("stage"), trackId ("track"), trackKindId ("trackKind"), targetId ("target"), snapshotsId ("Snapshots"), pointId ("Point"),
                            refsId ("ReferenceTracks"), slotId ("Slot"), sessionIdId ("sessionId"), sessionNameId ("sessionName"),
-                           showScoreId ("showScore"), earOverruledId ("earOverruled");
+                           showScoreId ("showScore"), earOverruledId ("earOverruled"), pairId ("Pair");
 
     Lang defaultLang() { return Lang::english; } // Finnish is one click away
 }
@@ -937,6 +937,7 @@ void WwmaAudioProcessor::restoreReferenceTracks()
     if (! t.isValid())
         return;
     wantedActiveRef = (int) t.getProperty ("active", -1);
+    refs.setSyncToMix ((bool) t.getProperty ("syncToMix", false));
     for (const auto& c : t)
     {
         const int slot = (int) c.getProperty ("index", -1);
@@ -946,6 +947,14 @@ void WwmaAudioProcessor::restoreReferenceTracks()
             refs.load (slot, file);
             wantedLoops[(size_t) slot] = { (double) c.getProperty ("loopA", 0.0), (double) c.getProperty ("loopB", 0.0) };
             wantedEarlier[(size_t) slot] = (bool) c.getProperty ("earlier", false);
+            wantedOffset[(size_t) slot].reset();
+            if (c.hasProperty ("syncOffset"))
+                wantedOffset[(size_t) slot] = (double) c.getProperty ("syncOffset");
+            auto& pairs = wantedPairs[(size_t) slot];
+            pairs.clear();
+            for (const auto& pc : c)
+                if (pc.hasType (pairId))
+                    pairs.push_back ({ (double) pc.getProperty ("song", 0.0), (double) pc.getProperty ("ref", 0.0) });
         }
     }
     savedRefGeneration = refs.getGeneration();
@@ -979,6 +988,23 @@ void WwmaAudioProcessor::updateReferenceState()
             refs.setEarlier (i, true);
         wantedEarlier[(size_t) i] = false;
     }
+    for (int i = 0; i < ReferenceTracks::numSlots; ++i)
+    {
+        auto& wp = wantedPairs[(size_t) i];
+        auto& wo = wantedOffset[(size_t) i];
+        if ((wp.empty() && ! wo.has_value()) || refs.getStatus (i) == ReferenceTracks::Status::loading)
+            continue;
+        if (refs.getStatus (i) == ReferenceTracks::Status::ready)
+        {
+            if (! wp.empty())
+                refs.setPairs (i, wp);
+            if (wo.has_value())
+                refs.setEarlierOffset (i, *wo);
+        }
+        wp.clear();
+        wo.reset();
+    }
+    alignEarlierVersions();
 
     // keep the saved state in step (only slots that loaded, so a missing file is not forgotten while loading)
     if (refs.getGeneration() == savedRefGeneration)
@@ -992,6 +1018,8 @@ void WwmaAudioProcessor::updateReferenceState()
 
     juce::ValueTree t (refsId);
     t.setProperty ("active", refs.getActive(), nullptr);
+    if (refs.getSyncToMix())
+        t.setProperty ("syncToMix", true, nullptr);
     for (int i = 0; i < ReferenceTracks::numSlots; ++i)
         if (auto info = refs.getInfo (i))
         {
@@ -999,7 +1027,17 @@ void WwmaAudioProcessor::updateReferenceState()
             c.setProperty ("index", i, nullptr);
             c.setProperty ("path", info->file.getFullPathName(), nullptr);
             if (refs.isEarlier (i))
+            {
                 c.setProperty ("earlier", true, nullptr);
+                c.setProperty ("syncOffset", refs.getEarlierOffset (i), nullptr);
+            }
+            for (const auto& p : refs.getPairs (i))
+            {
+                juce::ValueTree pc (pairId);
+                pc.setProperty ("song", p.song, nullptr);
+                pc.setProperty ("ref", p.ref, nullptr);
+                c.addChild (pc, -1, nullptr);
+            }
             if (refs.hasLoop (i))
             {
                 c.setProperty ("loopA", refs.getLoop (i).first, nullptr);
@@ -1010,6 +1048,45 @@ void WwmaAudioProcessor::updateReferenceState()
     if (auto old = apvts.state.getChildWithName (refsId); old.isValid())
         apvts.state.removeChild (old, nullptr);
     apvts.state.addChild (t, -1, nullptr);
+}
+
+void WwmaAudioProcessor::alignEarlierVersions()
+{
+    if (! before.hasBefore() || before.getSampleRate() <= 0.0)
+        return; // nothing recorded yet: 0:00 of the bounce is the start of the project
+    const auto span = before.beforeSpan();
+    const juce::String key = juce::String (before.getGeneration()) + ":" + juce::String (span.first) + "-" + juce::String (span.second)
+                             + ":" + juce::String (before.getBeforeSeconds()) + "@" + juce::String (before.getSampleRate(), 0);
+    for (int i = 0; i < ReferenceTracks::numSlots; ++i)
+    {
+        if (! refs.isEarlier (i) || refs.getStatus (i) != ReferenceTracks::Status::ready
+            || refs.getAlignState (i) == ReferenceTracks::Align::running || refs.getAlignKey (i) == key)
+            continue;
+
+        // the longest stretch the before take covers, up to 40 s from its middle
+        const auto cov = before.beforeCoverage();
+        int bestFrom = 0, bestLen = 0;
+        for (int s = 0; s < (int) cov.size();)
+        {
+            if (cov[(size_t) s] == 0) { ++s; continue; }
+            int e = s;
+            while (e < (int) cov.size() && cov[(size_t) e] != 0)
+                ++e;
+            if (e - s > bestLen) { bestFrom = s; bestLen = e - s; }
+            s = e;
+        }
+        if (bestLen < 4)
+            return; // too little to go by
+        const int len = juce::jmin (40, bestLen);
+        const int from = bestFrom + (bestLen - len) / 2;
+        const int chunk = before.getChunkLength();
+        std::vector<float> mono ((size_t) len * (size_t) chunk, 0.0f), l ((size_t) chunk), r ((size_t) chunk);
+        for (int s = 0; s < len; ++s)
+            if (before.readBeforeSecond (from + s, l.data(), r.data()))
+                for (int k = 0; k < chunk; ++k)
+                    mono[(size_t) s * (size_t) chunk + (size_t) k] = 0.5f * (l[(size_t) k] + r[(size_t) k]);
+        refs.align (i, std::move (mono), before.getSampleRate(), (double) from * chunk / before.getSampleRate(), key);
+    }
 }
 
 juce::AudioProcessorEditor* WwmaAudioProcessor::createEditor() { return new WwmaAudioProcessorEditor (*this); }

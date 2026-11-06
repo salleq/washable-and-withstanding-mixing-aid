@@ -71,6 +71,9 @@ public:
     juce::File writeReferenceReport (int slot);
     /** The reference's own play/pause (plays it without the DAW's transport, loop included). */
     void toggleReferencePlay (int slot);
+    /** A click on the active reference's waveform (0..1): a jump, or with "Sync to mix" on, a pair
+        of the DAW's spot and this one. */
+    void cueReference (double fraction);
     /** The big reference view, where a loop is chosen. */
     void openReferenceDetail (int slot);
     void closeReferenceDetail();
