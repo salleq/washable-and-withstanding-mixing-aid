@@ -176,14 +176,29 @@ private:
     const ViewState& state;
 };
 
-/** Momentary / short-term / integrated bars with the target zone, true peak per channel. */
+/** Momentary / short-term / integrated bars with the target zone, true peak per channel.
+    Redraws itself at the screen's own rate: the peak bars rise at once, fall 20 dB/s and keep
+    a hold line for 1.5 s; the loudness bars glide between the analyser's 50 ms steps. */
 class LevelMeters : public juce::Component
 {
 public:
     explicit LevelMeters (const ViewState& s) : state (s) {}
     void paint (juce::Graphics&) override;
+
+    /** The fast peak reader (linear L, R, highest since the last call). Without it the peak
+        bars show the snapshot's last 300 ms, as still pictures need. */
+    std::function<std::pair<float, float>()> takePeaks;
+
 private:
     const ViewState& state;
+    void frame (double seconds);
+
+    static constexpr int numBars = 5;            // M, S, I, TP L, TP R
+    std::array<float, numBars> shown { -200.0f, -200.0f, -200.0f, -200.0f, -200.0f };
+    std::array<float, 2> hold { -200.0f, -200.0f };
+    std::array<double, 2> holdSince { 0.0, 0.0 };
+    double lastFrame = -1.0;
+    juce::VBlankAttachment vblank { this, [this] (double t) { frame (t); } };
 };
 
 /** Short-term loudness over the last 3 minutes. */

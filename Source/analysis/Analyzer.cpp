@@ -267,6 +267,14 @@ void Analyzer::processChunk (const float* left, const float* right, int n) noexc
     subPeakL = juce::jmax (subPeakL, pl);
     subPeakR = juce::jmax (subPeakR, pr);
     subPeak = juce::jmax (subPeak, juce::jmax (pl, pr));
+    if (fastPeaksOn.load (std::memory_order_relaxed))
+    {
+        // a reader may reset these to zero in between: losing one chunk's peak to that is harmless
+        if (pl > fastPeakL.load (std::memory_order_relaxed))
+            fastPeakL.store (pl, std::memory_order_relaxed);
+        if (pr > fastPeakR.load (std::memory_order_relaxed))
+            fastPeakR.store (pr, std::memory_order_relaxed);
+    }
     dcCount += n;
 
     for (int i = 0; i < n; ++i)

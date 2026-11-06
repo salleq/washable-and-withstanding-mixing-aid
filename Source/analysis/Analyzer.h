@@ -53,6 +53,18 @@ public:
 
     double getSampleRate() const noexcept { return sr; }
 
+    /** The level meters' fast path: while on, the audio thread keeps the highest true peak
+        per channel since the last takeFastPeaks(). Off while no window shows the meters. */
+    void setFastPeaks (bool on) noexcept
+    {
+        fastPeaksOn.store (on);
+        if (! on)
+            takeFastPeaks();
+    }
+    /** Any thread but the audio thread (one reader): the highest true peaks (linear, L and R)
+        since the last call, and starts again from zero. */
+    std::pair<float, float> takeFastPeaks() noexcept { return { fastPeakL.exchange (0.0f), fastPeakR.exchange (0.0f) }; }
+
     /** For tests and calibration: the summed onset autocorrelation per 5 ms lag. */
     double tempoAcfAt (int lag) const noexcept { return lag >= 0 && lag <= maxLag && tempoUpdates > 0 ? tempoAcf[(size_t) lag] / tempoUpdates : 0.0; }
 
@@ -87,6 +99,8 @@ private:
     float subPeak = 0.0f, peakMax = 0.0f, subPeakL = 0.0f, subPeakR = 0.0f;
     std::array<float, 6> recentL {}, recentR {};
     std::array<float, ringSize> peakRing {};
+    std::atomic<bool> fastPeaksOn { false };
+    std::atomic<float> fastPeakL { 0.0f }, fastPeakR { 0.0f };
 
     // correlation
     double cLR = 0.0, cLL = 0.0, cRR = 0.0;

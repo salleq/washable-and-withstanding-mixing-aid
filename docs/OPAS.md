@@ -21,7 +21,7 @@ WWMA ei korjaa mitään puolestasi, eikä se koskaan käännä nuppia ilman klik
 ## 2. Näytön osat
 
 - **Integroitu äänekkyys** (vasen ylhäällä): kappaleen keskimääräinen äänekkyys LUFS-yksikössä sekä short-term, momentary, true peak, LRA, PLR ja korrelaatio.
-- **Tasomittarit**: M, S ja I sekä true peak kanaville L ja R. Vihreä kaista on tavoitealue.
+- **Tasomittarit**: M, S ja I sekä true peak kanaville L ja R. Vihreä kaista on tavoitealue. Huippupalkit liikkuvat näytön tahdissa: nousevat heti, laskevat 20 dB sekunnissa, ja ohut viiva pitää korkeimman huipun 1,5 s.
 - **Taajuustasapaino**: miksauksesi (valkoinen) tyylin käytävää (vihreä) vasten. Punainen tarkoittaa liikaa, oranssi liian vähän. Alueiden nimet ovat SUB, BASSO, MUTA, KESKI, SÄRÄHDYS ja ILMA.
 - **Havainnot**: enintään neljä korjattavaa kerrallaan, tärkein ensin. "Kokeile:" kertoo ensimmäisen askeleen. Klikkaa korttia, niin näet syyn, kaikki askeleet ja tyypillisen **sudenkuopan**.
 - **Kuinka lähellä hyvää miksiä**: sanallinen taso: Kaipaa parannusta, Ei vielä ihan perillä, Riittävän lähellä. Siitä eteenpäin mittari astuu sivuun ja korva päättää loput. **0-100**-nappi näyttää numeron (oletuksena pois, ks. luku 4).

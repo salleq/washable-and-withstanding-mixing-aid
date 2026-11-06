@@ -34,7 +34,7 @@ While **B · REF** plays, the loudness, tonal balance, findings, score and trans
 | Panel | What it shows |
 |---|---|
 | Integrated | Integrated loudness (LUFS), short-term, momentary, true peak, LRA, PLR and correlation. |
-| Level meters | Mid, side and integrated level, and the true peak per channel. The green band is the target. |
+| Level meters | Momentary, short-term and integrated loudness, and the true peak per channel. The green band is the target. The peak bars move at the screen's rate: up at once, down 20 dB per second, and a thin line holds the highest peak for 1.5 s. |
 | Short-term · 3 min | Loudness history. When a reference is loaded, the **Mix vs reference** table is shown here instead. |
 | Reference tracks | Up to two reference tracks, each with its waveform. Click a waveform to jump. |
 | Tonal balance | Your mix (white) against the style's corridor (green), in plain-named ranges: sub, bass, mud, mids, harsh and air. Red means too much; orange means too little. |

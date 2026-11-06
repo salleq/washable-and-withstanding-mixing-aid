@@ -452,6 +452,8 @@ WwmaAudioProcessorEditor::WwmaAudioProcessorEditor (WwmaAudioProcessor& p)
     if (state.chainOpen && state.learnMode)
         state.chainOpen = false;
     proc.inputAnalysisWanted.store (state.chainOpen);
+    meters.takePeaks = [this] { return proc.analyzer.takeFastPeaks(); };
+    proc.analyzer.setFastPeaks (true);
     updatePanels();
     refresh();
     lastTimerMs.store (juce::Time::getMillisecondCounter());
@@ -470,6 +472,7 @@ WwmaAudioProcessorEditor::~WwmaAudioProcessorEditor()
     proc.listenToBefore.store (false);    // nor the before take
     proc.listenWithoutChain.store (false); // nor the bypass on
     proc.inputAnalysisWanted.store (false);
+    proc.analyzer.setFastPeaks (false);   // no window, no meters to feed
     setLookAndFeel (nullptr);
 }
 
@@ -994,7 +997,7 @@ void WwmaAudioProcessorEditor::refresh (bool shouldReassess)
         proc.referenceGainDb.store (state.refGainDb);
     }
 
-    for (juce::Component* c : std::initializer_list<juce::Component*> { &loudness, &meters, &history, &compare, &tonal, &score, &translation, &progress })
+    for (juce::Component* c : std::initializer_list<juce::Component*> { &loudness, &history, &compare, &tonal, &score, &translation, &progress })
         c->repaint();
     if (chainPanel.isVisible())
         chainPanel.repaint();

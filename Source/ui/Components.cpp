@@ -206,10 +206,70 @@ void LoudnessBox::paint (juce::Graphics& g)
 }
 
 // =====================================================================================
+void LevelMeters::frame (double seconds)
+{
+    const auto& s = state.snap;
+    const double dt = lastFrame < 0.0 ? 0.0 : juce::jlimit (0.0, 0.1, seconds - lastFrame);
+    lastFrame = seconds;
+    if (state.exporting)
+    {
+        // the export's peaks are not "now": drop them, the snapshot is shown meanwhile
+        if (takePeaks != nullptr)
+            takePeaks();
+        return;
+    }
+    constexpr float fall = 20.0f;        // dB per second
+    constexpr double holdTime = 1.5;     // seconds
+
+    auto before = shown;
+    auto beforeHold = hold;
+
+    // loudness: glide toward the newest value, so the analyser's steps don't show
+    const float glide = 1.0f - (float) std::exp (-dt / 0.06);
+    const float loud[] = { s.momentary, s.shortTerm, s.integrated };
+    for (int i = 0; i < 3; ++i)
+    {
+        auto& v = shown[(size_t) i];
+        v = loud[i] <= -100.0f || v <= -100.0f ? loud[i] : v + glide * (loud[i] - v);
+    }
+
+    // peaks: up at once, down 20 dB/s, a hold line that waits 1.5 s
+    const auto fast = takePeaks != nullptr ? takePeaks() : std::pair<float, float> { -1.0f, -1.0f };
+    const float now[] = { fast.first, fast.second };
+    const float fallback[] = { s.peakNowL, s.peakNowR };
+    for (int ch = 0; ch < 2; ++ch)
+    {
+        const float db = now[ch] < 0.0f ? fallback[ch] : (now[ch] > 1.0e-10f ? 20.0f * std::log10 (now[ch]) : -200.0f);
+        auto& v = shown[(size_t) (3 + ch)];
+        v = juce::jmax (db, v - fall * (float) dt);
+        if (v < -100.0f)
+            v = -200.0f;
+        auto& h = hold[(size_t) ch];
+        if (db >= h)
+        {
+            h = db;
+            holdSince[(size_t) ch] = seconds;
+        }
+        else if (seconds - holdSince[(size_t) ch] > holdTime)
+            h = juce::jmax (v, h - fall * (float) dt);
+    }
+
+    bool changed = false;
+    for (size_t i = 0; i < shown.size(); ++i)
+        changed = changed || std::abs (shown[i] - before[i]) > 0.05f;
+    for (size_t i = 0; i < hold.size(); ++i)
+        changed = changed || std::abs (hold[i] - beforeHold[i]) > 0.05f;
+    if (changed)
+        repaint();
+}
+
 void LevelMeters::paint (juce::Graphics& g)
 {
     const auto lang = state.lang;
     const auto& s = state.snap;
+    // until the first screen frame, in a still picture, or while an export keeps the screen
+    // frames from coming, the bars show the snapshot as it is
+    const bool live = lastFrame >= 0.0 && ! state.exporting;
     drawBox (g, getLocalBounds().toFloat());
     auto r = content (*this);
     {
@@ -246,11 +306,11 @@ void LevelMeters::paint (juce::Graphics& g)
 
     struct Bar { juce::String name; float value; juce::Colour col; bool peak; };
     const Bar list[] = {
-        { "M", s.momentary, colours::accent, false },
-        { "S", s.shortTerm, juce::Colour (0xff5fa8a0), false },
-        { "I", s.integrated, juce::Colour (0xff3f7e78), false },
-        { "TP L", s.peakNowL, colours::good, true },
-        { "R", s.peakNowR, colours::good, true },
+        { "M", live ? shown[0] : s.momentary, colours::accent, false },
+        { "S", live ? shown[1] : s.shortTerm, juce::Colour (0xff5fa8a0), false },
+        { "I", live ? shown[2] : s.integrated, juce::Colour (0xff3f7e78), false },
+        { "TP L", live ? shown[3] : s.peakNowL, colours::good, true },
+        { "R", live ? shown[4] : s.peakNowR, colours::good, true },
     };
     for (int i = 0; i < 5; ++i)
     {
@@ -271,6 +331,13 @@ void LevelMeters::paint (juce::Graphics& g)
                 g.setColour (b.col);
             g.fillRect (fill);
         }
+        // the peak hold line of this channel
+        if (b.peak && live)
+            if (const float h = hold[(size_t) (i - 3)]; h > lo)
+            {
+                g.setColour (colours::text.withAlpha (0.7f));
+                g.fillRect (juce::Rectangle<float> (col.getX(), yFor (h) - 1.0f, col.getWidth(), 2.0f));
+            }
         g.setColour (colours::dim);
         g.setFont (fonts::label (11.0f));
         g.drawText (b.name, juce::Rectangle<float> (col.getX() - 10.0f, (float) labels.getY() + 2.0f, col.getWidth() + 20.0f, 14.0f), juce::Justification::centred);

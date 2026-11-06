@@ -1818,6 +1818,31 @@ int main (int argc, char* argv[])
         const auto s = analyse (sine (48000.0, 2.0, 1000.0, -6.02), 48000.0);
         check (near (s.truePeakMax, -6.02, 0.1), "1 kHz sine at -6 dBFS reads -6 dBTP", juce::String (s.truePeakMax, 2));
     }
+    {
+        // the level meters' fast path: the peak of each block, read and cleared by the window
+        Analyzer a;
+        a.prepare (48000.0);
+        const auto quiet = sine (48000.0, 0.2, 1000.0, -40.0);
+        const auto burst = sine (48000.0, 0.01, 1000.0, -3.0);
+        auto feed = [&a] (const Stereo& x) { for (size_t i = 0; i < x.l.size(); i += 256) a.process (x.l.data() + i, x.r.data() + i, (int) juce::jmin ((size_t) 256, x.l.size() - i)); };
+
+        feed (burst);
+        const auto off = a.takeFastPeaks();
+        a.setFastPeaks (true);
+        feed (quiet);
+        a.takeFastPeaks();
+        feed (burst);
+        const auto first = a.takeFastPeaks();
+        const auto second = a.takeFastPeaks();
+        const float db = juce::Decibels::gainToDecibels (juce::jmax (first.first, first.second), -200.0f);
+        check (off.first == 0.0f && off.second == 0.0f, "fast meter peaks stay off until a window asks for them");
+        check (near (db, -3.0, 0.3) && near (first.first, first.second, 1.0e-6), "a 10 ms burst at -3 dBFS reaches the fast meter peaks at once", juce::String (db, 2) + " dBTP");
+        check (second.first == 0.0f && second.second == 0.0f, "  reading the fast peaks clears them");
+        a.setFastPeaks (false);
+        feed (burst);
+        const auto after = a.takeFastPeaks();
+        check (after.first == 0.0f && after.second == 0.0f, "  and they stop when the window closes");
+    }
 
     // ------------------------------------------------------------------ never touches the audio
     std::cout << "Pass-through" << std::endl;
