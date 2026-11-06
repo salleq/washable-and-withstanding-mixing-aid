@@ -1,14 +1,43 @@
-# WWMA – Washable and Withstanding Mixing Aid
+# WWMA – a free mixing teacher in a plugin
 
-A free, open source mixing teacher in a plugin (VST3, CLAP, AU on macOS and LV2 on Linux, for Windows, macOS and Linux, x64 and ARM).
+**Your mix sounds off, but you can't tell why? Put WWMA on your master bus. It listens and tells you in plain words what is too much or too little, why it matters on a phone, in a car and in a club, and what to try first.**
 
-Put it last on your master bus (or on a single kick, bass or kick + bass track, see track mode below). It listens to your mix and tells you in plain words what is **clearly** or **slightly** too much or too little, why it matters on a phone, in a car, on headphones and in a club, and how to fix it yourself. It never changes your sound unless you turn on its own mastering EQ or limiter, and it never turns a knob without your click (and every such click can be undone).
+Free and open source. VST3, CLAP, AU (macOS) and LV2 (Linux) · Windows, macOS and Linux · x64 and ARM.
 
-> **Heads-up: WWMA is 100 % vibe coded.** It was built entirely with an AI coding assistant, not by a seasoned plugin developer. Install and use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes.
+### [⬇ Download the installer (Windows, macOS, Linux)](../../releases/latest)
 
 ![WWMA with a reference track loaded](docs/images/wwma-reference.png)
 
-## What it does
+## Why use it
+
+- **It tells you what to fix, in words.** Each finding names the problem (say, mud in the low mids), says how sure it is (**slightly** or **clearly**) and gives a "Try:" first step. At most four findings at a time, most important first. Click one to learn why it matters and what the usual trap is.
+- **It never touches your sound.** Your audio passes through bit for bit. WWMA never turns a knob without your click, and every click can be undone.
+- **Hear your changes, not just see them.** The **BEFORE** button plays your mix as it was, level-matched, at the DAW's play head, without exporting. After "Try the top fix", WWMA measures the next pass and your ears decide.
+- **Compare with a record you like.** Drag in up to two reference tracks: see them on the spectrum, in a live table, and A/B them at the same loudness.
+- **Pro loudness meter.** LUFS (EBU R128), LRA, 4× oversampled true peak, correlation and a mono check.
+- **Learns your style.** 26 presets from House and Techno to Hip Hop, Pop and Rock, with a style guess from tempo and tonal balance.
+- **Teaches while you mix.** Eight hands-on lessons, a rotating listening tip, and kick and bass checks (sidechain settings included).
+- **Optional extras.** Mastering EQ and true peak limiter with suggested settings (off by default), mix reports, and asking Claude, Gemini or ChatGPT about your mix (only numbers and pictures leave your computer, never audio, and only if you allow it).
+
+English and Finnish. Suomenkielinen aloitusopas: [docs/OPAS.md](docs/OPAS.md).
+
+## Install in a minute
+
+1. Download the installer for your system from the [Releases page](../../releases/latest): `Windows-x64-Setup.exe`, `macOS-Installer.pkg`, or the Linux zip. (Windows on ARM has its own installer.)
+2. Run it and rescan plugins in your DAW.
+3. Put **WWMA Mixing Aid** last on your master bus and press play.
+
+**First-run warnings are expected.** The installers are not code-signed, so Windows SmartScreen may say "Windows protected your PC" (click **More info → Run anyway**), and macOS may block the plugin because it is not notarized by Apple. The exact steps are in [docs/INSTALL.txt](docs/INSTALL.txt). The whole source is here, and you can build it yourself.
+
+**Don't trust the installer? Read the code.** Everything is here, and you can read it yourself or have an AI read it for you and look for anything harmful. The installers are built by the public GitHub Actions workflow, not on a private machine. WWMA does not phone home. The AI features are entirely optional and off until you use them: only numbers and spectrogram pictures are ever sent, never audio, and only after you allow it. Without them, nothing leaves your computer (the phone stream is off until you start it).
+
+No DAW at hand? There is also a **standalone app** for trying out reference tracks and the analysis on audio files.
+
+Honest note: WWMA was built entirely with an AI coding assistant, not by a seasoned plugin developer. It is tested (see the self test below) but may still have bugs, and there is no warranty. Bug reports are very welcome in [Issues](../../issues).
+
+The [manual](docs/MANUAL.md) explains every check and what to try first.
+
+## Everything it does
 
 - **Loudness, like a pro meter.** Integrated, short-term and momentary LUFS (EBU R128 / ITU-R BS.1770-4), loudness range (LRA), 4× oversampled true peak, PLR, correlation, and a 3-minute history.
 - **Tonal balance against your style.** A third-octave spectrum against a corridor for the chosen preset. Red shading shows too much, orange shows too little, and each range has a plain name: sub, bass, mud, mids, harsh, air.
@@ -75,13 +104,9 @@ The loudness target can follow the style, or be set to -14 LUFS (streaming), -8 
 
 **The ear decides.** The presets are educated guesses from common practice, not measurements of particular records, so treat every number as advice, not a rule. If it sounds good on a phone and in a car, it is good. For the most accurate target, load a record you like as a reference.
 
-## Install
+## Standalone app
 
-Get the installer for your system from the [Releases](../../releases) page. See [docs/INSTALL.txt](docs/INSTALL.txt) for installing by hand (including macOS quarantine and Linux paths).
-
-There is also a **standalone app** (WWMA Mixing Aid in Applications on macOS, in the Start menu on Windows, and in the Linux zip). Use it to try out reference tracks quickly without opening a DAW: drag tracks onto the window, compare their numbers, and play them with ▶ (REF then switches between your song and the reference, and each keeps its own play state). Your own song is a file too: load it in the player at the bottom left (or drop it there), play it with ▶, jump around on its waveform and compare it with the references. The audio interface input is not used.
-
-The [manual](docs/MANUAL.md) explains every check and what to try first. There is also a beginner's guide to mixing with WWMA in Finnish: [docs/OPAS.md](docs/OPAS.md).
+There is a **standalone app** (WWMA Mixing Aid in Applications on macOS, in the Start menu on Windows, and in the Linux zip). Use it to try out reference tracks quickly without opening a DAW: drag tracks onto the window, compare their numbers, and play them with ▶ (REF then switches between your song and the reference, and each keeps its own play state). Your own song is a file too: load it in the player at the bottom left (or drop it there), play it with ▶, jump around on its waveform and compare it with the references. The audio interface input is not used.
 
 ![The style suggestion](docs/images/wwma-style.png)
 
@@ -118,7 +143,7 @@ CI builds macOS (universal), Windows x64 and ARM64, and Linux x64 and ARM64. On 
 
 ## Disclaimer
 
-**Heads-up: WWMA is 100 % vibe coded.** It was built entirely with an AI coding assistant, not by a seasoned plugin developer. Install and use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes. The AGPL licence's "no warranty" terms apply in full.
+WWMA was built entirely with an AI coding assistant, not by a seasoned plugin developer. Use it at your own risk: there is no warranty, and it may have bugs. It was made in good faith, in the hope that it helps someone make better mixes. The AGPL licence's "no warranty" terms apply in full.
 
 ## License
 
