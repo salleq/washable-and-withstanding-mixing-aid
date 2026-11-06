@@ -6,6 +6,8 @@ Free and open source. VST3, CLAP, AU (macOS) and LV2 (Linux) · Windows, macOS a
 
 ### [⬇ Download the installer (Windows, macOS, Linux)](../../releases/latest)
 
+<p align="center"><img src="docs/images/wwma-promo.webp" alt="WWMA in action: a 40-second demo" width="300"></p>
+
 ![WWMA with a reference track loaded](docs/images/wwma-reference.png)
 
 ## Why use it
